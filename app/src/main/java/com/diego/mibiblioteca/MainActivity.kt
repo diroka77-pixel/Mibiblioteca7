@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import java.io.File
@@ -486,7 +487,7 @@ private fun openGoodreads(context: Context, book: Book? = null) {
     }
 }
 
-@Composable private fun BookCard(book:Book,onClick:()->Unit){Card(Modifier.fillMaxWidth().clickable(onClick=onClick), colors = CardDefaults.cardColors(containerColor = Paper), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Cover(book,70.dp,100.dp);Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Row(verticalAlignment=Alignment.CenterVertically){Text(book.title,fontWeight=FontWeight.Bold,fontFamily=FontFamily.Serif,modifier=Modifier.weight(1f));if(book.favorite)Text("★")};Text(book.author);Text(listOf(book.date.take(4),book.genre).filter{it.isNotBlank()}.joinToString(" · "),style=MaterialTheme.typography.bodySmall);Text(book.status.label,style=MaterialTheme.typography.labelMedium)}}}}
+@Composable private fun BookCard(book:Book,onClick:()->Unit){Card(Modifier.fillMaxWidth().clickable(onClick=onClick), colors = CardDefaults.cardColors(containerColor = Paper), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Cover(book,92.dp,132.dp);Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Row(verticalAlignment=Alignment.CenterVertically){Text(book.title,fontWeight=FontWeight.Bold,fontFamily=FontFamily.Serif,fontSize=14.sp,lineHeight=18.sp,modifier=Modifier.weight(1f));if(book.favorite)Text("★")};Text(book.author,fontSize=12.sp);Text(listOf(book.date.take(4),book.genre).filter{it.isNotBlank()}.joinToString(" · "),style=MaterialTheme.typography.bodySmall);Text(book.status.label,style=MaterialTheme.typography.labelMedium)}}}}
 
 @Composable private fun Cover(book:Book,w:androidx.compose.ui.unit.Dp,h:androidx.compose.ui.unit.Dp){val bmp=remember(book.cover){book.cover?.let{BitmapFactory.decodeByteArray(it,0,it.size)}};Surface(Modifier.width(w).height(h),shape=MaterialTheme.shapes.small,tonalElevation=5.dp){if(bmp!=null)Image(bmp.asImageBitmap(),book.title,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)else Box(contentAlignment=Alignment.Center){Text("📖",style=MaterialTheme.typography.headlineLarge)}}}
 
@@ -513,18 +514,16 @@ private fun openGoodreads(context: Context, book: Book? = null) {
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Mahogany)
         )
     }) { p ->
-        LazyColumn(Modifier.padding(p).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyColumn(Modifier.padding(p).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (message != null) item { Text(message, color = Mahogany) }
             item {
-                Row {
-                    Cover(book, 110.dp, 160.dp)
-                    Spacer(Modifier.width(18.dp))
-                    Column {
-                        Text(book.title, style = MaterialTheme.typography.headlineSmall,
-                            fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-                        Text(book.author, style = MaterialTheme.typography.titleMedium)
-                        if (book.saga.isNotBlank()) Text("Saga: ${book.saga}")
-                    }
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Cover(book, 165.dp, 240.dp)
+                    Spacer(Modifier.height(12.dp))
+                    Text(book.title, fontSize = 16.sp, lineHeight = 20.sp,
+                        fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                    Text(book.author, fontSize = 13.sp)
+                    if (book.saga.isNotBlank()) Text("Saga: ${book.saga}", fontSize = 12.sp)
                 }
             }
             if (book.cover == null) item {
@@ -535,7 +534,7 @@ private fun openGoodreads(context: Context, book: Book? = null) {
                     style = MaterialTheme.typography.bodySmall)
             }
             item {
-                Text("Estado", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
+                Text("Estado", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif, fontSize = 13.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ReadingStatus.entries.forEach { status ->
                         FilterChip(book.status == status, { setStatus(status) }, { Text(status.label) })
@@ -547,17 +546,17 @@ private fun openGoodreads(context: Context, book: Book? = null) {
                 Info("Género", book.genre); Info("ISBN", book.isbn)
             }
             item {
-                Text("Argumento", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
+                Text("Argumento", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif, fontSize = 13.sp)
                 val plot = book.spanishPlot.ifBlank {
                     book.description.takeIf { book.language.lowercase().startsWith("es") ||
                         book.language.lowercase().startsWith("spa") }.orEmpty()
                 }
                 Text(plot.ifBlank { "Argumento en castellano no disponible. Pulsa «Buscar argumento y autor»." },
-                    style = MaterialTheme.typography.bodySmall)
+                    fontSize = 12.sp, lineHeight = 17.sp)
                 Spacer(Modifier.height(8.dp))
-                Text("Sobre el autor", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
+                Text("Sobre el autor", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif, fontSize = 13.sp)
                 Text(book.authorBio.ifBlank { "Biografía en castellano no disponible." },
-                    style = MaterialTheme.typography.bodySmall)
+                    fontSize = 12.sp, lineHeight = 17.sp)
                 Text("Fuentes: Google Books y Wikipedia en español.",
                     style = MaterialTheme.typography.labelSmall)
                 OutlinedButton(onClick = enrich, enabled = !infoLoading) {
@@ -581,4 +580,4 @@ private fun openGoodreads(context: Context, book: Book? = null) {
     }
 }
 
-@Composable private fun Info(label:String,value:String){if(value.isNotBlank()){Text(label,fontWeight=FontWeight.Bold);Text(value);Spacer(Modifier.height(4.dp))}}
+@Composable private fun Info(label:String,value:String){if(value.isNotBlank()){Text(label,fontWeight=FontWeight.Bold,fontSize=13.sp);Text(value,fontSize=12.sp,lineHeight=17.sp);Spacer(Modifier.height(4.dp))}}
