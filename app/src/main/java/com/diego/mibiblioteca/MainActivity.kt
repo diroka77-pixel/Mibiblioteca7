@@ -538,7 +538,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleFavorite(uri: Uri) { books = books.map { if (it.uri == uri) it.copy(favorite=!it.favorite) else it }; saveBooks() }
     fun setStatus(uri: Uri, status: ReadingStatus) { books = books.map { if (it.uri == uri) it.copy(status=status) else it }; saveBooks() }
-    fun setViewMode(mode: String) { viewMode = mode; prefs.edit().putString("view_mode", mode).apply() }
+    fun chooseViewMode(mode: String) { viewMode = mode; prefs.edit().putString("view_mode", mode).apply() }
     fun clearMessage() { message = null }
     fun clearDetailMessage() { detailMessage = null }
 }
@@ -1181,7 +1181,7 @@ private fun openCasaDelLibro(context: Context) {
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("Lista", "Galería", "Compacta").forEach { mode ->
-                                FilterChip(vm.viewMode == mode, { vm.setViewMode(mode) }, { Text(mode) })
+                                FilterChip(vm.viewMode == mode, { vm.chooseViewMode(mode) }, { Text(mode) })
                             }
                         }
                     }
