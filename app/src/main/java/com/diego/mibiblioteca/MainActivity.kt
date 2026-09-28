@@ -189,7 +189,19 @@ class MainActivity : ComponentActivity() {
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
     val current = selected?.let { s -> vm.books.firstOrNull { it.uri == s.uri } }
     if (current != null) { BookDetail(current, { selected=null }, { vm.toggleFavorite(current.uri) }, { vm.setStatus(current.uri,it) }); return }
-    Scaffold(topBar={TopAppBar(title={Column{Text("Mi Biblioteca",fontWeight=FontWeight.Bold); vm.folderName?.let{Text(it,style=MaterialTheme.typography.labelSmall)}})}, actions={TextButton(onClick={folderPicker.launch(null)}){Text("Carpeta")}})}, bottomBar={Button(onClick={vm.sync()},enabled=!vm.syncing,modifier=Modifier.fillMaxWidth().padding(12.dp)){Text(if(vm.syncing) "Sincronizando…" else "↻  Sincronizar biblioteca")}}){p->
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Column { Text("Mi Biblioteca", fontWeight = FontWeight.Bold); vm.folderName?.let { Text(it, style = MaterialTheme.typography.labelSmall) } } },
+                actions = { TextButton(onClick = { folderPicker.launch(null) }) { Text("Carpeta") } }
+            )
+        },
+        bottomBar = {
+            Button(onClick = { vm.sync() }, enabled = !vm.syncing, modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                Text(if (vm.syncing) "Sincronizando…" else "↻  Sincronizar biblioteca")
+            }
+        }
+    ) { p ->
         Column(Modifier.padding(p).padding(horizontal=16.dp)){
             OutlinedTextField(vm.query,{vm.query=it},Modifier.fillMaxWidth().padding(top=12.dp),singleLine=true,label={Text("Buscar título, autor, saga, género…")},leadingIcon={Text("⌕")})
             Row(Modifier.fillMaxWidth().padding(vertical=8.dp), horizontalArrangement=Arrangement.spacedBy(6.dp)){
