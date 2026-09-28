@@ -49,6 +49,7 @@ import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
@@ -777,9 +778,10 @@ private val libraryColors = lightColorScheme(
 )
 
 class MainActivity : ComponentActivity() {
-    private val libraryVm: LibraryViewModel by androidx.activity.viewModels()
+    private lateinit var libraryVm: LibraryViewModel
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        libraryVm = ViewModelProvider(this)[LibraryViewModel::class.java]
         handleSharedBook(intent)
         setContent { MaterialTheme(colorScheme = libraryColors) { LibraryApp(libraryVm) } }
     }
