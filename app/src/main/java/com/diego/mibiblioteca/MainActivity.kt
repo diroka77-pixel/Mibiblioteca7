@@ -861,7 +861,7 @@ private fun openGoodreadsUrl(context: Context, url: String) {
     if (current != null) {
         BookDetail(current, { selected = null }, { vm.toggleFavorite(current.uri) },
             { vm.setStatus(current.uri, it) }, { vm.downloadCover(current) }, vm.coverLoading == current.uri,
-            vm.message, vm.isPossibleDuplicate(current), { vm.deleteDuplicate(current); selected = null },
+            vm.message, vm.isPossibleDuplicate(current), { vm.deleteDuplicate(current) },
             { vm.enrich(current) }, vm.infoLoading == current.uri,
             vm.sections, { vm.assignSection(current.uri, it) },
             { vm.saveNotes(current.uri, it) }, { plot, bio -> vm.saveManualInfo(current.uri, plot, bio) },
