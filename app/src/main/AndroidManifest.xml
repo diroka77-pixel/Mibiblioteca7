@@ -3,6 +3,7 @@
     <queries>
         <package android:name="com.goodreads"/>
         <package android:name="com.android.chrome"/>
+        <package android:name="com.google.android.googlequicksearchbox"/>
         <package android:name="com.tagus"/>
         <package android:name="com.casadellibro.lecturadigital"/>
     </queries>
