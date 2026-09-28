@@ -2,10 +2,11 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <queries>
         <package android:name="com.goodreads"/>
+        <package android:name="com.android.chrome"/>
         <package android:name="com.tagus"/>
         <package android:name="com.casadellibro.lecturadigital"/>
     </queries>
-    <application android:theme="@style/Theme.MiBiblioteca" android:label="Mi Biblioteca" android:allowBackup="true">
+    <application android:theme="@style/Theme.MiBiblioteca" android:label="Mi Biblioteca" android:icon="@mipmap/ic_launcher" android:allowBackup="true">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/>
