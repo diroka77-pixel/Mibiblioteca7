@@ -87,7 +87,9 @@ data class Book(
     val wantToRead: Boolean = false,
     val customTitle: String = "",
     val customAuthor: String = "",
-    val sagaOrder: String = ""
+    val sagaOrder: String = "",
+    val sourceSize: Long = -1L,
+    val sourceModified: Long = -1L
 )
 
 class LibraryViewModel(app: Application) : AndroidViewModel(app) {
@@ -118,13 +120,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
         restoreCachedBooks()
         loadWishList()
-        prefs.getString(folderKey, null)?.let { sync(Uri.parse(it)) }
+        folderName = prefs.getString("folder_name", null)
     }
 
     private fun restoreCachedBooks() {
         try {
             val array = org.json.JSONArray(prefs.getString("books_cache", "[]"))
-            books = (0 until array.length()).map { i ->
+            books = (0 until array.length()).mapNotNull { i ->
+                try {
                 val j = array.getJSONObject(i)
                 val uri = Uri.parse(j.getString("uri"))
                 val saved = prefs.getString("info_" + uri, null)?.let(::JSONObject)
@@ -137,7 +140,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     notes = j.optString("notes"), goodreadsUrl = j.optString("goodreadsUrl"),
                     wantToRead = j.optBoolean("wantToRead"),
                     customTitle = j.optString("customTitle"), customAuthor = j.optString("customAuthor"),
-                    sagaOrder = j.optString("sagaOrder"))
+                    sagaOrder = j.optString("sagaOrder"),
+                    favorite = j.optBoolean("favorite"),
+                    status = ReadingStatus.entries.firstOrNull { it.name == j.optString("status") } ?: ReadingStatus.PENDING,
+                    sourceSize = j.optLong("sourceSize", -1L), sourceModified = j.optLong("sourceModified", -1L))
+                } catch (_: Exception) { null }
             }
         } catch (_: Exception) { books = emptyList() }
     }
@@ -151,8 +158,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .put("section", b.section).put("notes", b.notes)
             .put("goodreadsUrl", b.goodreadsUrl).put("wantToRead", b.wantToRead)
             .put("customTitle", b.customTitle).put("customAuthor", b.customAuthor)
-            .put("sagaOrder", b.sagaOrder)) }
-        prefs.edit().putString("books_cache", array.toString()).apply()
+            .put("sagaOrder", b.sagaOrder).put("favorite", b.favorite).put("status", b.status.name)
+            .put("sourceSize", b.sourceSize).put("sourceModified", b.sourceModified)) }
+        prefs.edit().putString("books_cache", array.toString()).commit()
         saveCloud()
     }
 
@@ -373,38 +381,46 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             message = "Drive ha concedido solo lectura; no se podrán borrar archivos."
         }
-        prefs.edit().putString(folderKey, uri.toString()).apply()
-        sync(uri)
+        val changedFolder = prefs.getString(folderKey, null) != uri.toString()
+        prefs.edit().putString(folderKey, uri.toString()).commit()
+        sync(uri, changedFolder)
     }
 
-    fun sync(uri: Uri? = prefs.getString(folderKey, null)?.let(Uri::parse)) {
+    fun sync(uri: Uri? = prefs.getString(folderKey, null)?.let(Uri::parse), changedFolder: Boolean = false) {
         if (uri == null) { message = "Selecciona primero tu carpeta de libros."; return }
         if (syncing) return
         viewModelScope.launch {
             syncing = true; syncCount = 0; message = null
             try {
-                try { restoreCloud(uri) } catch (_: Exception) {}
+                if (!changedFolder) try { restoreCloud(uri); restoreCachedBooks() } catch (_: Exception) {}
+                val cached = if (changedFolder) emptyMap() else books.associateBy { it.uri }
                 val result = withContext(Dispatchers.IO) {
-                    scanFolder(getApplication(), uri) { count ->
+                    scanFolder(getApplication(), uri, cached) { count ->
                         if (count == 1 || count % 5 == 0) {
                             viewModelScope.launch(Dispatchers.Main) { syncCount = count }
                         }
                     }
                 }
+                if (result.isEmpty() && books.isNotEmpty() && !changedFolder) {
+                    message = "No se pudo confirmar el contenido de Drive. Se conserva la biblioteca guardada."
+                    return@launch
+                }
                 books = result.map { b ->
                     val saved = prefs.getString("info_" + b.uri, null)?.let { JSONObject(it) }
-                    val prior = books.firstOrNull { it.uri == b.uri }
+                    val prior = cached[b.uri]
                     b.copy(spanishPlot = prior?.spanishPlot ?: saved?.optString("plot").orEmpty(),
                         authorBio = prior?.authorBio ?: saved?.optString("bio").orEmpty(),
                         section = prior?.section.orEmpty(), notes = prior?.notes.orEmpty(),
                         goodreadsUrl = prior?.goodreadsUrl.orEmpty(), wantToRead = prior?.wantToRead ?: false,
                         customTitle = prior?.customTitle.orEmpty(), customAuthor = prior?.customAuthor.orEmpty(),
-                        sagaOrder = prior?.sagaOrder ?: b.sagaOrder)
+                        sagaOrder = prior?.sagaOrder ?: b.sagaOrder,
+                        favorite = prior?.favorite ?: false, status = prior?.status ?: ReadingStatus.PENDING)
                 }
                 saveBooks()
                 viewModelScope.launch { fillMissingDetails() }
                 syncCount = result.size
                 folderName = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(getApplication(), uri)?.name }
+                prefs.edit().putString("folder_name", folderName).apply()
                 message = "${result.size} EPUB encontrados"
             } catch (e: Exception) {
                 message = "No se pudo leer la carpeta de Drive: ${e.localizedMessage ?: "error de acceso"}"
@@ -517,8 +533,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun toggleFavorite(uri: Uri) { books = books.map { if (it.uri == uri) it.copy(favorite=!it.favorite) else it } }
-    fun setStatus(uri: Uri, status: ReadingStatus) { books = books.map { if (it.uri == uri) it.copy(status=status) else it } }
+    fun toggleFavorite(uri: Uri) { books = books.map { if (it.uri == uri) it.copy(favorite=!it.favorite) else it }; saveBooks() }
+    fun setStatus(uri: Uri, status: ReadingStatus) { books = books.map { if (it.uri == uri) it.copy(status=status) else it }; saveBooks() }
     fun clearMessage() { message = null }
     fun clearDetailMessage() { detailMessage = null }
 }
@@ -576,14 +592,20 @@ private fun sagaNumber(book: Book): Double {
     return match?.groupValues?.get(1)?.toDoubleOrNull() ?: Double.POSITIVE_INFINITY
 }
 
-private fun scanFolder(context: Context, treeUri: Uri, onProgress: (Int) -> Unit): List<Book> {
-    val root = DocumentFile.fromTreeUri(context, treeUri) ?: return emptyList()
+private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, onProgress: (Int) -> Unit): List<Book> {
+    val root = DocumentFile.fromTreeUri(context, treeUri) ?: throw IllegalStateException("Carpeta no disponible")
     val out = mutableListOf<Book>()
     fun walk(dir: DocumentFile) {
         dir.listFiles().forEach { f ->
             if (f.isDirectory) walk(f)
             else if (f.name?.endsWith(".epub", true) == true) {
-                val epub = readEpub(context, f.uri, f.name ?: "Libro")
+                val size = f.length()
+                val modified = f.lastModified()
+                val prior = cached[f.uri]
+                val unchanged = prior != null && size > 0 && prior.sourceSize == size &&
+                    (modified <= 0L || prior.sourceModified == modified)
+                val epub = if (unchanged) prior!! else readEpub(context, f.uri, f.name ?: "Libro")
+                    .copy(sourceSize = size, sourceModified = modified)
                 val file = coverFile(context, f.uri)
                 val removed = File(context.filesDir, "removed-" + file.name).exists()
                 val saved = file.takeIf { it.exists() }?.readBytes()
@@ -1060,7 +1082,7 @@ private fun openCasaDelLibro(context: Context) {
             { vm.enrich(current) }, vm.infoLoading == current.uri,
             vm.sections, { vm.assignSection(current.uri, it) },
             { vm.saveNotes(current.uri, it) }, { plot, bio -> vm.saveManualInfo(current.uri, plot, bio) },
-            { vm.replaceCover(current.uri, it) }, { vm.removeCover(current.uri) },
+            { vm.replaceCover(current.uri, it) },
             { vm.setGoodreadsUrl(current.uri, it) }, { vm.toggleWantToRead(current.uri) },
             vm.detailMessage,
             { title, author, saga, order -> vm.editIdentity(current.uri, title, author, saga, order) })
@@ -1198,7 +1220,7 @@ private fun openCasaDelLibro(context: Context) {
     possibleDuplicate: Boolean, deleteBook: () -> Unit, enrich: () -> Unit, infoLoading: Boolean,
     sections: List<String>, assignSection: (String) -> Unit,
     saveNotes: (String) -> Unit, saveInfo: (String, String) -> Unit,
-    replaceCover: (Uri) -> Unit, removeCover: () -> Unit,
+    replaceCover: (Uri) -> Unit,
     saveGoodreadsUrl: (String) -> Unit, toggleWant: () -> Unit, detailMessage: String?,
     editIdentity: (String, String, String, String) -> Unit
 ) {
@@ -1270,14 +1292,14 @@ private fun openCasaDelLibro(context: Context) {
                     Text(displayAuthor(book), fontSize = 13.sp)
                     if (book.saga.isNotBlank()) Text("Saga: ${book.saga}" +
                         book.sagaOrder.takeIf { it.isNotBlank() }?.let { " · nº $it" }.orEmpty(), fontSize = 12.sp)
-                    OutlinedButton(onClick = {
-                        titleDraft = displayTitle(book); authorDraft = displayAuthor(book)
-                        sagaDraft = book.saga; orderDraft = book.sagaOrder
-                        editIdentityDialog = true
-                    }) { Text("Editar título y autor") }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        OutlinedButton(onClick = { coverPicker.launch("image/*") }) { Text("Cambiar portada", fontSize = 12.sp) }
-                        if (book.cover != null) OutlinedButton(onClick = removeCover) { Text("Quitar portada", fontSize = 12.sp) }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = {
+                            titleDraft = displayTitle(book); authorDraft = displayAuthor(book)
+                            sagaDraft = book.saga; orderDraft = book.sagaOrder
+                            editIdentityDialog = true
+                        }, modifier = Modifier.weight(1f)) { Text("Editar título y autor", fontSize = 12.sp) }
+                        OutlinedButton(onClick = { coverPicker.launch("image/*") },
+                            modifier = Modifier.weight(1f)) { Text("Cambiar portada", fontSize = 12.sp) }
                     }
                     if (book.cover == null) OutlinedButton(onClick = downloadCover, enabled = !coverLoading) {
                         Text(if (coverLoading) "Buscando portada…" else "Buscar portada")
