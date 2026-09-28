@@ -95,6 +95,7 @@ data class Book(
 class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var query by mutableStateOf("")
     var groupMode by mutableStateOf("Todos")
+    var viewMode by mutableStateOf("Lista"); private set
     var selectedSection by mutableStateOf<String?>(null)
     var sections by mutableStateOf<List<String>>(emptyList()); private set
     var wishList by mutableStateOf<List<Pair<String, String>>>(emptyList()); private set
@@ -119,6 +120,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             (0 until arr.length()).map { arr.optString(it) }
         }
         restoreCachedBooks()
+        viewMode = prefs.getString("view_mode", "Lista") ?: "Lista"
         loadWishList()
         folderName = prefs.getString("folder_name", null)
     }
@@ -536,6 +538,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleFavorite(uri: Uri) { books = books.map { if (it.uri == uri) it.copy(favorite=!it.favorite) else it }; saveBooks() }
     fun setStatus(uri: Uri, status: ReadingStatus) { books = books.map { if (it.uri == uri) it.copy(status=status) else it }; saveBooks() }
+    fun setViewMode(mode: String) { viewMode = mode; prefs.edit().putString("view_mode", mode).apply() }
     fun clearMessage() { message = null }
     fun clearDetailMessage() { detailMessage = null }
 }
@@ -1098,7 +1101,7 @@ private fun openCasaDelLibro(context: Context) {
                         fontSize = 17.sp, fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 }
-                Row(Modifier.fillMaxWidth().height(44.dp),
+                Row(Modifier.fillMaxWidth().height(44.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically) {
                     Text("Carpeta", color = Paper, fontSize = 12.sp,
@@ -1113,81 +1116,101 @@ private fun openCasaDelLibro(context: Context) {
             }
         }
     ) { p ->
-        Column(Modifier.padding(p).fillMaxSize().padding(horizontal = 16.dp)) {
-            Spacer(Modifier.height(18.dp))
-            Text("✦  ENTRE ESTANTERÍAS  ✦", color = Brass, fontFamily = FontFamily.Serif,
-                style = MaterialTheme.typography.labelMedium)
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Historias por descubrir", fontFamily = FontFamily.Serif,
-                    style = MaterialTheme.typography.headlineSmall, color = Ink,
-                    modifier = Modifier.weight(1f))
-                TextButton(onClick = { vm.sync() }, enabled = !vm.syncing) {
-                    Text("📖", fontSize = 18.sp)
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            if (vm.syncing) {
-                LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
-                Text("Revisando ${vm.syncCount} libros…", modifier = Modifier.padding(vertical = 8.dp),
-                    style = MaterialTheme.typography.bodySmall)
-            }
-            OutlinedTextField(vm.query, { vm.query = it }, Modifier.fillMaxWidth(),
-                singleLine = true, label = { Text("Buscar título, saga o autor") }, leadingIcon = { Text("⌕") },
-                shape = MaterialTheme.shapes.medium)
-            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(vm.statusFilter == null, { vm.statusFilter = null }, { Text("Todos") })
-                FilterChip(vm.onlyFavorites, { vm.onlyFavorites = !vm.onlyFavorites }, { Text("★") })
-                FilterChip(vm.statusFilter == ReadingStatus.READING,
-                    { vm.statusFilter = if (vm.statusFilter == ReadingStatus.READING) null else ReadingStatus.READING },
-                    { Text("Leyendo") })
-                FilterChip(vm.statusFilter == ReadingStatus.READ,
-                    { vm.statusFilter = if (vm.statusFilter == ReadingStatus.READ) null else ReadingStatus.READ },
-                    { Text("Leídos") })
-            }
-            Text("${vm.filtered.size} libros", fontFamily = FontFamily.Serif,
-                style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Todos", "Autores", "Sagas", "Secciones").forEach { mode ->
-                    FilterChip(vm.groupMode == mode, { vm.groupMode = mode }, { Text(mode) })
-                }
-            }
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(vm.selectedSection == null, { vm.selectedSection = null }, { Text("Todas las secciones") })
-                vm.sections.forEach { name ->
-                    FilterChip(vm.selectedSection == name, { vm.selectedSection = name }, { Text(name) })
-                    TextButton(onClick = { sectionToDelete = name }) { Text("×") }
-                }
-                TextButton(onClick = { addingSection = true }) { Text("+ Sección") }
-            }
-            Row {
-                FilterChip(showWishList, { showWishList = !showWishList }, { Text("Quiero leer (${vm.wishList.size})") })
-                if (showWishList) TextButton(onClick = { addWishDialog = true }) { Text("+ Goodreads") }
-            }
-            if (showWishList) {
-                LazyColumn {
-                    items(vm.wishList, key = { it.second }) { (title, url) ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { openGoodreadsUrl(context, url) }, modifier = Modifier.weight(1f)) {
-                                Text(title.ifBlank { "Libro de Goodreads" })
+        LazyColumn(
+            modifier = Modifier.padding(p).fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            item(key = "controls") {
+                Column {
+                    Spacer(Modifier.height(14.dp))
+                    Text("✦  ENTRE ESTANTERÍAS  ✦", color = Brass, fontFamily = FontFamily.Serif,
+                        style = MaterialTheme.typography.labelMedium)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Historias por descubrir", fontFamily = FontFamily.Serif,
+                            style = MaterialTheme.typography.headlineSmall, color = Ink,
+                            modifier = Modifier.weight(1f))
+                        TextButton(onClick = { vm.sync() }, enabled = !vm.syncing) {
+                            Text("📖", fontSize = 18.sp)
+                        }
+                    }
+                    if (vm.syncing) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
+                        Text("Revisando ${vm.syncCount} libros…", modifier = Modifier.padding(vertical = 8.dp),
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    OutlinedTextField(vm.query, { vm.query = it }, Modifier.fillMaxWidth(),
+                        singleLine = true, label = { Text("Buscar título, saga o autor") },
+                        leadingIcon = { Text("⌕") }, shape = MaterialTheme.shapes.medium)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(vm.statusFilter == null, { vm.statusFilter = null }, { Text("Todos") })
+                        FilterChip(vm.onlyFavorites, { vm.onlyFavorites = !vm.onlyFavorites }, { Text("★") })
+                        FilterChip(vm.statusFilter == ReadingStatus.READING,
+                            { vm.statusFilter = if (vm.statusFilter == ReadingStatus.READING) null else ReadingStatus.READING },
+                            { Text("Leyendo") })
+                        FilterChip(vm.statusFilter == ReadingStatus.READ,
+                            { vm.statusFilter = if (vm.statusFilter == ReadingStatus.READ) null else ReadingStatus.READ },
+                            { Text("Leídos") })
+                    }
+                    Text("${vm.filtered.size} libros", fontFamily = FontFamily.Serif,
+                        style = MaterialTheme.typography.titleMedium)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("Todos", "Autores", "Sagas", "Secciones").forEach { mode ->
+                            FilterChip(vm.groupMode == mode, { vm.groupMode = mode }, { Text(mode) })
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(vm.selectedSection == null, { vm.selectedSection = null }, { Text("Todas las secciones") })
+                        vm.sections.forEach { name ->
+                            FilterChip(vm.selectedSection == name, { vm.selectedSection = name }, { Text(name) })
+                            TextButton(onClick = { sectionToDelete = name }) { Text("×") }
+                        }
+                        TextButton(onClick = { addingSection = true }) { Text("+ Sección") }
+                    }
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(showWishList, { showWishList = !showWishList },
+                            { Text("Quiero leer (${vm.wishList.size})") })
+                        if (showWishList) TextButton(onClick = { addWishDialog = true }) { Text("+ Goodreads") }
+                    }
+                    if (!showWishList) {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("Lista", "Galería", "Compacta").forEach { mode ->
+                                FilterChip(vm.viewMode == mode, { vm.setViewMode(mode) }, { Text(mode) })
                             }
-                            TextButton(onClick = { vm.removeGoodreadsWish(url) }) { Text("×") }
                         }
                     }
                 }
-            } else if (vm.books.isEmpty() && !vm.syncing) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("📚", style = MaterialTheme.typography.displayMedium)
-                        Text("Elige tu carpeta de EPUB en Drive", fontFamily = FontFamily.Serif)
-                        Spacer(Modifier.height(12.dp))
-                        Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta") }
+            }
+            if (showWishList) {
+                items(vm.wishList, key = { "wish:" + it.second }) { (title, url) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(onClick = { openGoodreadsUrl(context, url) },
+                            modifier = Modifier.weight(1f)) { Text(title.ifBlank { "Libro de Goodreads" }) }
+                        TextButton(onClick = { vm.removeGoodreadsWish(url) }) { Text("×") }
                     }
                 }
-            } else LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 20.dp)) {
+            } else if (vm.books.isEmpty() && !vm.syncing) {
+                item(key = "empty") {
+                    Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("📚", style = MaterialTheme.typography.displayMedium)
+                            Text("Elige tu carpeta de EPUB en Drive", fontFamily = FontFamily.Serif)
+                            Spacer(Modifier.height(12.dp))
+                            Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta") }
+                        }
+                    }
+                }
+            } else if (vm.filtered.isEmpty()) {
+                item(key = "no-results") {
+                    Text("No hay libros con estos filtros.", modifier = Modifier.padding(20.dp))
+                }
+            } else {
                 val groups = when (vm.groupMode) {
                     "Autores" -> vm.filtered.groupBy { displayAuthor(it) }
                     "Sagas" -> vm.filtered.groupBy { it.saga.ifBlank { "Sin saga" } }
@@ -1199,10 +1222,22 @@ private fun openCasaDelLibro(context: Context) {
                         Text(name, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
                             color = Mahogany, modifier = Modifier.padding(top = 10.dp))
                     }
-                    items(if (vm.groupMode == "Sagas") group.sortedWith(
+                    val ordered = if (vm.groupMode == "Sagas") group.sortedWith(
                         compareBy<Book> { sagaNumber(it) }.thenBy(String.CASE_INSENSITIVE_ORDER) { displayTitle(it) })
-                        else group, key = { it.uri.toString() }) { book ->
-                        BookCard(book) { selected = book }
+                        else group
+                    when (vm.viewMode) {
+                        "Galería" -> items(ordered.chunked(2), key = { "grid:" + it.first().uri }) { pair ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                pair.forEach { book ->
+                                    BookGalleryCard(book, Modifier.weight(1f)) { selected = book }
+                                }
+                                if (pair.size == 1) Spacer(Modifier.weight(1f))
+                            }
+                        }
+                        else -> items(ordered, key = { it.uri.toString() }) { book ->
+                            if (vm.viewMode == "Compacta") BookCompactCard(book) { selected = book }
+                            else BookCard(book) { selected = book }
+                        }
                     }
                 }
             }
@@ -1211,6 +1246,39 @@ private fun openCasaDelLibro(context: Context) {
 }
 
 @Composable private fun BookCard(book:Book,onClick:()->Unit){Card(Modifier.fillMaxWidth().clickable(onClick=onClick), colors = CardDefaults.cardColors(containerColor = Paper), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Cover(book,92.dp,132.dp);Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Row(verticalAlignment=Alignment.CenterVertically){Text(displayTitle(book),fontWeight=FontWeight.Bold,fontFamily=FontFamily.Serif,fontSize=14.sp,lineHeight=18.sp,modifier=Modifier.weight(1f));if(book.favorite)Text("★")};Text(displayAuthor(book),fontSize=12.sp)}}}}
+
+@Composable private fun BookCompactCard(book: Book, onClick: () -> Unit) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Paper)) {
+        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Cover(book, 50.dp, 72.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(displayTitle(book), fontSize = 13.sp, lineHeight = 17.sp,
+                    fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                Text(displayAuthor(book), fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+@Composable private fun BookGalleryCard(book: Book, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Card(modifier.clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Paper)) {
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(8.dp)) {
+            val coverWidth = (maxWidth - 16.dp).coerceAtMost(180.dp)
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Cover(book, coverWidth, coverWidth * 1.42f)
+                Spacer(Modifier.height(6.dp))
+                Text(displayTitle(book), fontSize = 12.sp, lineHeight = 15.sp,
+                    fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                    maxLines = 2, textAlign = TextAlign.Center)
+                Text(displayAuthor(book), fontSize = 10.sp, maxLines = 1,
+                    textAlign = TextAlign.Center)
+            }
+        }
+    }
+}
 
 @Composable private fun Cover(book:Book,w:androidx.compose.ui.unit.Dp,h:androidx.compose.ui.unit.Dp){val bmp=remember(book.cover){book.cover?.let{BitmapFactory.decodeByteArray(it,0,it.size)}};Surface(Modifier.width(w).height(h),shape=MaterialTheme.shapes.small,tonalElevation=5.dp){if(bmp!=null)Image(bmp.asImageBitmap(),book.title,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)else Box(contentAlignment=Alignment.Center){Text("📖",style=MaterialTheme.typography.headlineLarge)}}}
 
