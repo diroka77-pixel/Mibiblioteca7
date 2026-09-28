@@ -52,6 +52,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -846,29 +847,59 @@ class MainActivity : ComponentActivity() {
 }
 
 private fun openGoodreads(context: Context, book: Book? = null) {
-    val isbn = book?.isbn?.filter { it.isDigit() || it == 'X' || it == 'x' }.orEmpty()
-    val url = when {
-        book == null -> "https://www.goodreads.com/"
-        book.goodreadsUrl.startsWith("https://www.goodreads.com/") -> book.goodreadsUrl
-        isbn.length == 10 || isbn.length == 13 -> "https://www.goodreads.com/book/isbn/$isbn"
-        else -> "https://www.goodreads.com/search?q=" +
-            java.net.URLEncoder.encode(displayTitle(book) + " " + displayAuthor(book), "UTF-8")
-    }
-    try {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.goodreads"))
-    } catch (_: Exception) {
+    if (book == null) {
         val launch = context.packageManager.getLaunchIntentForPackage("com.goodreads")
         if (launch != null) context.startActivity(launch)
-        else android.widget.Toast.makeText(context, "Instala o abre Goodreads en este teléfono", android.widget.Toast.LENGTH_LONG).show()
+        else android.widget.Toast.makeText(context, "Goodreads no está instalada", android.widget.Toast.LENGTH_LONG).show()
+        return
     }
+    CoroutineScope(Dispatchers.Main).launch {
+        val url = withContext(Dispatchers.IO) { findGoodreadsBook(book) }
+        if (url != null) openGoodreadsUrl(context, url)
+        else android.widget.Toast.makeText(context,
+            "No encontré la ficha exacta en Goodreads para este libro", android.widget.Toast.LENGTH_LONG).show()
+    }
+}
+
+private fun findGoodreadsBook(book: Book): String? {
+    if (book.goodreadsUrl.matches(Regex("https://(?:www\\.)?goodreads\\.com/book/show/[^\\s?#]+.*"))) return book.goodreadsUrl
+    val isbn = book.isbn.filter { it.isDigit() || it == 'X' || it == 'x' }
+    if (isbn.length == 10 || isbn.length == 13) {
+        try {
+            val connection = URL("https://www.goodreads.com/book/isbn/$isbn").openConnection() as HttpURLConnection
+            connection.connectTimeout = 8000; connection.readTimeout = 8000
+            connection.instanceFollowRedirects = true
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+            val exact = connection.inputStream.use { connection.url.toString() }
+            connection.disconnect()
+            if (exact.contains("/book/show/")) return exact
+        } catch (_: Exception) {}
+    }
+    try {
+        val query = java.net.URLEncoder.encode(displayTitle(book) + " " + displayAuthor(book), "UTF-8")
+        val connection = URL("https://www.goodreads.com/search?q=$query").openConnection() as HttpURLConnection
+        connection.connectTimeout = 8000; connection.readTimeout = 8000
+        connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+        val html = connection.inputStream.bufferedReader().use { it.readText() }
+        connection.disconnect()
+        val path = Regex("""/book/show/[0-9]+[^"'\s<]*""").find(html)?.value
+        if (path != null) return "https://www.goodreads.com" + path.replace("&amp;", "&")
+    } catch (_: Exception) {}
+    return null
 }
 
 private fun openGoodreadsUrl(context: Context, url: String) {
     try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.goodreads")) }
     catch (_: Exception) {
-        val launch = context.packageManager.getLaunchIntentForPackage("com.goodreads")
-        if (launch != null) context.startActivity(launch)
-        else android.widget.Toast.makeText(context, "Goodreads no está disponible", android.widget.Toast.LENGTH_LONG).show()
+        android.widget.Toast.makeText(context, "Goodreads no puede abrir la ficha de este libro", android.widget.Toast.LENGTH_LONG).show()
+    }
+}
+
+private fun openChrome(context: Context, url: String) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.android.chrome"))
+    } catch (_: Exception) {
+        android.widget.Toast.makeText(context, "Chrome no está instalada", android.widget.Toast.LENGTH_LONG).show()
     }
 }
 
@@ -950,8 +981,7 @@ private fun openCasaDelLibro(context: Context) {
                     Text("Goodreads", color = Paper, fontSize = 12.sp,
                         modifier = Modifier.clickable { openGoodreads(context) }.padding(6.dp))
                     Text("Google", color = Paper, fontSize = 12.sp,
-                        modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW,
-                            Uri.parse("https://www.google.com/"))) }.padding(6.dp))
+                        modifier = Modifier.clickable { openChrome(context, "https://www.google.com/") }.padding(6.dp))
                     Text("Casa del Libro", color = Paper, fontSize = 12.sp,
                         modifier = Modifier.clickable { openCasaDelLibro(context) }.padding(6.dp))
                 }
@@ -1074,7 +1104,6 @@ private fun openCasaDelLibro(context: Context) {
     var confirmDelete by remember { mutableStateOf(false) }
     var sectionMenu by remember { mutableStateOf(false) }
     var editInfo by remember { mutableStateOf(false) }
-    var editLink by remember { mutableStateOf(false) }
     var editIdentityDialog by remember { mutableStateOf(false) }
     var titleDraft by remember { mutableStateOf("") }
     var authorDraft by remember { mutableStateOf("") }
@@ -1082,7 +1111,6 @@ private fun openCasaDelLibro(context: Context) {
     var orderDraft by remember { mutableStateOf("") }
     var plotDraft by remember { mutableStateOf("") }
     var bioDraft by remember { mutableStateOf("") }
-    var linkDraft by remember { mutableStateOf("") }
     var notesDraft by remember(book.uri, book.notes) { mutableStateOf(book.notes) }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
         it?.let(replaceCover)
@@ -1120,14 +1148,6 @@ private fun openCasaDelLibro(context: Context) {
         } },
         confirmButton = { TextButton(onClick = { saveInfo(plotDraft, bioDraft); editInfo = false }) { Text("Guardar") } },
         dismissButton = { TextButton(onClick = { editInfo = false }) { Text("Cancelar") } }
-    )
-    if (editLink) AlertDialog(
-        onDismissRequest = { editLink = false },
-        title = { Text("Enlace exacto de Goodreads") },
-        text = { OutlinedTextField(linkDraft, { linkDraft = it },
-            label = { Text("Pega el enlace del libro") }, modifier = Modifier.fillMaxWidth()) },
-        confirmButton = { TextButton(onClick = { saveGoodreadsUrl(linkDraft); editLink = false }) { Text("Guardar") } },
-        dismissButton = { TextButton(onClick = { editLink = false }) { Text("Cancelar") } }
     )
     Scaffold(containerColor = Parchment, topBar = {
         TopAppBar(
@@ -1196,12 +1216,16 @@ private fun openCasaDelLibro(context: Context) {
                     book.description.takeIf { book.language.lowercase().startsWith("es") ||
                         book.language.lowercase().startsWith("spa") }.orEmpty()
                 }
-                Text(plot.ifBlank { "Argumento en castellano pendiente. Puedes buscarlo o escribirlo." },
-                    fontSize = 12.sp, lineHeight = 17.sp)
+                OutlinedTextField(value = plot, onValueChange = {}, readOnly = true,
+                    modifier = Modifier.fillMaxWidth(), minLines = 3,
+                    placeholder = { Text("Argumento en castellano pendiente. Puedes buscarlo o escribirlo.") },
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 17.sp))
                 Spacer(Modifier.height(8.dp))
                 Text("Sobre el autor", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                Text(book.authorBio.ifBlank { "Biografía en castellano pendiente. Puedes buscarla o escribirla." },
-                    fontSize = 12.sp, lineHeight = 17.sp)
+                OutlinedTextField(value = book.authorBio, onValueChange = {}, readOnly = true,
+                    modifier = Modifier.fillMaxWidth(), minLines = 3,
+                    placeholder = { Text("Biografía en castellano pendiente. Puedes buscarla o escribirla.") },
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 17.sp))
                 Row {
                     TextButton(onClick = enrich, enabled = !infoLoading) {
                         Text(if (infoLoading) "Consultando…" else "Buscar datos")
@@ -1231,12 +1255,8 @@ private fun openCasaDelLibro(context: Context) {
                 }, modifier = Modifier.fillMaxWidth()) { Text("📖  Abrir EPUB") }
                 OutlinedButton(onClick = { openGoodreads(context, book) },
                     modifier = Modifier.fillMaxWidth()) { Text("Abrir este libro en Goodreads") }
-                TextButton(onClick = { linkDraft = book.goodreadsUrl; editLink = true }) {
-                    Text("Pegar enlace exacto de Goodreads")
-                }
-                OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW,
-                    Uri.parse("https://www.google.com/search?q=" +
-                        java.net.URLEncoder.encode(displayTitle(book) + " " + displayAuthor(book), "UTF-8")))) },
+                OutlinedButton(onClick = { openChrome(context, "https://www.google.com/search?q=" +
+                        java.net.URLEncoder.encode(displayTitle(book) + " " + displayAuthor(book), "UTF-8")) },
                     modifier = Modifier.fillMaxWidth()) { Text("Consultar en Google") }
                 OutlinedButton(onClick = { confirmDelete = true },
                     modifier = Modifier.fillMaxWidth()) { Text("Borrar este EPUB de Drive") }
