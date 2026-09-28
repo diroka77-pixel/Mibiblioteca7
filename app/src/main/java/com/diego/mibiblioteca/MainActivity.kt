@@ -436,7 +436,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun isPossibleDuplicate(book: Book): Boolean {
-        fun key(b: Book) = (displayTitle(b) + "|" + displayAuthor(b)).lowercase().replace(Regex("[^\p{L}\p{N}]"), "")
+        fun key(b: Book) = (displayTitle(b) + "|" + displayAuthor(b)).lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
         return books.count { key(it) == key(book) } > 1
     }
 
