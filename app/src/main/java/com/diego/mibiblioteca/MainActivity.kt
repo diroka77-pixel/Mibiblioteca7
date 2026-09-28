@@ -542,12 +542,20 @@ private fun displayAuthor(book: Book): String {
 }
 
 private fun displayTitle(book: Book): String {
-    var title = cleanCatalogText(book.customTitle.ifBlank { book.title })
     val author = displayAuthor(book)
+    var title = cleanCatalogText(book.customTitle.ifBlank { book.title })
+        .replace(Regex("""(?i)\b(?:isbn(?:-1[03])?|autor|editorial|publicad[oa]|idioma|formato|páginas|paginas|sinopsis|descripci[oó]n)\s*[:=].*$"""), "")
+        .trim()
     if (author != "Biblioteca de Diroka77") {
-        title = title.removePrefix("$author - ").removeSuffix(" - $author")
+        title = title.replace(Regex(Regex.escape(author), RegexOption.IGNORE_CASE), " ")
+            .replace(Regex("""\(\s*\)"""), " ")
+            .trim(' ', '-', '–', '—', '|', ',', ':')
     }
-    return title.replace(Regex("""\s+"""), " ").take(100).ifBlank { book.title }
+    // El texto que sigue a un separador suele ser autor, colección o datos del fichero.
+    title = title.split(Regex("""\s+[-–—|·]\s+""")).firstOrNull().orEmpty()
+        .replace(Regex("""(?i)\s*\((?:\d{4}|(?:e?pub|pdf|mobi)[^)]*)\)"""), "")
+        .replace(Regex("""\s+"""), " ").trim(' ', '-', '–', '—', '|', ',', ':')
+    return title.take(100).ifBlank { cleanCatalogText(book.title).substringBefore(" - ").ifBlank { "Libro sin título" } }
 }
 
 private fun sagaNumber(book: Book): Double {
