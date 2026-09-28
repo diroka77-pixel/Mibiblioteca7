@@ -510,11 +510,30 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun clearDetailMessage() { detailMessage = null }
 }
 
+private val sourceTag = Regex("""(?i)(?:e[\s.-]*pub[\s.-]*libre|lecturalia(?:\.com)?|anna'?s[\s.-]*archive|annas[\s.-]*archive)(?:\.[a-z]{2,})?""")
+private val metadataTag = Regex("""(?i)(?:epub|pdf|mobi|azw3|descarga|ebook|libro digital|sin drm)""")
+
+private fun cleanCatalogText(value: String): String {
+    return value.substringBeforeLast(".epub", value)
+        .replace('_', ' ')
+        .replace(Regex("""\[[^]]*]"""), " ")
+        .replace(Regex("""\([^)]*\)""")) { match ->
+            if (sourceTag.containsMatchIn(match.value) || metadataTag.containsMatchIn(match.value)) " " else match.value
+        }
+        .split(Regex("""\s+(?:[-–—|·])\s+"""))
+        .filterNot { sourceTag.containsMatchIn(it) || metadataTag.matches(it.trim()) }
+        .joinToString(" - ")
+        .replace(sourceTag, " ")
+        .replace(Regex("""\s+"""), " ").trim(' ', '-', '|', '·', '–', '—')
+}
+
 private fun displayAuthor(book: Book): String {
     if (book.customAuthor.isNotBlank()) return book.customAuthor
-    if (book.author.isNotBlank() && book.author != "Autor desconocido") return book.author
-    val parts = book.title.replace('_', ' ').split(Regex("\\s+-\\s+"))
-    val possible = parts.lastOrNull().orEmpty().trim()
+    val known = cleanCatalogText(book.author)
+    if (known.isNotBlank() && known != "Autor desconocido") return known
+    val parts = book.title.replace('_', ' ').split(Regex("""\s+[-–—]\s+"""))
+        .filterNot { sourceTag.containsMatchIn(it) || metadataTag.matches(it.trim()) }
+    val possible = cleanCatalogText(parts.lastOrNull().orEmpty())
     if (parts.size >= 2 && possible.length in 4..45 &&
         possible.split(' ').size in 2..5 && possible.none { it.isDigit() }) return possible
     return "Biblioteca de Diroka77"
@@ -522,15 +541,12 @@ private fun displayAuthor(book: Book): String {
 
 private fun displayTitle(book: Book): String {
     if (book.customTitle.isNotBlank()) return book.customTitle
-    var title = book.title.substringBeforeLast(".epub", book.title)
-        .replace('_', ' ').replace(Regex("\\[[^]]*]"), " ")
-        .replace(Regex("\\([^)]*(?:epub|pdf|descarga|edici[oó]n digital)[^)]*\\)", RegexOption.IGNORE_CASE), " ")
-        .trim()
+    var title = cleanCatalogText(book.title)
     val author = displayAuthor(book)
     if (author != "Biblioteca de Diroka77") {
         title = title.removePrefix("$author - ").removeSuffix(" - $author")
     }
-    return title.replace(Regex("\\s+"), " ").take(100).ifBlank { book.title }
+    return title.replace(Regex("""\s+"""), " ").take(100).ifBlank { book.title }
 }
 
 private fun sagaNumber(book: Book): Double {
@@ -856,8 +872,8 @@ private fun openGoodreads(context: Context, book: Book? = null) {
     CoroutineScope(Dispatchers.Main).launch {
         val url = withContext(Dispatchers.IO) { findGoodreadsBook(book) }
         if (url != null) openGoodreadsUrl(context, url)
-        else android.widget.Toast.makeText(context,
-            "No encontré la ficha exacta en Goodreads para este libro", android.widget.Toast.LENGTH_LONG).show()
+        else openGoodreadsUrl(context, "https://www.goodreads.com/search?q=" +
+            java.net.URLEncoder.encode(displayTitle(book) + " " + displayAuthor(book), "UTF-8"))
     }
 }
 
@@ -891,7 +907,9 @@ private fun findGoodreadsBook(book: Book): String? {
 private fun openGoodreadsUrl(context: Context, url: String) {
     try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.goodreads")) }
     catch (_: Exception) {
-        android.widget.Toast.makeText(context, "Goodreads no puede abrir la ficha de este libro", android.widget.Toast.LENGTH_LONG).show()
+        val launch = context.packageManager.getLaunchIntentForPackage("com.goodreads")
+        if (launch != null) context.startActivity(launch)
+        else android.widget.Toast.makeText(context, "Goodreads no está instalada", android.widget.Toast.LENGTH_LONG).show()
     }
 }
 
@@ -899,7 +917,9 @@ private fun openChrome(context: Context, url: String) {
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.android.chrome"))
     } catch (_: Exception) {
-        android.widget.Toast.makeText(context, "Chrome no está instalada", android.widget.Toast.LENGTH_LONG).show()
+        val launch = context.packageManager.getLaunchIntentForPackage("com.android.chrome")
+        if (launch != null) context.startActivity(launch)
+        else android.widget.Toast.makeText(context, "Chrome no está instalada", android.widget.Toast.LENGTH_LONG).show()
     }
 }
 
@@ -1242,8 +1262,6 @@ private fun openCasaDelLibro(context: Context) {
                 OutlinedTextField(notesDraft, { notesDraft = it }, modifier = Modifier.fillMaxWidth(),
                     label = { Text("Escribe tus notas sobre este libro") }, minLines = 3)
                 TextButton(onClick = { saveNotes(notesDraft) }) { Text("Guardar observaciones") }
-                Text("Se guardan en el teléfono y en MiBiblioteca_Diroka77.json de Drive.",
-                    style = MaterialTheme.typography.labelSmall)
             }
             item {
                 Button(onClick = {
