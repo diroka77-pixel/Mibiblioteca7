@@ -509,7 +509,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             !File(getApplication<Application>().filesDir, "removed-" + coverFile(getApplication(), it.uri).name).exists() &&
             !prefs.getBoolean("cover_attempt_v9_" + it.uri, false) }.take(20)) {
             if (prefs.getBoolean("cover_attempt_v9_" + book.uri, false)) continue
-            prefs.edit().putBoolean("cover_attempt_" + book.uri, true).apply()
+            prefs.edit().putBoolean("cover_attempt_v9_" + book.uri, true).apply()
             val cover = try { withContext(Dispatchers.IO) { fetchCover(book) } } catch (_: Exception) { null }
             if (cover != null) {
                 withContext(Dispatchers.IO) { coverFile(getApplication(), book.uri).writeBytes(cover) }
@@ -520,7 +520,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             !prefs.getBoolean("info_attempt_v9_" + it.uri, false) &&
             !prefs.getBoolean("manual_info_" + it.uri, false) }.take(20)) {
             if (prefs.getBoolean("info_attempt_v9_" + book.uri, false)) continue
-            prefs.edit().putBoolean("info_attempt_" + book.uri, true).apply()
+            prefs.edit().putBoolean("info_attempt_v9_" + book.uri, true).apply()
             try {
                 val (rawPlot, rawBio) = withContext(Dispatchers.IO) { fetchSpanishInfo(book) }
                 val plot = ensureSpanish(rawPlot)
@@ -531,6 +531,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     JSONObject().put("plot", plot).put("bio", bio).toString()).apply()
             } catch (_: Exception) {}
         }
+        saveCloud()
     }
 
     fun toggleFavorite(uri: Uri) { books = books.map { if (it.uri == uri) it.copy(favorite=!it.favorite) else it }; saveBooks() }
