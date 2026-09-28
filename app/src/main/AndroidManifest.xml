@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
-    <queries><package android:name="com.goodreads"/></queries>
+    <queries>
+        <package android:name="com.goodreads"/>
+        <package android:name="com.tagus"/>
+        <package android:name="com.casadellibro.lecturadigital"/>
+    </queries>
     <application android:theme="@style/Theme.MiBiblioteca" android:label="Mi Biblioteca" android:allowBackup="true">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
