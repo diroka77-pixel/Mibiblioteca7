@@ -58,6 +58,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var onlyFavorites by mutableStateOf(false)
     var books by mutableStateOf<List<Book>>(emptyList()); private set
     var syncing by mutableStateOf(false); private set
+    var syncCount by mutableIntStateOf(0); private set
     var folderName by mutableStateOf<String?>(null); private set
     var message by mutableStateOf<String?>(null); private set
 
@@ -79,13 +80,24 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun sync(uri: Uri? = prefs.getString(folderKey, null)?.let(Uri::parse)) {
         if (uri == null) { message = "Selecciona primero tu carpeta de libros."; return }
+        if (syncing) return
         viewModelScope.launch {
-            syncing = true; message = null
-            val result = withContext(Dispatchers.IO) { scanFolder(getApplication(), uri) }
-            books = result
-            folderName = DocumentFile.fromTreeUri(getApplication(), uri)?.name
-            syncing = false
-            message = "${result.size} EPUB encontrados"
+            syncing = true; syncCount = 0; message = null
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    scanFolder(getApplication(), uri) { count ->
+                        if (count == 1 || count % 5 == 0) {
+                            viewModelScope.launch(Dispatchers.Main) { syncCount = count }
+                        }
+                    }
+                }
+                books = result
+                syncCount = result.size
+                folderName = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(getApplication(), uri)?.name }
+                message = "${result.size} EPUB encontrados"
+            } catch (e: Exception) {
+                message = "No se pudo leer la carpeta de Drive: ${e.localizedMessage ?: "error de acceso"}"
+            } finally { syncing = false }
         }
     }
 
@@ -94,13 +106,16 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun clearMessage() { message = null }
 }
 
-private fun scanFolder(context: Context, treeUri: Uri): List<Book> {
+private fun scanFolder(context: Context, treeUri: Uri, onProgress: (Int) -> Unit): List<Book> {
     val root = DocumentFile.fromTreeUri(context, treeUri) ?: return emptyList()
     val out = mutableListOf<Book>()
     fun walk(dir: DocumentFile) {
         dir.listFiles().forEach { f ->
             if (f.isDirectory) walk(f)
-            else if (f.name?.endsWith(".epub", true) == true) out += readEpub(context, f.uri, f.name ?: "Libro")
+            else if (f.name?.endsWith(".epub", true) == true) {
+                out += readEpub(context, f.uri, f.name ?: "Libro")
+                onProgress(out.size)
+            }
         }
     }
     walk(root)
@@ -108,30 +123,46 @@ private fun scanFolder(context: Context, treeUri: Uri): List<Book> {
 }
 
 private fun readEpub(context: Context, uri: Uri, fallbackName: String): Book {
+    val fallback = Book(uri, fallbackName.substringBeforeLast('.', fallbackName))
     return try {
-        val container = zipEntry(context, uri, "META-INF/container.xml")?.toString(Charsets.UTF_8).orEmpty()
+        // Drive may download the EPUB for each openInputStream call. Read it once.
+        val entries = mutableMapOf<String, ByteArray>()
+        var imageBytes = 0
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            ZipInputStream(input).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    val path = normalizePath(entry.name)
+                    val xml = path == "META-INF/container.xml" || path.endsWith(".opf", true)
+                    val image = path.endsWith(".jpg", true) || path.endsWith(".jpeg", true) || path.endsWith(".png", true)
+                    val limit = if (xml) 2_000_000 else if (image && imageBytes < 2_000_000) 300_000 else 0
+                    if (!entry.isDirectory && limit > 0 && (entry.size < 0 || entry.size <= limit)) {
+                        val buffer = ByteArray(8192)
+                        val output = java.io.ByteArrayOutputStream()
+                        while (output.size() <= limit) {
+                            val n = zip.read(buffer, 0, minOf(buffer.size, limit + 1 - output.size()))
+                            if (n < 0) break
+                            output.write(buffer, 0, n)
+                        }
+                        if (output.size() <= limit) {
+                            entries[path] = output.toByteArray()
+                            if (image) imageBytes += output.size()
+                        }
+                    }
+                    entry = zip.nextEntry
+                }
+            }
+        } ?: return fallback
+        val container = entries["META-INF/container.xml"]?.toString(Charsets.UTF_8).orEmpty()
         val opfPath = Regex("full-path\\s*=\\s*[\"']([^\"']+)[\"']").find(container)?.groupValues?.get(1)
-        if (opfPath == null) return Book(uri, fallbackName.removeSuffix(".epub"))
-        val opfBytes = zipEntry(context, uri, opfPath) ?: return Book(uri, fallbackName.removeSuffix(".epub"))
+            ?.let(::normalizePath) ?: return fallback
+        val opfBytes = entries[opfPath] ?: return fallback
         val meta = parseOpf(opfBytes)
         val base = opfPath.substringBeforeLast('/', "")
-        val coverPath = meta.coverHref?.let { if (base.isBlank()) it else "$base/$it" }
-        val cover = coverPath?.let { zipEntry(context, uri, normalizePath(it)) }
-        Book(uri, meta.title.ifBlank { fallbackName.removeSuffix(".epub") }, meta.author, meta.date, meta.publisher, meta.genre, meta.description, meta.isbn, meta.saga, cover)
-    } catch (_: Exception) { Book(uri, fallbackName.removeSuffix(".epub")) }
-}
-
-private fun zipEntry(context: Context, uri: Uri, wanted: String): ByteArray? {
-    context.contentResolver.openInputStream(uri)?.use { input ->
-        ZipInputStream(input).use { zip ->
-            var e = zip.nextEntry
-            while (e != null) {
-                if (normalizePath(e.name) == normalizePath(wanted)) return zip.readBytes()
-                e = zip.nextEntry
-            }
-        }
-    }
-    return null
+        val coverPath = meta.coverHref?.let { normalizePath(if (base.isBlank()) it else "$base/$it") }
+        Book(uri, meta.title.ifBlank { fallback.title }, meta.author, meta.date, meta.publisher,
+            meta.genre, meta.description, meta.isbn, meta.saga, coverPath?.let(entries::get))
+    } catch (_: Exception) { fallback }
 }
 
 private fun normalizePath(path: String): String {
@@ -198,7 +229,7 @@ class MainActivity : ComponentActivity() {
         },
         bottomBar = {
             Button(onClick = { vm.sync() }, enabled = !vm.syncing, modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                Text(if (vm.syncing) "Sincronizando…" else "↻  Sincronizar biblioteca")
+                Text(if (vm.syncing) "Sincronizando… ${vm.syncCount} EPUB" else "↻  Sincronizar biblioteca")
             }
         }
     ) { p ->
@@ -211,6 +242,7 @@ class MainActivity : ComponentActivity() {
                 FilterChip(vm.statusFilter==ReadingStatus.READ,{vm.statusFilter=if(vm.statusFilter==ReadingStatus.READ)null else ReadingStatus.READ},{Text("Leídos")})
             }
             Text("${vm.filtered.size} libros",style=MaterialTheme.typography.titleMedium,modifier=Modifier.padding(bottom=8.dp))
+            vm.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             if(vm.books.isEmpty() && !vm.syncing) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Column(horizontalAlignment=Alignment.CenterHorizontally){Text("📚",style=MaterialTheme.typography.displayMedium);Text("Selecciona tu carpeta de EPUB en Google Drive");Spacer(Modifier.height(12.dp));Button(onClick={folderPicker.launch(null)}){Text("Elegir carpeta")}}}
             else LazyColumn(verticalArrangement=Arrangement.spacedBy(10.dp)){items(vm.filtered,key={it.uri.toString()}){book->BookCard(book){selected=book}}}
         }
