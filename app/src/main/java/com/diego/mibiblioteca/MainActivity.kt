@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -12,7 +13,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.*
@@ -33,6 +36,9 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import android.util.Base64
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.TranslatorOptions
@@ -71,7 +77,10 @@ data class Book(
     val language: String = "",
     val spanishPlot: String = "",
     val authorBio: String = "",
-    val section: String = ""
+    val section: String = "",
+    val notes: String = "",
+    val goodreadsUrl: String = "",
+    val wantToRead: Boolean = false
 )
 
 class LibraryViewModel(app: Application) : AndroidViewModel(app) {
@@ -79,6 +88,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var groupMode by mutableStateOf("Todos")
     var selectedSection by mutableStateOf<String?>(null)
     var sections by mutableStateOf<List<String>>(emptyList()); private set
+    var wishList by mutableStateOf<List<Pair<String, String>>>(emptyList()); private set
+    var detailMessage by mutableStateOf<String?>(null); private set
     var statusFilter by mutableStateOf<ReadingStatus?>(null)
     var onlyFavorites by mutableStateOf(false)
     var books by mutableStateOf<List<Book>>(emptyList()); private set
@@ -91,12 +102,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = app.getSharedPreferences("library", Context.MODE_PRIVATE)
     private val folderKey = "folder_uri"
+    private val cloudMutex = Mutex()
+    private val cloudName = "MiBiblioteca_Diroka77.json"
 
     init {
         sections = org.json.JSONArray(prefs.getString("sections", "[]")).let { arr ->
             (0 until arr.length()).map { arr.optString(it) }
         }
         restoreCachedBooks()
+        loadWishList()
         prefs.getString(folderKey, null)?.let { sync(Uri.parse(it)) }
     }
 
@@ -112,7 +126,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     j.optString("isbn"), j.optString("saga"),
                     coverFile(getApplication(), uri).takeIf { it.exists() }?.readBytes(),
                     language = j.optString("language"), spanishPlot = saved?.optString("plot").orEmpty(),
-                    authorBio = saved?.optString("bio").orEmpty(), section = j.optString("section"))
+                    authorBio = saved?.optString("bio").orEmpty(), section = j.optString("section"),
+                    notes = j.optString("notes"), goodreadsUrl = j.optString("goodreadsUrl"),
+                    wantToRead = j.optBoolean("wantToRead"))
             }
         } catch (_: Exception) { books = emptyList() }
     }
@@ -123,8 +139,124 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .put("title", b.title).put("author", b.author).put("date", b.date)
             .put("publisher", b.publisher).put("genre", b.genre).put("description", b.description)
             .put("isbn", b.isbn).put("saga", b.saga).put("language", b.language)
-            .put("section", b.section)) }
+            .put("section", b.section).put("notes", b.notes)
+            .put("goodreadsUrl", b.goodreadsUrl).put("wantToRead", b.wantToRead)) }
         prefs.edit().putString("books_cache", array.toString()).apply()
+        saveCloud()
+    }
+
+    private fun loadWishList() {
+        val arr = org.json.JSONArray(prefs.getString("wish_list", "[]"))
+        wishList = (0 until arr.length()).map { arr.getJSONObject(it).let { j ->
+            j.optString("title") to j.optString("url")
+        } }
+    }
+
+    private fun saveWishList() {
+        val arr = org.json.JSONArray()
+        wishList.forEach { (title, url) -> arr.put(JSONObject().put("title", title).put("url", url)) }
+        prefs.edit().putString("wish_list", arr.toString()).apply()
+        saveCloud()
+    }
+
+    fun addGoodreadsWish(title: String, url: String) {
+        val clean = url.trim()
+        if (!clean.startsWith("https://www.goodreads.com/")) return
+        if (wishList.none { it.second == clean }) {
+            wishList = wishList + (title.trim().ifBlank { "Libro de Goodreads" } to clean)
+            saveWishList()
+        }
+    }
+
+    fun removeGoodreadsWish(url: String) {
+        wishList = wishList.filterNot { it.second == url }
+        saveWishList()
+    }
+
+    private fun cloudSnapshot(): String {
+        val booksJson = org.json.JSONArray(prefs.getString("books_cache", "[]"))
+        for (i in 0 until booksJson.length()) {
+            val j = booksJson.getJSONObject(i)
+            val uri = Uri.parse(j.getString("uri"))
+            val info = prefs.getString("info_" + uri, null)?.let(::JSONObject)
+            j.put("manualInfo", prefs.getBoolean("manual_info_" + uri, false))
+            j.put("plot", info?.optString("plot").orEmpty())
+            j.put("bio", info?.optString("bio").orEmpty())
+            val manual = File(getApplication<Application>().filesDir,
+                "manual-" + coverFile(getApplication(), uri).name)
+            j.put("coverRemoved", File(getApplication<Application>().filesDir,
+                "removed-" + coverFile(getApplication(), uri).name).exists())
+            if (manual.exists() && manual.length() < 1_000_000) {
+                j.put("coverBase64", Base64.encodeToString(manual.readBytes(), Base64.NO_WRAP))
+            }
+        }
+        return JSONObject().put("updatedAt", prefs.getLong("local_revision", 0L))
+            .put("sections", org.json.JSONArray(sections))
+            .put("wishList", org.json.JSONArray(prefs.getString("wish_list", "[]")))
+            .put("books", booksJson).toString()
+    }
+
+    private fun saveCloud() {
+        prefs.edit().putLong("local_revision", System.currentTimeMillis()).apply()
+        val tree = prefs.getString(folderKey, null)?.let(Uri::parse) ?: return
+        viewModelScope.launch {
+            val snapshot = withContext(Dispatchers.IO) { cloudSnapshot() }
+            try {
+                cloudMutex.withLock {
+                    withContext(Dispatchers.IO) {
+                        val root = DocumentFile.fromTreeUri(getApplication(), tree)
+                            ?: throw IllegalStateException("Carpeta no disponible")
+                        val file = root.findFile(cloudName)
+                            ?: root.createFile("application/json", cloudName)
+                            ?: throw IllegalStateException("No se pudo crear el archivo de datos")
+                        getApplication<Application>().contentResolver.openOutputStream(file.uri, "wt")
+                            ?.use { it.write(snapshot.toByteArray(Charsets.UTF_8)) }
+                            ?: throw IllegalStateException("Sin permiso para escribir en Drive")
+                    }
+                }
+            } catch (e: Exception) {
+                detailMessage = "Guardado en el teléfono; no se pudo guardar en Drive: ${e.localizedMessage}"
+            }
+        }
+    }
+
+    private suspend fun restoreCloud(tree: Uri) {
+        val cloud = withContext(Dispatchers.IO) {
+            val root = DocumentFile.fromTreeUri(getApplication(), tree) ?: return@withContext null
+            root.findFile(cloudName)?.let { file ->
+                getApplication<Application>().contentResolver.openInputStream(file.uri)
+                    ?.bufferedReader()?.use { JSONObject(it.readText()) }
+            }
+        } ?: return
+        if (cloud.optLong("updatedAt") <= prefs.getLong("local_revision", 0L)) return
+        val booksArray = cloud.optJSONArray("books") ?: return
+        prefs.edit().putString("books_cache", booksArray.toString())
+            .putString("sections", cloud.optJSONArray("sections")?.toString() ?: "[]")
+            .putString("wish_list", cloud.optJSONArray("wishList")?.toString() ?: "[]")
+            .putLong("local_revision", cloud.optLong("updatedAt")).apply()
+        for (i in 0 until booksArray.length()) {
+            val j = booksArray.getJSONObject(i)
+            val uri = Uri.parse(j.getString("uri"))
+            prefs.edit().putString("info_" + uri, JSONObject()
+                .put("plot", j.optString("plot")).put("bio", j.optString("bio")).toString())
+                .putBoolean("manual_info_" + uri, j.optBoolean("manualInfo")).apply()
+            val base64 = j.optString("coverBase64")
+            if (j.optBoolean("coverRemoved")) withContext(Dispatchers.IO) {
+                File(getApplication<Application>().filesDir,
+                    "removed-" + coverFile(getApplication(), uri).name).writeText("1")
+            }
+            if (base64.isNotBlank()) withContext(Dispatchers.IO) {
+                val bytes = Base64.decode(base64, Base64.DEFAULT)
+                coverFile(getApplication(), uri).writeBytes(bytes)
+                File(getApplication<Application>().filesDir,
+                    "manual-" + coverFile(getApplication(), uri).name).writeBytes(bytes)
+            }
+        }
+        sections = org.json.JSONArray(prefs.getString("sections", "[]")).let { arr ->
+            (0 until arr.length()).map { arr.optString(it) }
+        }
+        loadWishList()
+        restoreCachedBooks()
     }
 
     fun addSection(name: String) {
@@ -132,6 +264,75 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         if (clean.isBlank() || sections.any { it.equals(clean, true) }) return
         sections = sections + clean
         prefs.edit().putString("sections", org.json.JSONArray(sections).toString()).apply()
+        saveCloud()
+    }
+
+    fun deleteSection(name: String) {
+        sections = sections.filterNot { it == name }
+        prefs.edit().putString("sections", org.json.JSONArray(sections).toString()).apply()
+        books = books.map { if (it.section == name) it.copy(section = "") else it }
+        if (selectedSection == name) selectedSection = null
+        saveBooks()
+    }
+
+    fun saveNotes(uri: Uri, notes: String) {
+        books = books.map { if (it.uri == uri) it.copy(notes = notes) else it }
+        saveBooks()
+    }
+
+    fun saveManualInfo(uri: Uri, plot: String, bio: String) {
+        books = books.map { if (it.uri == uri) it.copy(spanishPlot = plot.trim(),
+            authorBio = bio.trim()) else it }
+        prefs.edit().putString("info_" + uri,
+            JSONObject().put("plot", plot.trim()).put("bio", bio.trim()).toString())
+            .putBoolean("manual_info_" + uri, true).apply()
+        saveBooks()
+    }
+
+    fun setGoodreadsUrl(uri: Uri, url: String) {
+        books = books.map { if (it.uri == uri) it.copy(goodreadsUrl = url.trim()) else it }
+        saveBooks()
+    }
+
+    fun toggleWantToRead(uri: Uri) {
+        books = books.map { if (it.uri == uri) it.copy(wantToRead = !it.wantToRead) else it }
+        saveBooks()
+    }
+
+    fun replaceCover(uri: Uri, imageUri: Uri) {
+        viewModelScope.launch {
+            try {
+                val bytes = withContext(Dispatchers.IO) {
+                    val original = getApplication<Application>().contentResolver.openInputStream(imageUri)
+                        ?.use { BitmapFactory.decodeStream(it) }
+                        ?: throw IllegalArgumentException("Imagen no válida")
+                    val width = minOf(original.width, 900)
+                    val scaled = Bitmap.createScaledBitmap(original, width,
+                        (original.height.toLong() * width / original.width).toInt().coerceAtLeast(1), true)
+                    java.io.ByteArrayOutputStream().use { out ->
+                        scaled.compress(Bitmap.CompressFormat.JPEG, 78, out)
+                        out.toByteArray()
+                    }
+                }
+                withContext(Dispatchers.IO) {
+                    val file = coverFile(getApplication(), uri)
+                    file.writeBytes(bytes)
+                    File(getApplication<Application>().filesDir, "manual-" + file.name).writeBytes(bytes)
+                    File(getApplication<Application>().filesDir, "removed-" + file.name).delete()
+                }
+                books = books.map { if (it.uri == uri) it.copy(cover = bytes) else it }
+                saveCloud()
+            } catch (e: Exception) { detailMessage = "No se pudo cambiar la portada: ${e.localizedMessage}" }
+        }
+    }
+
+    fun removeCover(uri: Uri) {
+        val file = coverFile(getApplication(), uri)
+        file.delete()
+        File(getApplication<Application>().filesDir, "manual-" + file.name).delete()
+        File(getApplication<Application>().filesDir, "removed-" + file.name).writeText("1")
+        books = books.map { if (it.uri == uri) it.copy(cover = null) else it }
+        saveCloud()
     }
 
     fun assignSection(uri: Uri, section: String) {
@@ -164,6 +365,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             syncing = true; syncCount = 0; message = null
             try {
+                try { restoreCloud(uri) } catch (_: Exception) {}
                 val result = withContext(Dispatchers.IO) {
                     scanFolder(getApplication(), uri) { count ->
                         if (count == 1 || count % 5 == 0) {
@@ -173,8 +375,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 books = result.map { b ->
                     val saved = prefs.getString("info_" + b.uri, null)?.let { JSONObject(it) }
-                    val section = books.firstOrNull { it.uri == b.uri }?.section.orEmpty()
-                    if (saved == null) b.copy(section = section) else b.copy(spanishPlot = saved.optString("plot"), authorBio = saved.optString("bio"), section = section)
+                    val prior = books.firstOrNull { it.uri == b.uri }
+                    b.copy(spanishPlot = prior?.spanishPlot ?: saved?.optString("plot").orEmpty(),
+                        authorBio = prior?.authorBio ?: saved?.optString("bio").orEmpty(),
+                        section = prior?.section.orEmpty(), notes = prior?.notes.orEmpty(),
+                        goodreadsUrl = prior?.goodreadsUrl.orEmpty(), wantToRead = prior?.wantToRead ?: false)
                 }
                 saveBooks()
                 viewModelScope.launch { fillMissingDetails() }
@@ -196,7 +401,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 if (bytes == null) {
                     message = "No se encontró portada en Open Library."
                 } else {
-                    withContext(Dispatchers.IO) { coverFile(getApplication(), book.uri).writeBytes(bytes) }
+                    withContext(Dispatchers.IO) {
+                        val file = coverFile(getApplication(), book.uri)
+                        file.writeBytes(bytes)
+                        File(getApplication<Application>().filesDir, "removed-" + file.name).delete()
+                    }
                     books = books.map { if (it.uri == book.uri) it.copy(cover = bytes) else it }
                     message = "Portada guardada en este dispositivo."
                 }
@@ -207,7 +416,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun isPossibleDuplicate(book: Book): Boolean {
-        fun key(b: Book) = (b.title + "|" + b.author).lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
+        fun key(b: Book) = (displayTitle(b) + "|" + displayAuthor(b)).lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
         return books.count { key(it) == key(book) } > 1
     }
 
@@ -249,8 +458,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun fillMissingDetails() {
-        for (book in books.toList().filter { it.cover == null && !prefs.getBoolean("cover_attempt_" + it.uri, false) }.take(20)) {
-            if (prefs.getBoolean("cover_attempt_" + book.uri, false)) continue
+        for (book in books.toList().filter { it.cover == null &&
+            !File(getApplication<Application>().filesDir, "removed-" + coverFile(getApplication(), it.uri).name).exists() &&
+            !prefs.getBoolean("cover_attempt_v9_" + it.uri, false) }.take(20)) {
+            if (prefs.getBoolean("cover_attempt_v9_" + book.uri, false)) continue
             prefs.edit().putBoolean("cover_attempt_" + book.uri, true).apply()
             val cover = try { withContext(Dispatchers.IO) { fetchCover(book) } } catch (_: Exception) { null }
             if (cover != null) {
@@ -259,8 +470,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         for (book in books.toList().filter { (it.spanishPlot.isBlank() || it.authorBio.isBlank()) &&
-            !prefs.getBoolean("info_attempt_" + it.uri, false) }.take(20)) {
-            if (prefs.getBoolean("info_attempt_" + book.uri, false)) continue
+            !prefs.getBoolean("info_attempt_v9_" + it.uri, false) &&
+            !prefs.getBoolean("manual_info_" + it.uri, false) }.take(20)) {
+            if (prefs.getBoolean("info_attempt_v9_" + book.uri, false)) continue
             prefs.edit().putBoolean("info_attempt_" + book.uri, true).apply()
             try {
                 val (rawPlot, rawBio) = withContext(Dispatchers.IO) { fetchSpanishInfo(book) }
@@ -277,7 +489,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleFavorite(uri: Uri) { books = books.map { if (it.uri == uri) it.copy(favorite=!it.favorite) else it } }
     fun setStatus(uri: Uri, status: ReadingStatus) { books = books.map { if (it.uri == uri) it.copy(status=status) else it } }
     fun clearMessage() { message = null }
+    fun clearDetailMessage() { detailMessage = null }
 }
+
+private fun displayAuthor(book: Book): String =
+    book.author.takeUnless { it.isBlank() || it == "Autor desconocido" } ?: "Biblioteca de Diroka77"
 
 private fun displayTitle(book: Book): String {
     var title = book.title.substringBeforeLast(".epub", book.title)
@@ -299,8 +515,11 @@ private fun scanFolder(context: Context, treeUri: Uri, onProgress: (Int) -> Unit
             if (f.isDirectory) walk(f)
             else if (f.name?.endsWith(".epub", true) == true) {
                 val epub = readEpub(context, f.uri, f.name ?: "Libro")
-                val saved = coverFile(context, f.uri).takeIf { it.exists() }?.readBytes()
-                out += if (saved != null) epub.copy(cover = saved) else epub
+                val file = coverFile(context, f.uri)
+                val removed = File(context.filesDir, "removed-" + file.name).exists()
+                val saved = file.takeIf { it.exists() }?.readBytes()
+                out += if (removed) epub.copy(cover = null)
+                    else if (saved != null) epub.copy(cover = saved) else epub
                 onProgress(out.size)
             }
         }
@@ -462,6 +681,16 @@ private fun fetchSpanishInfo(book: Book): Pair<String, String> {
             } catch (_: Exception) {}
         }
     }
+    if (bio.isBlank() && book.author.isNotBlank() && book.author != "Autor desconocido") try {
+        val q = java.net.URLEncoder.encode(book.author, "UTF-8")
+        val key = getJson("https://openlibrary.org/search/authors.json?q=$q")
+            .optJSONArray("docs")?.optJSONObject(0)?.optString("key").orEmpty()
+        if (key.matches(Regex("OL[0-9]+A"))) {
+            val value = getJson("https://openlibrary.org/authors/$key.json").opt("bio")
+            bio = (if (value is JSONObject) value.optString("value") else value as? String)
+                .orEmpty().take(1800)
+        }
+    } catch (_: Exception) {}
     return plot to bio
 }
 
@@ -548,25 +777,44 @@ private val libraryColors = lightColorScheme(
 )
 
 class MainActivity : ComponentActivity() {
+    private val libraryVm: LibraryViewModel by androidx.activity.viewModels()
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme(colorScheme = libraryColors) { LibraryApp() } }
+        handleSharedBook(intent)
+        setContent { MaterialTheme(colorScheme = libraryColors) { LibraryApp(libraryVm) } }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleSharedBook(intent)
+    }
+    private fun handleSharedBook(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        val shared = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+        val url = Regex("https://(?:www\\.)?goodreads\\.com/[^\\s]+").find(shared)?.value ?: return
+        val title = shared.substringBefore("https://").trim().take(120)
+        libraryVm.addGoodreadsWish(title, url)
     }
 }
 
 private fun openGoodreads(context: Context, book: Book? = null) {
-    val packageName = "com.goodreads"
-    val url = if (book == null) "https://www.goodreads.com/"
-        else "https://www.goodreads.com/search?q=" +
-            java.net.URLEncoder.encode(book.title + " " + book.author, "UTF-8")
-    try {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage(packageName))
-    } catch (_: Exception) {
-        val launch = context.packageManager.getLaunchIntentForPackage(packageName)
-        if (launch != null) context.startActivity(launch)
-        else context.startActivity(Intent(Intent.ACTION_VIEW,
-            Uri.parse("market://details?id=$packageName")))
+    val isbn = book?.isbn?.filter { it.isDigit() || it == 'X' || it == 'x' }.orEmpty()
+    val url = when {
+        book == null -> "https://www.goodreads.com/"
+        book.goodreadsUrl.startsWith("https://www.goodreads.com/") -> book.goodreadsUrl
+        isbn.length == 10 || isbn.length == 13 -> "https://www.goodreads.com/book/isbn/$isbn"
+        else -> "https://www.goodreads.com/search?q=" +
+            java.net.URLEncoder.encode(displayTitle(book) + " " + displayAuthor(book), "UTF-8")
     }
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.goodreads"))
+    } catch (_: Exception) {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+}
+
+private fun openGoodreadsUrl(context: Context, url: String) {
+    try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.goodreads")) }
+    catch (_: Exception) { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -575,12 +823,36 @@ private fun openGoodreads(context: Context, book: Book? = null) {
     var selected by remember { mutableStateOf<Book?>(null) }
     var addingSection by remember { mutableStateOf(false) }
     var sectionName by remember { mutableStateOf("") }
+    var sectionToDelete by remember { mutableStateOf<String?>(null) }
+    var showWishList by remember { mutableStateOf(false) }
+    var addWishDialog by remember { mutableStateOf(false) }
+    var wishTitle by remember { mutableStateOf("") }
+    var wishUrl by remember { mutableStateOf("") }
     if (addingSection) AlertDialog(
         onDismissRequest = { addingSection = false },
         title = { Text("Nueva sección") },
         text = { OutlinedTextField(sectionName, { sectionName = it }, label = { Text("Nombre") }) },
         confirmButton = { TextButton(onClick = { vm.addSection(sectionName); sectionName = ""; addingSection = false }) { Text("Crear") } },
         dismissButton = { TextButton(onClick = { addingSection = false }) { Text("Cancelar") } }
+    )
+    sectionToDelete?.let { name -> AlertDialog(
+        onDismissRequest = { sectionToDelete = null },
+        title = { Text("Eliminar sección") },
+        text = { Text("Se eliminará la sección «$name». Los libros permanecerán en la biblioteca.") },
+        confirmButton = { TextButton(onClick = { vm.deleteSection(name); sectionToDelete = null }) { Text("Eliminar") } },
+        dismissButton = { TextButton(onClick = { sectionToDelete = null }) { Text("Cancelar") } }
+    ) }
+    if (addWishDialog) AlertDialog(
+        onDismissRequest = { addWishDialog = false },
+        title = { Text("Añadir desde Goodreads") },
+        text = { Column {
+            OutlinedTextField(wishTitle, { wishTitle = it }, label = { Text("Título") })
+            OutlinedTextField(wishUrl, { wishUrl = it }, label = { Text("Enlace compartido de Goodreads") })
+        } },
+        confirmButton = { TextButton(onClick = {
+            vm.addGoodreadsWish(wishTitle, wishUrl); addWishDialog = false; wishTitle = ""; wishUrl = ""
+        }) { Text("Añadir") } },
+        dismissButton = { TextButton(onClick = { addWishDialog = false }) { Text("Cancelar") } }
     )
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
     val current = selected?.let { s -> vm.books.firstOrNull { it.uri == s.uri } }
@@ -589,27 +861,30 @@ private fun openGoodreads(context: Context, book: Book? = null) {
             { vm.setStatus(current.uri, it) }, { vm.downloadCover(current) }, vm.coverLoading == current.uri,
             vm.message, vm.isPossibleDuplicate(current), { vm.deleteDuplicate(current); selected = null },
             { vm.enrich(current) }, vm.infoLoading == current.uri,
-            vm.sections, { vm.assignSection(current.uri, it) })
+            vm.sections, { vm.assignSection(current.uri, it) },
+            { vm.saveNotes(current.uri, it) }, { plot, bio -> vm.saveManualInfo(current.uri, plot, bio) },
+            { vm.replaceCover(current.uri, it) }, { vm.removeCover(current.uri) },
+            { vm.setGoodreadsUrl(current.uri, it) }, { vm.toggleWantToRead(current.uri) },
+            vm.detailMessage)
         return
     }
     Scaffold(
         containerColor = Parchment,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text("Mi Biblioteca  By Diroka77", modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Center, fontSize = 13.sp, color = Color.White,
-                        fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, maxLines = 1)
-                },
-                actions = {
-                    TextButton(onClick = { vm.sync() }, enabled = !vm.syncing) {
-                        Text("↻", style = MaterialTheme.typography.headlineMedium, color = Paper)
-                    }
-                    TextButton(onClick = { folderPicker.launch(null) }) { Text("▣", color = Paper, fontSize = 21.sp) }
-                    TextButton(onClick = { openGoodreads(context) }) { Text("G", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = Paper) }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Mahogany)
-            )
+            Column(Modifier.fillMaxWidth().background(Mahogany)) {
+                Box(Modifier.fillMaxWidth().height(52.dp), contentAlignment = Alignment.Center) {
+                    Text("Mi Biblioteca   By Diroka77", color = Color.White,
+                        fontSize = 17.sp, fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { vm.sync() }, enabled = !vm.syncing) { Text("↻", color = Paper, fontSize = 23.sp) }
+                    TextButton(onClick = { folderPicker.launch(null) }) { Text("Carpeta", color = Paper) }
+                    TextButton(onClick = { openGoodreads(context) }) { Text("Goodreads", color = Paper) }
+                    TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://www.google.com/"))) }) { Text("Google", color = Paper) }
+                }
+            }
         }
     ) { p ->
         Column(Modifier.padding(p).fillMaxSize().padding(horizontal = 16.dp)) {
@@ -651,10 +926,26 @@ private fun openGoodreads(context: Context, book: Book? = null) {
                 FilterChip(vm.selectedSection == null, { vm.selectedSection = null }, { Text("Todas las secciones") })
                 vm.sections.forEach { name ->
                     FilterChip(vm.selectedSection == name, { vm.selectedSection = name }, { Text(name) })
+                    TextButton(onClick = { sectionToDelete = name }) { Text("×") }
                 }
                 TextButton(onClick = { addingSection = true }) { Text("+ Sección") }
             }
-            if (vm.books.isEmpty() && !vm.syncing) {
+            Row {
+                FilterChip(showWishList, { showWishList = !showWishList }, { Text("Quiero leer (${vm.wishList.size})") })
+                if (showWishList) TextButton(onClick = { addWishDialog = true }) { Text("+ Goodreads") }
+            }
+            if (showWishList) {
+                LazyColumn {
+                    items(vm.wishList, key = { it.second }) { (title, url) ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { openGoodreadsUrl(context, url) }, modifier = Modifier.weight(1f)) {
+                                Text(title.ifBlank { "Libro de Goodreads" })
+                            }
+                            TextButton(onClick = { vm.removeGoodreadsWish(url) }) { Text("×") }
+                        }
+                    }
+                }
+            } else if (vm.books.isEmpty() && !vm.syncing) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("📚", style = MaterialTheme.typography.displayMedium)
@@ -666,7 +957,7 @@ private fun openGoodreads(context: Context, book: Book? = null) {
             } else LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(bottom = 20.dp)) {
                 val groups = when (vm.groupMode) {
-                    "Autores" -> vm.filtered.groupBy { it.author.ifBlank { "Autor desconocido" } }
+                    "Autores" -> vm.filtered.groupBy { displayAuthor(it) }
                     "Sagas" -> vm.filtered.groupBy { it.saga.ifBlank { "Sin saga" } }
                     "Secciones" -> vm.filtered.groupBy { it.section.ifBlank { "Sin sección" } }
                     else -> mapOf("" to vm.filtered)
@@ -685,7 +976,7 @@ private fun openGoodreads(context: Context, book: Book? = null) {
     }
 }
 
-@Composable private fun BookCard(book:Book,onClick:()->Unit){Card(Modifier.fillMaxWidth().clickable(onClick=onClick), colors = CardDefaults.cardColors(containerColor = Paper), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Cover(book,92.dp,132.dp);Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Row(verticalAlignment=Alignment.CenterVertically){Text(displayTitle(book),fontWeight=FontWeight.Bold,fontFamily=FontFamily.Serif,fontSize=14.sp,lineHeight=18.sp,modifier=Modifier.weight(1f));if(book.favorite)Text("★")};Text(book.author,fontSize=12.sp)}}}}
+@Composable private fun BookCard(book:Book,onClick:()->Unit){Card(Modifier.fillMaxWidth().clickable(onClick=onClick), colors = CardDefaults.cardColors(containerColor = Paper), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Cover(book,92.dp,132.dp);Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Row(verticalAlignment=Alignment.CenterVertically){Text(displayTitle(book),fontWeight=FontWeight.Bold,fontFamily=FontFamily.Serif,fontSize=14.sp,lineHeight=18.sp,modifier=Modifier.weight(1f));if(book.favorite)Text("★")};Text(displayAuthor(book),fontSize=12.sp)}}}}
 
 @Composable private fun Cover(book:Book,w:androidx.compose.ui.unit.Dp,h:androidx.compose.ui.unit.Dp){val bmp=remember(book.cover){book.cover?.let{BitmapFactory.decodeByteArray(it,0,it.size)}};Surface(Modifier.width(w).height(h),shape=MaterialTheme.shapes.small,tonalElevation=5.dp){if(bmp!=null)Image(bmp.asImageBitmap(),book.title,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)else Box(contentAlignment=Alignment.Center){Text("📖",style=MaterialTheme.typography.headlineLarge)}}}
 
@@ -694,17 +985,49 @@ private fun openGoodreads(context: Context, book: Book? = null) {
     book: Book, back: () -> Unit, toggleFavorite: () -> Unit,
     setStatus: (ReadingStatus) -> Unit, downloadCover: () -> Unit, coverLoading: Boolean, message: String?,
     possibleDuplicate: Boolean, deleteBook: () -> Unit, enrich: () -> Unit, infoLoading: Boolean,
-    sections: List<String>, assignSection: (String) -> Unit
+    sections: List<String>, assignSection: (String) -> Unit,
+    saveNotes: (String) -> Unit, saveInfo: (String, String) -> Unit,
+    replaceCover: (Uri) -> Unit, removeCover: () -> Unit,
+    saveGoodreadsUrl: (String) -> Unit, toggleWant: () -> Unit, detailMessage: String?
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var confirmDelete by remember { mutableStateOf(false) }
     var sectionMenu by remember { mutableStateOf(false) }
+    var editInfo by remember { mutableStateOf(false) }
+    var editLink by remember { mutableStateOf(false) }
+    var plotDraft by remember { mutableStateOf("") }
+    var bioDraft by remember { mutableStateOf("") }
+    var linkDraft by remember { mutableStateOf("") }
+    var notesDraft by remember(book.uri, book.notes) { mutableStateOf(book.notes) }
+    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
+        it?.let(replaceCover)
+    }
     if (confirmDelete) AlertDialog(
         onDismissRequest = { confirmDelete = false },
-        title = { Text("Borrar EPUB duplicado") },
-        text = { Text("Se eliminará este archivo de la carpeta de Drive. Esta acción no se puede deshacer desde MiBiblioteca. Comprueba que quieres borrar esta copia: ${book.title}.") },
+        title = { Text("Borrar EPUB") },
+        text = { Text("Se eliminará este archivo de Drive. Comprueba que quieres borrar esta copia de «${displayTitle(book)}».") },
         confirmButton = { TextButton(onClick = { confirmDelete = false; deleteBook() }) { Text("Borrar archivo") } },
         dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancelar") } }
+    )
+    if (editInfo) AlertDialog(
+        onDismissRequest = { editInfo = false },
+        title = { Text("Editar ficha en castellano") },
+        text = { Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            OutlinedTextField(plotDraft, { plotDraft = it }, label = { Text("Argumento") },
+                minLines = 4, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(bioDraft, { bioDraft = it }, label = { Text("Biografía del autor") },
+                minLines = 4, modifier = Modifier.fillMaxWidth())
+        } },
+        confirmButton = { TextButton(onClick = { saveInfo(plotDraft, bioDraft); editInfo = false }) { Text("Guardar") } },
+        dismissButton = { TextButton(onClick = { editInfo = false }) { Text("Cancelar") } }
+    )
+    if (editLink) AlertDialog(
+        onDismissRequest = { editLink = false },
+        title = { Text("Enlace exacto de Goodreads") },
+        text = { OutlinedTextField(linkDraft, { linkDraft = it },
+            label = { Text("Pega el enlace del libro") }, modifier = Modifier.fillMaxWidth()) },
+        confirmButton = { TextButton(onClick = { saveGoodreadsUrl(linkDraft); editLink = false }) { Text("Guardar") } },
+        dismissButton = { TextButton(onClick = { editLink = false }) { Text("Cancelar") } }
     )
     Scaffold(containerColor = Parchment, topBar = {
         TopAppBar(
@@ -715,23 +1038,23 @@ private fun openGoodreads(context: Context, book: Book? = null) {
         )
     }) { p ->
         LazyColumn(Modifier.padding(p).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (message != null) item { Text(message, color = Mahogany) }
+            (detailMessage ?: message)?.let { notice -> item { Text(notice, color = Mahogany, fontSize = 12.sp) } }
             item {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Cover(book, 165.dp, 240.dp)
                     Spacer(Modifier.height(12.dp))
                     Text(displayTitle(book), fontSize = 16.sp, lineHeight = 20.sp,
                         fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-                    Text(book.author, fontSize = 13.sp)
+                    Text(displayAuthor(book), fontSize = 13.sp)
                     if (book.saga.isNotBlank()) Text("Saga: ${book.saga}", fontSize = 12.sp)
+                    Row {
+                        TextButton(onClick = { coverPicker.launch("image/*") }) { Text("Cambiar portada") }
+                        if (book.cover != null) TextButton(onClick = removeCover) { Text("Quitar portada") }
+                    }
+                    if (book.cover == null) OutlinedButton(onClick = downloadCover, enabled = !coverLoading) {
+                        Text(if (coverLoading) "Buscando portada…" else "Buscar portada")
+                    }
                 }
-            }
-            if (book.cover == null) item {
-                OutlinedButton(onClick = downloadCover, enabled = !coverLoading) {
-                    Text(if (coverLoading) "Buscando portada…" else "↓  Descargar portada")
-                }
-                Text("Portadas de Open Library. Se guardan en el teléfono.",
-                    style = MaterialTheme.typography.bodySmall)
             }
             item {
                 Box {
@@ -745,9 +1068,12 @@ private fun openGoodreads(context: Context, book: Book? = null) {
                         }
                     }
                 }
+                OutlinedButton(onClick = toggleWant) {
+                    Text(if (book.wantToRead) "✓ Quiero leer" else "+ Quiero leer más adelante")
+                }
             }
             item {
-                Text("Estado", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif, fontSize = 13.sp)
+                Text("Estado", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ReadingStatus.entries.forEach { status ->
                         FilterChip(book.status == status, { setStatus(status) }, { Text(status.label) })
@@ -759,22 +1085,35 @@ private fun openGoodreads(context: Context, book: Book? = null) {
                 Info("Género", book.genre); Info("ISBN", book.isbn)
             }
             item {
-                Text("Argumento", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif, fontSize = 13.sp)
+                Text("Argumento", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 val plot = book.spanishPlot.ifBlank {
                     book.description.takeIf { book.language.lowercase().startsWith("es") ||
                         book.language.lowercase().startsWith("spa") }.orEmpty()
                 }
-                Text(plot.ifBlank { "Argumento en castellano no disponible. Pulsa «Buscar argumento y autor»." },
+                Text(plot.ifBlank { "Argumento en castellano pendiente. Puedes buscarlo o escribirlo." },
                     fontSize = 12.sp, lineHeight = 17.sp)
                 Spacer(Modifier.height(8.dp))
-                Text("Sobre el autor", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif, fontSize = 13.sp)
-                Text(book.authorBio.ifBlank { "Biografía en castellano no disponible." },
+                Text("Sobre el autor", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(book.authorBio.ifBlank { "Biografía en castellano pendiente. Puedes buscarla o escribirla." },
                     fontSize = 12.sp, lineHeight = 17.sp)
-                Text("Fuentes: Google Books y Wikipedia en español.",
-                    style = MaterialTheme.typography.labelSmall)
-                OutlinedButton(onClick = enrich, enabled = !infoLoading) {
-                    Text(if (infoLoading) "Consultando…" else "Buscar argumento y autor")
+                Row {
+                    TextButton(onClick = enrich, enabled = !infoLoading) {
+                        Text(if (infoLoading) "Consultando…" else "Buscar datos")
+                    }
+                    TextButton(onClick = {
+                        plotDraft = book.spanishPlot.ifBlank { plot }
+                        bioDraft = book.authorBio
+                        editInfo = true
+                    }) { Text("Editar texto") }
                 }
+            }
+            item {
+                Text("Mis observaciones", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                OutlinedTextField(notesDraft, { notesDraft = it }, modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Escribe tus notas sobre este libro") }, minLines = 3)
+                TextButton(onClick = { saveNotes(notesDraft) }) { Text("Guardar observaciones") }
+                Text("Se guardan en el teléfono y en MiBiblioteca_Diroka77.json de Drive.",
+                    style = MaterialTheme.typography.labelSmall)
             }
             item {
                 Button(onClick = {
@@ -785,9 +1124,16 @@ private fun openGoodreads(context: Context, book: Book? = null) {
                     try { context.startActivity(intent) } catch (_: Exception) {}
                 }, modifier = Modifier.fillMaxWidth()) { Text("📖  Abrir EPUB") }
                 OutlinedButton(onClick = { openGoodreads(context, book) },
-                    modifier = Modifier.fillMaxWidth()) { Text("Consultar en Goodreads") }
-                if (possibleDuplicate) OutlinedButton(onClick = { confirmDelete = true },
-                    modifier = Modifier.fillMaxWidth()) { Text("Borrar esta copia duplicada") }
+                    modifier = Modifier.fillMaxWidth()) { Text("Abrir este libro en Goodreads") }
+                TextButton(onClick = { linkDraft = book.goodreadsUrl; editLink = true }) {
+                    Text("Pegar enlace exacto de Goodreads")
+                }
+                OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW,
+                    Uri.parse("https://www.google.com/search?q=" +
+                        java.net.URLEncoder.encode(displayTitle(book) + " " + displayAuthor(book), "UTF-8")))) },
+                    modifier = Modifier.fillMaxWidth()) { Text("Consultar en Google") }
+                OutlinedButton(onClick = { confirmDelete = true },
+                    modifier = Modifier.fillMaxWidth()) { Text("Borrar este EPUB de Drive") }
             }
         }
     }
