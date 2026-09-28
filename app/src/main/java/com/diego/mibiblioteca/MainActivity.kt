@@ -81,7 +81,10 @@ data class Book(
     val section: String = "",
     val notes: String = "",
     val goodreadsUrl: String = "",
-    val wantToRead: Boolean = false
+    val wantToRead: Boolean = false,
+    val customTitle: String = "",
+    val customAuthor: String = "",
+    val sagaOrder: String = ""
 )
 
 class LibraryViewModel(app: Application) : AndroidViewModel(app) {
@@ -129,7 +132,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     language = j.optString("language"), spanishPlot = saved?.optString("plot").orEmpty(),
                     authorBio = saved?.optString("bio").orEmpty(), section = j.optString("section"),
                     notes = j.optString("notes"), goodreadsUrl = j.optString("goodreadsUrl"),
-                    wantToRead = j.optBoolean("wantToRead"))
+                    wantToRead = j.optBoolean("wantToRead"),
+                    customTitle = j.optString("customTitle"), customAuthor = j.optString("customAuthor"),
+                    sagaOrder = j.optString("sagaOrder"))
             }
         } catch (_: Exception) { books = emptyList() }
     }
@@ -141,7 +146,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .put("publisher", b.publisher).put("genre", b.genre).put("description", b.description)
             .put("isbn", b.isbn).put("saga", b.saga).put("language", b.language)
             .put("section", b.section).put("notes", b.notes)
-            .put("goodreadsUrl", b.goodreadsUrl).put("wantToRead", b.wantToRead)) }
+            .put("goodreadsUrl", b.goodreadsUrl).put("wantToRead", b.wantToRead)
+            .put("customTitle", b.customTitle).put("customAuthor", b.customAuthor)
+            .put("sagaOrder", b.sagaOrder)) }
         prefs.edit().putString("books_cache", array.toString()).apply()
         saveCloud()
     }
@@ -276,6 +283,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         saveBooks()
     }
 
+    fun editIdentity(uri: Uri, title: String, author: String, saga: String, order: String) {
+        books = books.map { if (it.uri == uri) it.copy(
+            customTitle = title.trim(), customAuthor = author.trim(),
+            saga = saga.trim(), sagaOrder = order.trim()) else it }
+        saveBooks()
+    }
+
     fun saveNotes(uri: Uri, notes: String) {
         books = books.map { if (it.uri == uri) it.copy(notes = notes) else it }
         saveBooks()
@@ -380,7 +394,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     b.copy(spanishPlot = prior?.spanishPlot ?: saved?.optString("plot").orEmpty(),
                         authorBio = prior?.authorBio ?: saved?.optString("bio").orEmpty(),
                         section = prior?.section.orEmpty(), notes = prior?.notes.orEmpty(),
-                        goodreadsUrl = prior?.goodreadsUrl.orEmpty(), wantToRead = prior?.wantToRead ?: false)
+                        goodreadsUrl = prior?.goodreadsUrl.orEmpty(), wantToRead = prior?.wantToRead ?: false,
+                        customTitle = prior?.customTitle.orEmpty(), customAuthor = prior?.customAuthor.orEmpty(),
+                        sagaOrder = prior?.sagaOrder ?: b.sagaOrder)
                 }
                 saveBooks()
                 viewModelScope.launch { fillMissingDetails() }
@@ -493,19 +509,34 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun clearDetailMessage() { detailMessage = null }
 }
 
-private fun displayAuthor(book: Book): String =
-    book.author.takeUnless { it.isBlank() || it == "Autor desconocido" } ?: "Biblioteca de Diroka77"
+private fun displayAuthor(book: Book): String {
+    if (book.customAuthor.isNotBlank()) return book.customAuthor
+    if (book.author.isNotBlank() && book.author != "Autor desconocido") return book.author
+    val parts = book.title.replace('_', ' ').split(Regex("\\s+-\\s+"))
+    val possible = parts.lastOrNull().orEmpty().trim()
+    if (parts.size >= 2 && possible.length in 4..45 &&
+        possible.split(' ').size in 2..5 && possible.none { it.isDigit() }) return possible
+    return "Biblioteca de Diroka77"
+}
 
 private fun displayTitle(book: Book): String {
+    if (book.customTitle.isNotBlank()) return book.customTitle
     var title = book.title.substringBeforeLast(".epub", book.title)
         .replace('_', ' ').replace(Regex("\\[[^]]*]"), " ")
         .replace(Regex("\\([^)]*(?:epub|pdf|descarga|edici[oó]n digital)[^)]*\\)", RegexOption.IGNORE_CASE), " ")
         .trim()
-    val parts = title.split(Regex("\\s+-\\s+"))
-    if (parts.size > 1) {
-        title = if (parts.first().equals(book.author, true)) parts[1] else parts.first()
+    val author = displayAuthor(book)
+    if (author != "Biblioteca de Diroka77") {
+        title = title.removePrefix("$author - ").removeSuffix(" - $author")
     }
     return title.replace(Regex("\\s+"), " ").take(100).ifBlank { book.title }
+}
+
+private fun sagaNumber(book: Book): Double {
+    book.sagaOrder.toDoubleOrNull()?.let { return it }
+    val match = Regex("(?:#|n[ºo.]?\\s*|vol\\.?\\s*|tomo\\s*|\\[)(\\d+(?:\\.\\d+)?)",
+        RegexOption.IGNORE_CASE).find(book.title)
+    return match?.groupValues?.get(1)?.toDoubleOrNull() ?: Double.POSITIVE_INFINITY
 }
 
 private fun scanFolder(context: Context, treeUri: Uri, onProgress: (Int) -> Unit): List<Book> {
@@ -568,7 +599,8 @@ private fun readEpub(context: Context, uri: Uri, fallbackName: String): Book {
         val base = opfPath.substringBeforeLast('/', "")
         val coverPath = meta.coverHref?.let { normalizePath(if (base.isBlank()) it else "$base/$it") }
         Book(uri, meta.title.ifBlank { fallback.title }, meta.author, meta.date, meta.publisher,
-            meta.genre, meta.description, meta.isbn, meta.saga, coverPath?.let(entries::get), language = meta.language)
+            meta.genre, meta.description, meta.isbn, meta.saga, coverPath?.let(entries::get),
+            language = meta.language, sagaOrder = meta.sagaOrder)
     } catch (_: Exception) { fallback }
 }
 
@@ -602,7 +634,7 @@ private fun fetchCover(book: Book): ByteArray? {
     }
     try {
         val q = "title=" + java.net.URLEncoder.encode(displayTitle(book), "UTF-8") +
-            "&author=" + java.net.URLEncoder.encode(book.author.takeUnless { it == "Autor desconocido" }.orEmpty(), "UTF-8")
+            "&author=" + java.net.URLEncoder.encode(displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty(), "UTF-8")
         val docs = getJson("https://openlibrary.org/search.json?$q&fields=cover_i,title,author_name&limit=3")
             .optJSONArray("docs")
         for (i in 0 until (docs?.length() ?: 0)) {
@@ -613,7 +645,7 @@ private fun fetchCover(book: Book): ByteArray? {
     } catch (_: Exception) {}
     try {
         val q = if (isbn.length == 10 || isbn.length == 13) "isbn:$isbn"
-            else "intitle:${displayTitle(book)} inauthor:${book.author}"
+            else "intitle:${displayTitle(book)} inauthor:${displayAuthor(book)}"
         val url = "https://www.googleapis.com/books/v1/volumes?q=" +
             java.net.URLEncoder.encode(q, "UTF-8") + "&maxResults=3"
         val items = getJson(url).optJSONArray("items")
@@ -641,7 +673,7 @@ private fun fetchSpanishInfo(book: Book): Pair<String, String> {
     try {
         val isbn = book.isbn.filter { it.isDigit() || it == 'X' || it == 'x' }
         val query = if (isbn.length == 10 || isbn.length == 13) "isbn:$isbn"
-            else "intitle:${displayTitle(book)} inauthor:${book.author}"
+            else "intitle:${displayTitle(book)} inauthor:${displayAuthor(book)}"
         val url = "https://www.googleapis.com/books/v1/volumes?q=" +
             java.net.URLEncoder.encode(query, "UTF-8") + "&langRestrict=es&maxResults=5"
         val items = getJson(url).optJSONArray("items")
@@ -659,7 +691,7 @@ private fun fetchSpanishInfo(book: Book): Pair<String, String> {
     }
     if (plot.isBlank()) try {
         val q = "title=" + java.net.URLEncoder.encode(displayTitle(book), "UTF-8") +
-            "&author=" + java.net.URLEncoder.encode(book.author, "UTF-8")
+            "&author=" + java.net.URLEncoder.encode(displayAuthor(book), "UTF-8")
         val key = getJson("https://openlibrary.org/search.json?$q&fields=key,title&limit=1")
             .optJSONArray("docs")?.optJSONObject(0)?.optString("key").orEmpty()
         if (key.startsWith("/works/")) {
@@ -667,11 +699,25 @@ private fun fetchSpanishInfo(book: Book): Pair<String, String> {
             plot = (if (desc is JSONObject) desc.optString("value") else desc as? String).orEmpty().take(2500)
         }
     } catch (_: Exception) {}
+    if (plot.isBlank()) {
+        for (title in listOf(displayTitle(book), displayTitle(book) + " (novela)")) {
+            try {
+                val encoded = java.net.URLEncoder.encode(title, "UTF-8")
+                val url = "https://es.wikipedia.org/w/api.php?action=query&prop=extracts" +
+                    "&exintro=1&explaintext=1&redirects=1&format=json&formatversion=2&titles=$encoded"
+                val page = getJson(url).optJSONObject("query")?.optJSONArray("pages")?.optJSONObject(0)
+                if (page != null && !page.has("missing")) {
+                    plot = page.optString("extract").trim().take(2500)
+                    if (plot.isNotBlank()) break
+                }
+            } catch (_: Exception) {}
+        }
+    }
     var bio = ""
-    if (book.author.isNotBlank() && book.author != "Autor desconocido") {
+    if (displayAuthor(book).isNotBlank() && displayAuthor(book) != "Biblioteca de Diroka77") {
         for (host in listOf("es", "en")) {
             try {
-                val title = java.net.URLEncoder.encode(book.author, "UTF-8")
+                val title = java.net.URLEncoder.encode(displayAuthor(book), "UTF-8")
                 val url = "https://$host.wikipedia.org/w/api.php?action=query&prop=extracts" +
                     "&exintro=1&explaintext=1&redirects=1&format=json&formatversion=2&titles=$title"
                 val page = getJson(url).optJSONObject("query")?.optJSONArray("pages")?.optJSONObject(0)
@@ -682,8 +728,8 @@ private fun fetchSpanishInfo(book: Book): Pair<String, String> {
             } catch (_: Exception) {}
         }
     }
-    if (bio.isBlank() && book.author.isNotBlank() && book.author != "Autor desconocido") try {
-        val q = java.net.URLEncoder.encode(book.author, "UTF-8")
+    if (bio.isBlank() && displayAuthor(book).isNotBlank() && displayAuthor(book) != "Biblioteca de Diroka77") try {
+        val q = java.net.URLEncoder.encode(displayAuthor(book), "UTF-8")
         val key = getJson("https://openlibrary.org/search/authors.json?q=$q")
             .optJSONArray("docs")?.optJSONObject(0)?.optString("key").orEmpty()
         if (key.matches(Regex("OL[0-9]+A"))) {
@@ -725,7 +771,7 @@ private fun normalizePath(path: String): String {
     return parts.joinToString("/")
 }
 
-private data class EpubMeta(var title:String="",var author:String="Autor desconocido",var date:String="",var publisher:String="",var genre:String="",var description:String="Sin descripción disponible.",var isbn:String="",var saga:String="",var coverHref:String?=null,var language:String="")
+private data class EpubMeta(var title:String="",var author:String="Autor desconocido",var date:String="",var publisher:String="",var genre:String="",var description:String="Sin descripción disponible.",var isbn:String="",var saga:String="",var coverHref:String?=null,var language:String="",var sagaOrder:String="")
 
 private fun parseOpf(bytes: ByteArray): EpubMeta {
     val m = EpubMeta(); val manifest = mutableMapOf<String,String>(); var coverId:String? = null
@@ -749,7 +795,8 @@ private fun parseOpf(bytes: ByteArray): EpubMeta {
                     val content=(0 until p.attributeCount).firstOrNull{p.getAttributeName(it)=="content"}?.let{p.getAttributeValue(it)}
                     val prop=(0 until p.attributeCount).firstOrNull{p.getAttributeName(it)=="property"}?.let{p.getAttributeValue(it)}
                     if(name=="cover") coverId=content
-                    if(name?.contains("series",true)==true || prop?.contains("belongs-to-collection",true)==true) m.saga=content ?: text()
+                    if(name?.contains("series_index",true)==true || prop?.contains("group-position",true)==true) m.sagaOrder = content ?: text()
+                    else if(name?.contains("series",true)==true || prop?.contains("belongs-to-collection",true)==true) m.saga=content ?: text()
                 }
                 "item" -> {
                     var id=""; var href=""; var properties=""
@@ -810,13 +857,28 @@ private fun openGoodreads(context: Context, book: Book? = null) {
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.goodreads"))
     } catch (_: Exception) {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        val launch = context.packageManager.getLaunchIntentForPackage("com.goodreads")
+        if (launch != null) context.startActivity(launch)
+        else android.widget.Toast.makeText(context, "Instala o abre Goodreads en este teléfono", android.widget.Toast.LENGTH_LONG).show()
     }
 }
 
 private fun openGoodreadsUrl(context: Context, url: String) {
     try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.goodreads")) }
-    catch (_: Exception) { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+    catch (_: Exception) {
+        val launch = context.packageManager.getLaunchIntentForPackage("com.goodreads")
+        if (launch != null) context.startActivity(launch)
+        else android.widget.Toast.makeText(context, "Goodreads no está disponible", android.widget.Toast.LENGTH_LONG).show()
+    }
+}
+
+private fun openCasaDelLibro(context: Context) {
+    val manager = context.packageManager
+    val launch = manager.getLaunchIntentForPackage("com.tagus")
+        ?: manager.getLaunchIntentForPackage("com.casadellibro.lecturadigital")
+    if (launch != null) context.startActivity(launch)
+    else android.widget.Toast.makeText(context, "No se encontró Casa del Libro en el teléfono",
+        android.widget.Toast.LENGTH_LONG).show()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -867,24 +929,31 @@ private fun openGoodreadsUrl(context: Context, url: String) {
             { vm.saveNotes(current.uri, it) }, { plot, bio -> vm.saveManualInfo(current.uri, plot, bio) },
             { vm.replaceCover(current.uri, it) }, { vm.removeCover(current.uri) },
             { vm.setGoodreadsUrl(current.uri, it) }, { vm.toggleWantToRead(current.uri) },
-            vm.detailMessage)
+            vm.detailMessage,
+            { title, author, saga, order -> vm.editIdentity(current.uri, title, author, saga, order) })
         return
     }
     Scaffold(
         containerColor = Parchment,
         topBar = {
-            Column(Modifier.fillMaxWidth().background(Mahogany)) {
+            Column(Modifier.fillMaxWidth().background(Mahogany).statusBarsPadding()) {
                 Box(Modifier.fillMaxWidth().height(52.dp), contentAlignment = Alignment.Center) {
                     Text("Mi Biblioteca   By Diroka77", color = Color.White,
                         fontSize = 17.sp, fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = { vm.sync() }, enabled = !vm.syncing) { Text("↻", color = Paper, fontSize = 23.sp) }
-                    TextButton(onClick = { folderPicker.launch(null) }) { Text("Carpeta", color = Paper) }
-                    TextButton(onClick = { openGoodreads(context) }) { Text("Goodreads", color = Paper) }
-                    TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW,
-                        Uri.parse("https://www.google.com/"))) }) { Text("Google", color = Paper) }
+                Row(Modifier.fillMaxWidth().height(44.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Carpeta", color = Paper, fontSize = 12.sp,
+                        modifier = Modifier.clickable { folderPicker.launch(null) }.padding(6.dp))
+                    Text("Goodreads", color = Paper, fontSize = 12.sp,
+                        modifier = Modifier.clickable { openGoodreads(context) }.padding(6.dp))
+                    Text("Google", color = Paper, fontSize = 12.sp,
+                        modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://www.google.com/"))) }.padding(6.dp))
+                    Text("Casa del Libro", color = Paper, fontSize = 12.sp,
+                        modifier = Modifier.clickable { openCasaDelLibro(context) }.padding(6.dp))
                 }
             }
         }
@@ -893,9 +962,15 @@ private fun openGoodreadsUrl(context: Context, url: String) {
             Spacer(Modifier.height(18.dp))
             Text("✦  ENTRE ESTANTERÍAS  ✦", color = Brass, fontFamily = FontFamily.Serif,
                 style = MaterialTheme.typography.labelMedium)
-            Text("Historias por descubrir", fontFamily = FontFamily.Serif,
-                style = MaterialTheme.typography.headlineSmall, color = Ink,
-                modifier = Modifier.padding(bottom = 14.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Historias por descubrir", fontFamily = FontFamily.Serif,
+                    style = MaterialTheme.typography.headlineSmall, color = Ink,
+                    modifier = Modifier.weight(1f))
+                TextButton(onClick = { vm.sync() }, enabled = !vm.syncing) {
+                    Text("📖", fontSize = 18.sp)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
             if (vm.syncing) {
                 LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
                 Text("Revisando ${vm.syncCount} libros…", modifier = Modifier.padding(vertical = 8.dp),
@@ -969,7 +1044,9 @@ private fun openGoodreadsUrl(context: Context, url: String) {
                         Text(name, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
                             color = Mahogany, modifier = Modifier.padding(top = 10.dp))
                     }
-                    items(group, key = { it.uri.toString() }) { book ->
+                    items(if (vm.groupMode == "Sagas") group.sortedWith(
+                        compareBy<Book> { sagaNumber(it) }.thenBy(String.CASE_INSENSITIVE_ORDER) { displayTitle(it) })
+                        else group, key = { it.uri.toString() }) { book ->
                         BookCard(book) { selected = book }
                     }
                 }
@@ -990,13 +1067,19 @@ private fun openGoodreadsUrl(context: Context, url: String) {
     sections: List<String>, assignSection: (String) -> Unit,
     saveNotes: (String) -> Unit, saveInfo: (String, String) -> Unit,
     replaceCover: (Uri) -> Unit, removeCover: () -> Unit,
-    saveGoodreadsUrl: (String) -> Unit, toggleWant: () -> Unit, detailMessage: String?
+    saveGoodreadsUrl: (String) -> Unit, toggleWant: () -> Unit, detailMessage: String?,
+    editIdentity: (String, String, String, String) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var confirmDelete by remember { mutableStateOf(false) }
     var sectionMenu by remember { mutableStateOf(false) }
     var editInfo by remember { mutableStateOf(false) }
     var editLink by remember { mutableStateOf(false) }
+    var editIdentityDialog by remember { mutableStateOf(false) }
+    var titleDraft by remember { mutableStateOf("") }
+    var authorDraft by remember { mutableStateOf("") }
+    var sagaDraft by remember { mutableStateOf("") }
+    var orderDraft by remember { mutableStateOf("") }
     var plotDraft by remember { mutableStateOf("") }
     var bioDraft by remember { mutableStateOf("") }
     var linkDraft by remember { mutableStateOf("") }
@@ -1010,6 +1093,21 @@ private fun openGoodreadsUrl(context: Context, url: String) {
         text = { Text("Se eliminará este archivo de Drive. Comprueba que quieres borrar esta copia de «${displayTitle(book)}».") },
         confirmButton = { TextButton(onClick = { confirmDelete = false; deleteBook() }) { Text("Borrar archivo") } },
         dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancelar") } }
+    )
+    if (editIdentityDialog) AlertDialog(
+        onDismissRequest = { editIdentityDialog = false },
+        title = { Text("Editar título, autor y saga") },
+        text = { Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            OutlinedTextField(titleDraft, { titleDraft = it }, label = { Text("Título") })
+            OutlinedTextField(authorDraft, { authorDraft = it }, label = { Text("Autor") })
+            OutlinedTextField(sagaDraft, { sagaDraft = it }, label = { Text("Saga") })
+            OutlinedTextField(orderDraft, { orderDraft = it }, label = { Text("Número en la saga") })
+        } },
+        confirmButton = { TextButton(onClick = {
+            editIdentity(titleDraft, authorDraft, sagaDraft, orderDraft)
+            editIdentityDialog = false
+        }) { Text("Guardar") } },
+        dismissButton = { TextButton(onClick = { editIdentityDialog = false }) { Text("Cancelar") } }
     )
     if (editInfo) AlertDialog(
         onDismissRequest = { editInfo = false },
@@ -1048,7 +1146,13 @@ private fun openGoodreadsUrl(context: Context, url: String) {
                     Text(displayTitle(book), fontSize = 16.sp, lineHeight = 20.sp,
                         fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
                     Text(displayAuthor(book), fontSize = 13.sp)
-                    if (book.saga.isNotBlank()) Text("Saga: ${book.saga}", fontSize = 12.sp)
+                    if (book.saga.isNotBlank()) Text("Saga: ${book.saga}" +
+                        book.sagaOrder.takeIf { it.isNotBlank() }?.let { " · nº $it" }.orEmpty(), fontSize = 12.sp)
+                    TextButton(onClick = {
+                        titleDraft = displayTitle(book); authorDraft = displayAuthor(book)
+                        sagaDraft = book.saga; orderDraft = book.sagaOrder
+                        editIdentityDialog = true
+                    }) { Text("Editar título y autor") }
                     Row {
                         TextButton(onClick = { coverPicker.launch("image/*") }) { Text("Cambiar portada") }
                         if (book.cover != null) TextButton(onClick = removeCover) { Text("Quitar portada") }
