@@ -56,7 +56,10 @@ data class Book(
     val saga: String = "",
     val cover: ByteArray? = null,
     val favorite: Boolean = false,
-    val status: ReadingStatus = ReadingStatus.PENDING
+    val status: ReadingStatus = ReadingStatus.PENDING,
+    val language: String = "",
+    val spanishPlot: String = "",
+    val authorBio: String = ""
 )
 
 class LibraryViewModel(app: Application) : AndroidViewModel(app) {
@@ -65,6 +68,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var onlyFavorites by mutableStateOf(false)
     var books by mutableStateOf<List<Book>>(emptyList()); private set
     var coverLoading by mutableStateOf<Uri?>(null); private set
+    var infoLoading by mutableStateOf<Uri?>(null); private set
     var syncing by mutableStateOf(false); private set
     var syncCount by mutableIntStateOf(0); private set
     var folderName by mutableStateOf<String?>(null); private set
@@ -81,7 +85,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun selectFolder(uri: Uri) {
-        getApplication<Application>().contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val resolver = getApplication<Application>().contentResolver
+        try {
+            resolver.takePersistableUriPermission(uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        } catch (_: SecurityException) {
+            resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            message = "Drive ha concedido solo lectura; no se podrán borrar archivos."
+        }
         prefs.edit().putString(folderKey, uri.toString()).apply()
         sync(uri)
     }
@@ -99,7 +110,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                 }
-                books = result
+                books = result.map { b ->
+                    val saved = prefs.getString("info_" + b.uri, null)?.let { JSONObject(it) }
+                    if (saved == null) b else b.copy(spanishPlot = saved.optString("plot"), authorBio = saved.optString("bio"))
+                }
                 syncCount = result.size
                 folderName = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(getApplication(), uri)?.name }
                 message = "${result.size} EPUB encontrados"
@@ -125,6 +139,45 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 message = "No se pudo descargar la portada: ${e.localizedMessage ?: "comprueba la conexión"}"
             } finally { coverLoading = null }
+        }
+    }
+
+    fun isPossibleDuplicate(book: Book): Boolean {
+        fun key(b: Book) = (b.title + "|" + b.author).lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
+        return books.count { key(it) == key(book) } > 1
+    }
+
+    fun deleteDuplicate(book: Book) {
+        viewModelScope.launch {
+            try {
+                val removed = withContext(Dispatchers.IO) {
+                    DocumentFile.fromSingleUri(getApplication(), book.uri)?.delete() == true
+                }
+                if (removed) {
+                    books = books.filterNot { it.uri == book.uri }
+                    message = "EPUB eliminado de la carpeta."
+                } else message = "No se pudo borrar. Comprueba el permiso de escritura de Drive."
+            } catch (e: Exception) {
+                message = "No se pudo borrar: ${e.localizedMessage ?: "sin permiso"}"
+            }
+        }
+    }
+
+    fun enrich(book: Book) {
+        if (infoLoading != null) return
+        viewModelScope.launch {
+            infoLoading = book.uri
+            try {
+                val (plot, bio) = withContext(Dispatchers.IO) { fetchSpanishInfo(book) }
+                val updated = book.copy(spanishPlot = plot, authorBio = bio)
+                books = books.map { if (it.uri == book.uri) updated else it }
+                val json = JSONObject().put("plot", plot).put("bio", bio)
+                prefs.edit().putString("info_" + book.uri, json.toString()).apply()
+                message = if (plot.isBlank() && bio.isBlank()) "No se encontró información en castellano."
+                    else "Información en castellano actualizada."
+            } catch (e: Exception) {
+                message = "No se pudo consultar la información: ${e.localizedMessage ?: "comprueba la conexión"}"
+            } finally { infoLoading = null }
         }
     }
 
@@ -190,7 +243,7 @@ private fun readEpub(context: Context, uri: Uri, fallbackName: String): Book {
         val base = opfPath.substringBeforeLast('/', "")
         val coverPath = meta.coverHref?.let { normalizePath(if (base.isBlank()) it else "$base/$it") }
         Book(uri, meta.title.ifBlank { fallback.title }, meta.author, meta.date, meta.publisher,
-            meta.genre, meta.description, meta.isbn, meta.saga, coverPath?.let(entries::get))
+            meta.genre, meta.description, meta.isbn, meta.saga, coverPath?.let(entries::get), language = meta.language)
     } catch (_: Exception) { fallback }
 }
 
@@ -226,13 +279,56 @@ private fun fetchCover(book: Book): ByteArray? {
     } finally { connection.disconnect() }
 }
 
+private fun getJson(url: String): JSONObject {
+    val connection = URL(url).openConnection() as HttpURLConnection
+    connection.connectTimeout = 10000
+    connection.readTimeout = 12000
+    connection.setRequestProperty("User-Agent", "MiBiblioteca/0.6 (Android)")
+    return try {
+        connection.inputStream.use { JSONObject(it.bufferedReader().readText()) }
+    } finally { connection.disconnect() }
+}
+
+private fun fetchSpanishInfo(book: Book): Pair<String, String> {
+    var plot = ""
+    try {
+        val isbn = book.isbn.filter { it.isDigit() || it == 'X' || it == 'x' }
+        val query = if (isbn.length == 10 || isbn.length == 13) "isbn:$isbn"
+            else "intitle:${book.title} inauthor:${book.author}"
+        val url = "https://www.googleapis.com/books/v1/volumes?q=" +
+            java.net.URLEncoder.encode(query, "UTF-8") + "&langRestrict=es&maxResults=5"
+        val items = getJson(url).optJSONArray("items")
+        for (i in 0 until (items?.length() ?: 0)) {
+            val info = items?.optJSONObject(i)?.optJSONObject("volumeInfo") ?: continue
+            if (info.optString("language") == "es") {
+                plot = android.text.Html.fromHtml(info.optString("description"), android.text.Html.FROM_HTML_MODE_LEGACY)
+                    .toString().trim().take(2500)
+                if (plot.isNotBlank()) break
+            }
+        }
+    } catch (_: Exception) { /* La biografía aún puede estar disponible. */ }
+    var bio = ""
+    if (book.author.isNotBlank() && book.author != "Autor desconocido") {
+        try {
+            val title = java.net.URLEncoder.encode(book.author, "UTF-8")
+            val url = "https://es.wikipedia.org/w/api.php?action=query&prop=extracts" +
+                "&exintro=1&explaintext=1&redirects=1&format=json&formatversion=2&titles=$title"
+            val page = getJson(url).optJSONObject("query")?.optJSONArray("pages")?.optJSONObject(0)
+            if (page != null && !page.has("missing")) {
+                bio = page.optString("extract").trim().take(1800)
+            }
+        } catch (_: Exception) {}
+    }
+    return plot to bio
+}
+
 private fun normalizePath(path: String): String {
     val parts = mutableListOf<String>()
     path.replace('\\','/').split('/').forEach { when(it) { "", "." -> {}; ".." -> if(parts.isNotEmpty()) parts.removeAt(parts.lastIndex); else -> parts += it } }
     return parts.joinToString("/")
 }
 
-private data class EpubMeta(var title:String="",var author:String="Autor desconocido",var date:String="",var publisher:String="",var genre:String="",var description:String="Sin descripción disponible.",var isbn:String="",var saga:String="",var coverHref:String?=null)
+private data class EpubMeta(var title:String="",var author:String="Autor desconocido",var date:String="",var publisher:String="",var genre:String="",var description:String="Sin descripción disponible.",var isbn:String="",var saga:String="",var coverHref:String?=null,var language:String="")
 
 private fun parseOpf(bytes: ByteArray): EpubMeta {
     val m = EpubMeta(); val manifest = mutableMapOf<String,String>(); var coverId:String? = null
@@ -246,6 +342,7 @@ private fun parseOpf(bytes: ByteArray): EpubMeta {
                 "title" -> if(m.title.isBlank()) m.title=text()
                 "creator" -> if(m.author=="Autor desconocido") m.author=text()
                 "date" -> if(m.date.isBlank()) m.date=text()
+                "language" -> if(m.language.isBlank()) m.language=text()
                 "publisher" -> if(m.publisher.isBlank()) m.publisher=text()
                 "subject" -> if(m.genre.isBlank()) m.genre=text()
                 "description" -> if(m.description=="Sin descripción disponible.") m.description=text().replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+")," ")
@@ -291,10 +388,18 @@ class MainActivity : ComponentActivity() {
 }
 
 private fun openGoodreads(context: Context, book: Book? = null) {
+    val packageName = "com.goodreads"
     val url = if (book == null) "https://www.goodreads.com/"
-    else "https://www.goodreads.com/search?q=" +
-        java.net.URLEncoder.encode(book.title + " " + book.author, "UTF-8")
-    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        else "https://www.goodreads.com/search?q=" +
+            java.net.URLEncoder.encode(book.title + " " + book.author, "UTF-8")
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage(packageName))
+    } catch (_: Exception) {
+        val launch = context.packageManager.getLaunchIntentForPackage(packageName)
+        if (launch != null) context.startActivity(launch)
+        else context.startActivity(Intent(Intent.ACTION_VIEW,
+            Uri.parse("market://details?id=$packageName")))
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -305,7 +410,9 @@ private fun openGoodreads(context: Context, book: Book? = null) {
     val current = selected?.let { s -> vm.books.firstOrNull { it.uri == s.uri } }
     if (current != null) {
         BookDetail(current, { selected = null }, { vm.toggleFavorite(current.uri) },
-            { vm.setStatus(current.uri, it) }, { vm.downloadCover(current) }, vm.coverLoading == current.uri, vm.message)
+            { vm.setStatus(current.uri, it) }, { vm.downloadCover(current) }, vm.coverLoading == current.uri,
+            vm.message, vm.isPossibleDuplicate(current), { vm.deleteDuplicate(current); selected = null },
+            { vm.enrich(current) }, vm.infoLoading == current.uri)
         return
     }
     Scaffold(
@@ -315,7 +422,7 @@ private fun openGoodreads(context: Context, book: Book? = null) {
                 title = {
                     Column {
                         Text("MI BIBLIOTECA", style = MaterialTheme.typography.titleMedium,
-                            fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, letterSpacing = androidx.compose.ui.unit.TextUnit(1.2f, androidx.compose.ui.unit.TextUnitType.Sp))
+                            color = Color.White, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, letterSpacing = androidx.compose.ui.unit.TextUnit(1.2f, androidx.compose.ui.unit.TextUnitType.Sp))
                         Text(vm.folderName ?: "Tu colección de libros",
                             style = MaterialTheme.typography.labelSmall, color = Color(0xFFE6D4AE), maxLines = 1)
                     }
@@ -386,9 +493,18 @@ private fun openGoodreads(context: Context, book: Book? = null) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun BookDetail(
     book: Book, back: () -> Unit, toggleFavorite: () -> Unit,
-    setStatus: (ReadingStatus) -> Unit, downloadCover: () -> Unit, coverLoading: Boolean, message: String?
+    setStatus: (ReadingStatus) -> Unit, downloadCover: () -> Unit, coverLoading: Boolean, message: String?,
+    possibleDuplicate: Boolean, deleteBook: () -> Unit, enrich: () -> Unit, infoLoading: Boolean
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    var confirmDelete by remember { mutableStateOf(false) }
+    if (confirmDelete) AlertDialog(
+        onDismissRequest = { confirmDelete = false },
+        title = { Text("Borrar EPUB duplicado") },
+        text = { Text("Se eliminará este archivo de la carpeta de Drive. Esta acción no se puede deshacer desde MiBiblioteca. Comprueba que quieres borrar esta copia: ${book.title}.") },
+        confirmButton = { TextButton(onClick = { confirmDelete = false; deleteBook() }) { Text("Borrar archivo") } },
+        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancelar") } }
+    )
     Scaffold(containerColor = Parchment, topBar = {
         TopAppBar(
             title = { Text("Ficha del libro", fontFamily = FontFamily.Serif, color = Paper) },
@@ -431,8 +547,22 @@ private fun openGoodreads(context: Context, book: Book? = null) {
                 Info("Género", book.genre); Info("ISBN", book.isbn)
             }
             item {
-                Text("Argumento / Sinopsis", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
-                Text(book.description)
+                Text("Argumento", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
+                val plot = book.spanishPlot.ifBlank {
+                    book.description.takeIf { book.language.lowercase().startsWith("es") ||
+                        book.language.lowercase().startsWith("spa") }.orEmpty()
+                }
+                Text(plot.ifBlank { "Argumento en castellano no disponible. Pulsa «Buscar argumento y autor»." },
+                    style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(8.dp))
+                Text("Sobre el autor", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
+                Text(book.authorBio.ifBlank { "Biografía en castellano no disponible." },
+                    style = MaterialTheme.typography.bodySmall)
+                Text("Fuentes: Google Books y Wikipedia en español.",
+                    style = MaterialTheme.typography.labelSmall)
+                OutlinedButton(onClick = enrich, enabled = !infoLoading) {
+                    Text(if (infoLoading) "Consultando…" else "Buscar argumento y autor")
+                }
             }
             item {
                 Button(onClick = {
@@ -444,6 +574,8 @@ private fun openGoodreads(context: Context, book: Book? = null) {
                 }, modifier = Modifier.fillMaxWidth()) { Text("📖  Abrir EPUB") }
                 OutlinedButton(onClick = { openGoodreads(context, book) },
                     modifier = Modifier.fillMaxWidth()) { Text("Consultar en Goodreads") }
+                if (possibleDuplicate) OutlinedButton(onClick = { confirmDelete = true },
+                    modifier = Modifier.fillMaxWidth()) { Text("Borrar esta copia duplicada") }
             }
         }
     }
