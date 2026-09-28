@@ -1,6 +1,8 @@
 package com.diego.mibiblioteca
 
 import android.app.Application
+import android.app.SearchManager
+import androidx.activity.compose.BackHandler
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
@@ -510,17 +512,18 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun clearDetailMessage() { detailMessage = null }
 }
 
-private val sourceTag = Regex("""(?i)(?:e[\s.-]*pub[\s.-]*libre|lecturalia(?:\.com)?|anna'?s[\s.-]*archive|annas[\s.-]*archive)(?:\.[a-z]{2,})?""")
-private val metadataTag = Regex("""(?i)(?:epub|pdf|mobi|azw3|descarga|ebook|libro digital|sin drm)""")
+private val sourceTag = Regex("""(?i)(?:https?://)?(?:www\.)?(?:e[\s.-]*pub[\s.-]*libre|lecturalia|anna'?s[\s.-]*archive|annas[\s.-]*archive)(?:\.[a-z]{2,})?""")
+private val metadataTag = Regex("""(?i)(?:epub|pdf|mobi|azw3|descarga|ebook|libro digital|sin drm|ocr|scan|r\d+(?:\.\d+)*|v\d+(?:\.\d+)*)""")
 
 private fun cleanCatalogText(value: String): String {
-    return value.substringBeforeLast(".epub", value)
-        .replace('_', ' ')
-        .replace(Regex("""\[[^]]*]"""), " ")
+    val normalized = value.replace(Regex("""(?i)\.epub$"""), "").replace('_', ' ')
+        .replace(Regex("""\[[^]]*]""")) { match ->
+            if (sourceTag.containsMatchIn(match.value) || metadataTag.containsMatchIn(match.value)) " " else match.value
+        }
         .replace(Regex("""\([^)]*\)""")) { match ->
             if (sourceTag.containsMatchIn(match.value) || metadataTag.containsMatchIn(match.value)) " " else match.value
         }
-        .split(Regex("""\s+(?:[-–—|·])\s+"""))
+    return normalized.split(Regex("""\s+[-–—|·]\s+"""))
         .filterNot { sourceTag.containsMatchIn(it) || metadataTag.matches(it.trim()) }
         .joinToString(" - ")
         .replace(sourceTag, " ")
@@ -528,8 +531,7 @@ private fun cleanCatalogText(value: String): String {
 }
 
 private fun displayAuthor(book: Book): String {
-    if (book.customAuthor.isNotBlank()) return book.customAuthor
-    val known = cleanCatalogText(book.author)
+    val known = cleanCatalogText(book.customAuthor.ifBlank { book.author })
     if (known.isNotBlank() && known != "Autor desconocido") return known
     val parts = book.title.replace('_', ' ').split(Regex("""\s+[-–—]\s+"""))
         .filterNot { sourceTag.containsMatchIn(it) || metadataTag.matches(it.trim()) }
@@ -540,8 +542,7 @@ private fun displayAuthor(book: Book): String {
 }
 
 private fun displayTitle(book: Book): String {
-    if (book.customTitle.isNotBlank()) return book.customTitle
-    var title = cleanCatalogText(book.title)
+    var title = cleanCatalogText(book.customTitle.ifBlank { book.title })
     val author = displayAuthor(book)
     if (author != "Biblioteca de Diroka77") {
         title = title.removePrefix("$author - ").removeSuffix(" - $author")
@@ -913,6 +914,31 @@ private fun openGoodreadsUrl(context: Context, url: String) {
     }
 }
 
+private fun openGoogleAi(context: Context) {
+    val url = Uri.parse("https://www.google.com/ai")
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, url).setPackage("com.google.android.googlequicksearchbox"))
+    } catch (_: Exception) {
+        openChrome(context, url.toString())
+    }
+}
+
+private fun searchInGoogleApp(context: Context, query: String) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_WEB_SEARCH)
+            .setPackage("com.google.android.googlequicksearchbox")
+            .putExtra(SearchManager.QUERY, query))
+    } catch (_: Exception) {
+        try {
+            val url = "https://www.google.com/search?q=" + java.net.URLEncoder.encode(query, "UTF-8")
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                .setPackage("com.google.android.googlequicksearchbox"))
+        } catch (_: Exception) {
+            android.widget.Toast.makeText(context, "No se encontró la aplicación de Google", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+}
+
 private fun openChrome(context: Context, url: String) {
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.android.chrome"))
@@ -971,6 +997,9 @@ private fun openCasaDelLibro(context: Context) {
     )
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
     val current = selected?.let { s -> vm.books.firstOrNull { it.uri == s.uri } }
+    BackHandler(enabled = selected != null || showWishList) {
+        if (selected != null) selected = null else showWishList = false
+    }
     if (current != null) {
         BookDetail(current, { selected = null }, { vm.toggleFavorite(current.uri) },
             { vm.setStatus(current.uri, it) }, { vm.downloadCover(current) }, vm.coverLoading == current.uri,
@@ -1000,8 +1029,8 @@ private fun openCasaDelLibro(context: Context) {
                         modifier = Modifier.clickable { folderPicker.launch(null) }.padding(6.dp))
                     Text("Goodreads", color = Paper, fontSize = 12.sp,
                         modifier = Modifier.clickable { openGoodreads(context) }.padding(6.dp))
-                    Text("Google", color = Paper, fontSize = 12.sp,
-                        modifier = Modifier.clickable { openChrome(context, "https://www.google.com/") }.padding(6.dp))
+                    Text("Google IA", color = Paper, fontSize = 12.sp,
+                        modifier = Modifier.clickable { openGoogleAi(context) }.padding(6.dp))
                     Text("Casa del Libro", color = Paper, fontSize = 12.sp,
                         modifier = Modifier.clickable { openCasaDelLibro(context) }.padding(6.dp))
                 }
@@ -1188,14 +1217,14 @@ private fun openCasaDelLibro(context: Context) {
                     Text(displayAuthor(book), fontSize = 13.sp)
                     if (book.saga.isNotBlank()) Text("Saga: ${book.saga}" +
                         book.sagaOrder.takeIf { it.isNotBlank() }?.let { " · nº $it" }.orEmpty(), fontSize = 12.sp)
-                    TextButton(onClick = {
+                    OutlinedButton(onClick = {
                         titleDraft = displayTitle(book); authorDraft = displayAuthor(book)
                         sagaDraft = book.saga; orderDraft = book.sagaOrder
                         editIdentityDialog = true
                     }) { Text("Editar título y autor") }
-                    Row {
-                        TextButton(onClick = { coverPicker.launch("image/*") }) { Text("Cambiar portada") }
-                        if (book.cover != null) TextButton(onClick = removeCover) { Text("Quitar portada") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton(onClick = { coverPicker.launch("image/*") }) { Text("Cambiar portada", fontSize = 12.sp) }
+                        if (book.cover != null) OutlinedButton(onClick = removeCover) { Text("Quitar portada", fontSize = 12.sp) }
                     }
                     if (book.cover == null) OutlinedButton(onClick = downloadCover, enabled = !coverLoading) {
                         Text(if (coverLoading) "Buscando portada…" else "Buscar portada")
@@ -1247,10 +1276,10 @@ private fun openCasaDelLibro(context: Context) {
                     placeholder = { Text("Biografía en castellano pendiente. Puedes buscarla o escribirla.") },
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 17.sp))
                 Row {
-                    TextButton(onClick = enrich, enabled = !infoLoading) {
+                    OutlinedButton(onClick = enrich, enabled = !infoLoading) {
                         Text(if (infoLoading) "Consultando…" else "Buscar datos")
                     }
-                    TextButton(onClick = {
+                    OutlinedButton(onClick = {
                         plotDraft = book.spanishPlot.ifBlank { plot }
                         bioDraft = book.authorBio
                         editInfo = true
@@ -1261,7 +1290,7 @@ private fun openCasaDelLibro(context: Context) {
                 Text("Mis observaciones", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 OutlinedTextField(notesDraft, { notesDraft = it }, modifier = Modifier.fillMaxWidth(),
                     label = { Text("Escribe tus notas sobre este libro") }, minLines = 3)
-                TextButton(onClick = { saveNotes(notesDraft) }) { Text("Guardar observaciones") }
+                OutlinedButton(onClick = { saveNotes(notesDraft) }) { Text("Guardar observaciones") }
             }
             item {
                 Button(onClick = {
@@ -1273,8 +1302,7 @@ private fun openCasaDelLibro(context: Context) {
                 }, modifier = Modifier.fillMaxWidth()) { Text("📖  Abrir EPUB") }
                 OutlinedButton(onClick = { openGoodreads(context, book) },
                     modifier = Modifier.fillMaxWidth()) { Text("Abrir este libro en Goodreads") }
-                OutlinedButton(onClick = { openChrome(context, "https://www.google.com/search?q=" +
-                        java.net.URLEncoder.encode(displayTitle(book) + " " + displayAuthor(book), "UTF-8")) },
+                OutlinedButton(onClick = { searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book)) },
                     modifier = Modifier.fillMaxWidth()) { Text("Consultar en Google") }
                 OutlinedButton(onClick = { confirmDelete = true },
                     modifier = Modifier.fillMaxWidth()) { Text("Borrar este EPUB de Drive") }
