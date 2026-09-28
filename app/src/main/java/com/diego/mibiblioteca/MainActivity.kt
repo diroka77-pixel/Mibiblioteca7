@@ -23,6 +23,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.MessageDigest
+import org.json.JSONObject
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -57,6 +64,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var statusFilter by mutableStateOf<ReadingStatus?>(null)
     var onlyFavorites by mutableStateOf(false)
     var books by mutableStateOf<List<Book>>(emptyList()); private set
+    var coverLoading by mutableStateOf<Uri?>(null); private set
     var syncing by mutableStateOf(false); private set
     var syncCount by mutableIntStateOf(0); private set
     var folderName by mutableStateOf<String?>(null); private set
@@ -101,6 +109,25 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun downloadCover(book: Book) {
+        if (coverLoading != null) return
+        viewModelScope.launch {
+            coverLoading = book.uri
+            try {
+                val bytes = withContext(Dispatchers.IO) { fetchCover(book) }
+                if (bytes == null) {
+                    message = "No se encontró portada en Open Library."
+                } else {
+                    withContext(Dispatchers.IO) { coverFile(getApplication(), book.uri).writeBytes(bytes) }
+                    books = books.map { if (it.uri == book.uri) it.copy(cover = bytes) else it }
+                    message = "Portada guardada en este dispositivo."
+                }
+            } catch (e: Exception) {
+                message = "No se pudo descargar la portada: ${e.localizedMessage ?: "comprueba la conexión"}"
+            } finally { coverLoading = null }
+        }
+    }
+
     fun toggleFavorite(uri: Uri) { books = books.map { if (it.uri == uri) it.copy(favorite=!it.favorite) else it } }
     fun setStatus(uri: Uri, status: ReadingStatus) { books = books.map { if (it.uri == uri) it.copy(status=status) else it } }
     fun clearMessage() { message = null }
@@ -113,7 +140,9 @@ private fun scanFolder(context: Context, treeUri: Uri, onProgress: (Int) -> Unit
         dir.listFiles().forEach { f ->
             if (f.isDirectory) walk(f)
             else if (f.name?.endsWith(".epub", true) == true) {
-                out += readEpub(context, f.uri, f.name ?: "Libro")
+                val epub = readEpub(context, f.uri, f.name ?: "Libro")
+                val saved = coverFile(context, f.uri).takeIf { it.exists() }?.readBytes()
+                out += if (saved != null) epub.copy(cover = saved) else epub
                 onProgress(out.size)
             }
         }
@@ -165,6 +194,38 @@ private fun readEpub(context: Context, uri: Uri, fallbackName: String): Book {
     } catch (_: Exception) { fallback }
 }
 
+private fun coverFile(context: Context, uri: Uri): File {
+    val hash = MessageDigest.getInstance("SHA-256").digest(uri.toString().toByteArray())
+        .joinToString("") { "%02x".format(it) }
+    return File(context.filesDir, "cover-$hash.jpg")
+}
+
+private fun fetchCover(book: Book): ByteArray? {
+    val isbn = book.isbn.filter { it.isDigit() || it == 'X' || it == 'x' }
+    val coverUrl = if (isbn.length == 10 || isbn.length == 13) {
+        "https://covers.openlibrary.org/b/isbn/$isbn-M.jpg?default=false"
+    } else {
+        val q = "title=" + java.net.URLEncoder.encode(book.title, "UTF-8") +
+            "&author=" + java.net.URLEncoder.encode(book.author.takeUnless { it == "Autor desconocido" }.orEmpty(), "UTF-8")
+        val search = URL("https://openlibrary.org/search.json?$q&fields=cover_i&limit=1")
+            .openConnection().apply { connectTimeout = 10000; readTimeout = 10000 }
+            .getInputStream().use { it.reader().readText() }
+        val id = JSONObject(search).optJSONArray("docs")?.optJSONObject(0)?.optLong("cover_i", 0) ?: 0
+        if (id <= 0) return null
+        "https://covers.openlibrary.org/b/id/$id-M.jpg?default=false"
+    }
+    val connection = URL(coverUrl).openConnection() as HttpURLConnection
+    connection.connectTimeout = 10000
+    connection.readTimeout = 15000
+    return try {
+        if (connection.responseCode != 200 || connection.contentLengthLong > 2_000_000) return null
+        connection.inputStream.use { input ->
+            val bytes = input.readNBytes(2_000_001)
+            bytes.takeIf { it.size <= 2_000_000 && BitmapFactory.decodeByteArray(it, 0, it.size) != null }
+        }
+    } finally { connection.disconnect() }
+}
+
 private fun normalizePath(path: String): String {
     val parts = mutableListOf<String>()
     path.replace('\\','/').split('/').forEach { when(it) { "", "." -> {}; ".." -> if(parts.isNotEmpty()) parts.removeAt(parts.lastIndex); else -> parts += it } }
@@ -210,51 +271,182 @@ private fun parseOpf(bytes: ByteArray): EpubMeta {
     return m
 }
 
+private val Ink = Color(0xFF31271F)
+private val Mahogany = Color(0xFF49352A)
+private val Brass = Color(0xFFAD8248)
+private val Parchment = Color(0xFFF5EEDD)
+private val Paper = Color(0xFFFFFBF2)
+
+private val libraryColors = lightColorScheme(
+    primary = Mahogany, onPrimary = Paper, secondary = Brass,
+    background = Parchment, onBackground = Ink, surface = Paper, onSurface = Ink,
+    surfaceVariant = Color(0xFFECE0C8)
+)
+
 class MainActivity : ComponentActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); setContent { MaterialTheme(colorScheme = darkColorScheme()) { LibraryApp() } } }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent { MaterialTheme(colorScheme = libraryColors) { LibraryApp() } }
+    }
+}
+
+private fun openGoodreads(context: Context, book: Book? = null) {
+    val url = if (book == null) "https://www.goodreads.com/"
+    else "https://www.goodreads.com/search?q=" +
+        java.net.URLEncoder.encode(book.title + " " + book.author, "UTF-8")
+    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun LibraryApp(vm: LibraryViewModel = viewModel()) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var selected by remember { mutableStateOf<Book?>(null) }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
     val current = selected?.let { s -> vm.books.firstOrNull { it.uri == s.uri } }
-    if (current != null) { BookDetail(current, { selected=null }, { vm.toggleFavorite(current.uri) }, { vm.setStatus(current.uri,it) }); return }
+    if (current != null) {
+        BookDetail(current, { selected = null }, { vm.toggleFavorite(current.uri) },
+            { vm.setStatus(current.uri, it) }, { vm.downloadCover(current) }, vm.coverLoading == current.uri, vm.message)
+        return
+    }
     Scaffold(
+        containerColor = Parchment,
         topBar = {
             TopAppBar(
-                title = { Column { Text("Mi Biblioteca", fontWeight = FontWeight.Bold); vm.folderName?.let { Text(it, style = MaterialTheme.typography.labelSmall) } } },
-                actions = { TextButton(onClick = { folderPicker.launch(null) }) { Text("Carpeta") } }
+                title = {
+                    Column {
+                        Text("MI BIBLIOTECA", style = MaterialTheme.typography.titleMedium,
+                            fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, letterSpacing = androidx.compose.ui.unit.TextUnit(1.2f, androidx.compose.ui.unit.TextUnitType.Sp))
+                        Text(vm.folderName ?: "Tu colección de libros",
+                            style = MaterialTheme.typography.labelSmall, color = Color(0xFFE6D4AE), maxLines = 1)
+                    }
+                },
+                actions = {
+                    TextButton(onClick = { vm.sync() }, enabled = !vm.syncing) {
+                        Text("↻", style = MaterialTheme.typography.headlineMedium, color = Paper)
+                    }
+                    TextButton(onClick = { folderPicker.launch(null) }) { Text("Carpeta", color = Paper) }
+                    TextButton(onClick = { openGoodreads(context) }) { Text("G", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = Paper) }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Mahogany)
             )
-        },
-        bottomBar = {
-            Button(onClick = { vm.sync() }, enabled = !vm.syncing, modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                Text(if (vm.syncing) "Sincronizando… ${vm.syncCount} EPUB" else "↻  Sincronizar biblioteca")
-            }
         }
     ) { p ->
-        Column(Modifier.padding(p).padding(horizontal=16.dp)){
-            OutlinedTextField(vm.query,{vm.query=it},Modifier.fillMaxWidth().padding(top=12.dp),singleLine=true,label={Text("Buscar título, autor, saga, género…")},leadingIcon={Text("⌕")})
-            Row(Modifier.fillMaxWidth().padding(vertical=8.dp), horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                FilterChip(vm.statusFilter==null,{vm.statusFilter=null},{Text("Todos")})
-                FilterChip(vm.onlyFavorites,{vm.onlyFavorites=!vm.onlyFavorites},{Text("★")})
-                FilterChip(vm.statusFilter==ReadingStatus.READING,{vm.statusFilter=if(vm.statusFilter==ReadingStatus.READING)null else ReadingStatus.READING},{Text("Leyendo")})
-                FilterChip(vm.statusFilter==ReadingStatus.READ,{vm.statusFilter=if(vm.statusFilter==ReadingStatus.READ)null else ReadingStatus.READ},{Text("Leídos")})
+        Column(Modifier.padding(p).fillMaxSize().padding(horizontal = 16.dp)) {
+            Spacer(Modifier.height(18.dp))
+            Text("✦  ENTRE ESTANTERÍAS  ✦", color = Brass, fontFamily = FontFamily.Serif,
+                style = MaterialTheme.typography.labelMedium)
+            Text("Historias por descubrir", fontFamily = FontFamily.Serif,
+                style = MaterialTheme.typography.headlineSmall, color = Ink,
+                modifier = Modifier.padding(bottom = 14.dp))
+            if (vm.syncing) {
+                LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
+                Text("Revisando ${vm.syncCount} libros…", modifier = Modifier.padding(vertical = 8.dp),
+                    style = MaterialTheme.typography.bodySmall)
             }
-            Text("${vm.filtered.size} libros",style=MaterialTheme.typography.titleMedium,modifier=Modifier.padding(bottom=8.dp))
-            vm.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            if(vm.books.isEmpty() && !vm.syncing) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Column(horizontalAlignment=Alignment.CenterHorizontally){Text("📚",style=MaterialTheme.typography.displayMedium);Text("Selecciona tu carpeta de EPUB en Google Drive");Spacer(Modifier.height(12.dp));Button(onClick={folderPicker.launch(null)}){Text("Elegir carpeta")}}}
-            else LazyColumn(verticalArrangement=Arrangement.spacedBy(10.dp)){items(vm.filtered,key={it.uri.toString()}){book->BookCard(book){selected=book}}}
+            OutlinedTextField(vm.query, { vm.query = it }, Modifier.fillMaxWidth(),
+                singleLine = true, label = { Text("Buscar en tu biblioteca") }, leadingIcon = { Text("⌕") },
+                shape = MaterialTheme.shapes.medium)
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(vm.statusFilter == null, { vm.statusFilter = null }, { Text("Todos") })
+                FilterChip(vm.onlyFavorites, { vm.onlyFavorites = !vm.onlyFavorites }, { Text("★") })
+                FilterChip(vm.statusFilter == ReadingStatus.READING,
+                    { vm.statusFilter = if (vm.statusFilter == ReadingStatus.READING) null else ReadingStatus.READING },
+                    { Text("Leyendo") })
+                FilterChip(vm.statusFilter == ReadingStatus.READ,
+                    { vm.statusFilter = if (vm.statusFilter == ReadingStatus.READ) null else ReadingStatus.READ },
+                    { Text("Leídos") })
+            }
+            Text("${vm.filtered.size} libros", fontFamily = FontFamily.Serif,
+                style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+            vm.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Mahogany) }
+            if (vm.books.isEmpty() && !vm.syncing) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("📚", style = MaterialTheme.typography.displayMedium)
+                        Text("Elige tu carpeta de EPUB en Drive", fontFamily = FontFamily.Serif)
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta") }
+                    }
+                }
+            } else LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 20.dp)) {
+                items(vm.filtered, key = { it.uri.toString() }) { book ->
+                    BookCard(book) { selected = book }
+                }
+            }
         }
     }
-    vm.message?.let { msg -> LaunchedEffect(msg){ kotlinx.coroutines.delay(2200); vm.clearMessage() } }
 }
 
-@Composable private fun BookCard(book:Book,onClick:()->Unit){Card(Modifier.fillMaxWidth().clickable(onClick=onClick)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Cover(book,70.dp,100.dp);Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Row(verticalAlignment=Alignment.CenterVertically){Text(book.title,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f));if(book.favorite)Text("★")};Text(book.author);Text(listOf(book.date.take(4),book.genre).filter{it.isNotBlank()}.joinToString(" · "),style=MaterialTheme.typography.bodySmall);Text(book.status.label,style=MaterialTheme.typography.labelMedium)}}}}
+@Composable private fun BookCard(book:Book,onClick:()->Unit){Card(Modifier.fillMaxWidth().clickable(onClick=onClick), colors = CardDefaults.cardColors(containerColor = Paper), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Cover(book,70.dp,100.dp);Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Row(verticalAlignment=Alignment.CenterVertically){Text(book.title,fontWeight=FontWeight.Bold,fontFamily=FontFamily.Serif,modifier=Modifier.weight(1f));if(book.favorite)Text("★")};Text(book.author);Text(listOf(book.date.take(4),book.genre).filter{it.isNotBlank()}.joinToString(" · "),style=MaterialTheme.typography.bodySmall);Text(book.status.label,style=MaterialTheme.typography.labelMedium)}}}}
 
 @Composable private fun Cover(book:Book,w:androidx.compose.ui.unit.Dp,h:androidx.compose.ui.unit.Dp){val bmp=remember(book.cover){book.cover?.let{BitmapFactory.decodeByteArray(it,0,it.size)}};Surface(Modifier.width(w).height(h),shape=MaterialTheme.shapes.small,tonalElevation=5.dp){if(bmp!=null)Image(bmp.asImageBitmap(),book.title,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)else Box(contentAlignment=Alignment.Center){Text("📖",style=MaterialTheme.typography.headlineLarge)}}}
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable fun BookDetail(book:Book,back:()->Unit,toggleFavorite:()->Unit,setStatus:(ReadingStatus)->Unit){val context=androidx.compose.ui.platform.LocalContext.current;Scaffold(topBar={TopAppBar(title={Text("Ficha del libro")},navigationIcon={TextButton(onClick=back){Text("‹ Volver")}},actions={TextButton(onClick=toggleFavorite){Text(if(book.favorite)"★" else "☆")}})}){p->LazyColumn(Modifier.padding(p).padding(20.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){item{Row{Cover(book,110.dp,160.dp);Spacer(Modifier.width(18.dp));Column{Text(book.title,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold);Text(book.author,style=MaterialTheme.typography.titleMedium);if(book.saga.isNotBlank())Text("Saga: ${book.saga}")}}};item{Text("Estado",fontWeight=FontWeight.Bold);Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){ReadingStatus.entries.forEach{s->FilterChip(book.status==s,{setStatus(s)},{Text(s.label)})}}};item{Info("Publicación",book.date);Info("Editorial",book.publisher);Info("Género",book.genre);Info("ISBN",book.isbn)};item{Text("Argumento / Sinopsis",fontWeight=FontWeight.Bold);Text(book.description)};item{Button(onClick={val i=Intent(Intent.ACTION_VIEW).apply{setDataAndType(book.uri,"application/epub+zip");addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)};try{context.startActivity(i)}catch(_:Exception){}},modifier=Modifier.fillMaxWidth()){Text("📖  Abrir EPUB")}}}}}
+@Composable fun BookDetail(
+    book: Book, back: () -> Unit, toggleFavorite: () -> Unit,
+    setStatus: (ReadingStatus) -> Unit, downloadCover: () -> Unit, coverLoading: Boolean, message: String?
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Scaffold(containerColor = Parchment, topBar = {
+        TopAppBar(
+            title = { Text("Ficha del libro", fontFamily = FontFamily.Serif, color = Paper) },
+            navigationIcon = { TextButton(onClick = back) { Text("‹ Volver", color = Paper) } },
+            actions = { TextButton(onClick = toggleFavorite) { Text(if (book.favorite) "★" else "☆", color = Paper) } },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Mahogany)
+        )
+    }) { p ->
+        LazyColumn(Modifier.padding(p).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (message != null) item { Text(message, color = Mahogany) }
+            item {
+                Row {
+                    Cover(book, 110.dp, 160.dp)
+                    Spacer(Modifier.width(18.dp))
+                    Column {
+                        Text(book.title, style = MaterialTheme.typography.headlineSmall,
+                            fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                        Text(book.author, style = MaterialTheme.typography.titleMedium)
+                        if (book.saga.isNotBlank()) Text("Saga: ${book.saga}")
+                    }
+                }
+            }
+            if (book.cover == null) item {
+                OutlinedButton(onClick = downloadCover, enabled = !coverLoading) {
+                    Text(if (coverLoading) "Buscando portada…" else "↓  Descargar portada")
+                }
+                Text("Portadas de Open Library. Se guardan en el teléfono.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+            item {
+                Text("Estado", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ReadingStatus.entries.forEach { status ->
+                        FilterChip(book.status == status, { setStatus(status) }, { Text(status.label) })
+                    }
+                }
+            }
+            item {
+                Info("Publicación", book.date); Info("Editorial", book.publisher)
+                Info("Género", book.genre); Info("ISBN", book.isbn)
+            }
+            item {
+                Text("Argumento / Sinopsis", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
+                Text(book.description)
+            }
+            item {
+                Button(onClick = {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(book.uri, "application/epub+zip")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    try { context.startActivity(intent) } catch (_: Exception) {}
+                }, modifier = Modifier.fillMaxWidth()) { Text("📖  Abrir EPUB") }
+                OutlinedButton(onClick = { openGoodreads(context, book) },
+                    modifier = Modifier.fillMaxWidth()) { Text("Consultar en Goodreads") }
+            }
+        }
+    }
+}
 
 @Composable private fun Info(label:String,value:String){if(value.isNotBlank()){Text(label,fontWeight=FontWeight.Bold);Text(value);Spacer(Modifier.height(4.dp))}}
