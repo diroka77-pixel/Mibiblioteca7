@@ -436,7 +436,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun isPossibleDuplicate(book: Book): Boolean {
-        fun key(b: Book) = (displayTitle(b) + "|" + displayAuthor(b)).lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
+        fun key(b: Book) = (displayTitle(b) + "|" + displayAuthor(b)).lowercase().replace(Regex("[^\p{L}\p{N}]"), "")
         return books.count { key(it) == key(book) } > 1
     }
 
@@ -462,15 +462,26 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             infoLoading = book.uri
             try {
-                val (rawPlot, rawBio) = withContext(Dispatchers.IO) { fetchSpanishInfo(book) }
-                val plot = ensureSpanish(rawPlot)
+                val google = withContext(Dispatchers.IO) { fetchGoogleBookInfo(book) }
+                val resolvedAuthor = if ((book.customAuthor.isBlank() || book.customAuthor == "Biblioteca de Diroka77") && google.first.isNotBlank())
+                    google.first else displayAuthor(book)
+                val lookupBook = book.copy(customAuthor = resolvedAuthor)
+                val (fallbackPlot, rawBio) = withContext(Dispatchers.IO) { fetchSpanishInfo(lookupBook) }
+                val plot = ensureSpanish(google.second.ifBlank { fallbackPlot })
                 val bio = ensureSpanish(rawBio)
-                val updated = book.copy(spanishPlot = plot, authorBio = bio)
+                val current = books.firstOrNull { it.uri == book.uri } ?: book
+                val updated = current.copy(
+                    customAuthor = if ((current.customAuthor.isBlank() || current.customAuthor == "Biblioteca de Diroka77") && google.first.isNotBlank())
+                        google.first else current.customAuthor,
+                    spanishPlot = plot.ifBlank { current.spanishPlot },
+                    authorBio = bio.ifBlank { current.authorBio })
                 books = books.map { if (it.uri == book.uri) updated else it }
-                val json = JSONObject().put("plot", plot).put("bio", bio)
-                prefs.edit().putString("info_" + book.uri, json.toString()).apply()
-                message = if (plot.isBlank() && bio.isBlank()) "No se encontró información en castellano."
-                    else "Información en castellano actualizada."
+                prefs.edit().putString("info_" + book.uri, JSONObject()
+                    .put("plot", updated.spanishPlot).put("bio", updated.authorBio).toString()).apply()
+                saveBooks()
+                message = if (google.first.isBlank() && updated.spanishPlot.isBlank() && updated.authorBio.isBlank())
+                    "No se encontraron datos para este libro."
+                else "Autor y argumento actualizados con los datos disponibles."
             } catch (e: Exception) {
                 message = "No se pudo consultar la información: ${e.localizedMessage ?: "comprueba la conexión"}"
             } finally { infoLoading = null }
@@ -692,6 +703,40 @@ private fun getJson(url: String): JSONObject {
     return try {
         connection.inputStream.use { JSONObject(it.bufferedReader().readText()) }
     } finally { connection.disconnect() }
+}
+
+private fun fetchGoogleBookInfo(book: Book): Pair<String, String> {
+    val isbn = book.isbn.filter { it.isDigit() || it == 'X' || it == 'x' }
+    val title = displayTitle(book)
+    val knownAuthor = displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty()
+    val queries = if (isbn.length == 10 || isbn.length == 13) listOf("isbn:$isbn", "intitle:$title")
+        else listOf("intitle:$title" + if (knownAuthor.isNotBlank()) " inauthor:$knownAuthor" else "", "intitle:$title")
+    val titleKey = title.lowercase().replace(Regex("""[^\p{L}\p{N}]"""), "")
+    for (query in queries.distinct()) try {
+        val url = "https://www.googleapis.com/books/v1/volumes?q=" +
+            java.net.URLEncoder.encode(query, "UTF-8") + "&langRestrict=es&maxResults=10"
+        val items = getJson(url).optJSONArray("items")
+        for (i in 0 until (items?.length() ?: 0)) {
+            val info = items?.optJSONObject(i)?.optJSONObject("volumeInfo") ?: continue
+            val candidate = info.optString("title").lowercase()
+                .replace(Regex("""[^\p{L}\p{N}]"""), "")
+            val isbnMatch = query.startsWith("isbn:")
+            if (!isbnMatch && (titleKey.length < 3 || !candidate.contains(titleKey))) continue
+            val authors = info.optJSONArray("authors")
+            val author = (0 until (authors?.length() ?: 0))
+                .mapNotNull { authors?.optString(it)?.takeIf(String::isNotBlank) }
+                .joinToString(", ")
+            if (knownAuthor.isNotBlank() && !isbnMatch && author.isNotBlank()) {
+                val authorKey = knownAuthor.lowercase().replace(Regex("""[^\p{L}\p{N}]"""), "")
+                val candidateAuthor = author.lowercase().replace(Regex("""[^\p{L}\p{N}]"""), "")
+                if (!candidateAuthor.contains(authorKey) && !authorKey.contains(candidateAuthor)) continue
+            }
+            val plot = android.text.Html.fromHtml(info.optString("description"),
+                android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim().take(2500)
+            if (author.isNotBlank() || plot.isNotBlank()) return author to plot
+        }
+    } catch (_: Exception) {}
+    return "" to ""
 }
 
 private fun fetchSpanishInfo(book: Book): Pair<String, String> {
