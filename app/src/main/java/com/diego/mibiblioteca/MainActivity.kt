@@ -3,8 +3,7 @@ package com.diego.mibiblioteca
 import android.app.Application
 import android.app.SearchManager
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
+import android.util.LruCache
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.res.painterResource
 import android.content.Context
@@ -174,7 +173,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .put("sagaOrder", b.sagaOrder).put("favorite", b.favorite).put("status", b.status.name)
             .put("sourceSize", b.sourceSize).put("sourceModified", b.sourceModified)
             .put("sourceCoverChecked", b.sourceCoverChecked).put("hadEmbeddedCover", b.hadEmbeddedCover)) }
-        prefs.edit().putString("books_cache", array.toString()).commit()
+        prefs.edit().putString("books_cache", array.toString()).apply()
         saveCloud()
     }
 
@@ -720,6 +719,31 @@ private fun cachedEpub(context: Context, book: Book): File {
     } finally { temp.delete() }
 }
 
+private suspend fun openEpubInReader(context: Context, book: Book): Boolean {
+    try {
+        val file = withContext(Dispatchers.IO) { cachedEpub(context, book) }
+        val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
+        context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/epub+zip")
+            clipData = ClipData.newRawUri("EPUB", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        })
+        return true
+    } catch (_: Exception) {
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(book.uri, "application/epub+zip")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            })
+            return true
+        } catch (_: Exception) {
+            android.widget.Toast.makeText(context, "No hay un lector EPUB disponible",
+                android.widget.Toast.LENGTH_LONG).show()
+            return false
+        }
+    }
+}
+
 private fun coverFile(context: Context, uri: Uri): File {
     val hash = MessageDigest.getInstance("SHA-256").digest(uri.toString().toByteArray())
         .joinToString("") { "%02x".format(it) }
@@ -1145,9 +1169,11 @@ private fun openCasaDelLibro(context: Context) {
         if (selected != null) selected = null else showWishList = false
     }
     val listState = rememberLazyListState()
-    Crossfade(targetState = current?.uri, animationSpec = tween(160), label = "Pantallas") { screenUri ->
-        val shown = screenUri?.let { uri -> vm.books.firstOrNull { it.uri == uri } }
-        if (shown != null) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var openingReading by remember { mutableStateOf<Uri?>(null) }
+    val shown = current
+    if (shown != null) {
             BookDetail(shown, { selected = null }, { vm.toggleFavorite(shown.uri) },
                 { vm.setStatus(shown.uri, it) }, vm.message, vm.isPossibleDuplicate(shown),
                 { vm.deleteDuplicate(shown) }, { vm.enrich(shown) }, vm.infoLoading == shown.uri,
@@ -1215,7 +1241,13 @@ private fun openCasaDelLibro(context: Context) {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp),
                             contentPadding = PaddingValues(end = 8.dp)) {
                             items(reading, key = { "reading:" + it.uri }) { book ->
-                                Card(Modifier.width(120.dp).clickable { selected = book },
+                                Card(Modifier.width(120.dp).clickable(enabled = openingReading == null) {
+                                    scope.launch {
+                                        openingReading = book.uri
+                                        try { if (openEpubInReader(context, book)) vm.setStatus(book.uri, ReadingStatus.READING) }
+                                        finally { openingReading = null }
+                                    }
+                                },
                                     colors = CardDefaults.cardColors(containerColor = Paper),
                                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                                     Column(Modifier.padding(8.dp),
@@ -1342,7 +1374,6 @@ private fun openCasaDelLibro(context: Context) {
             }
         }
     }
-        }
     }
 }
 
@@ -1381,7 +1412,46 @@ private fun openCasaDelLibro(context: Context) {
     }
 }
 
-@Composable private fun Cover(book:Book,w:androidx.compose.ui.unit.Dp,h:androidx.compose.ui.unit.Dp){val bmp=remember(book.cover){book.cover?.let{BitmapFactory.decodeByteArray(it,0,it.size)}};Surface(Modifier.width(w).height(h),shape=MaterialTheme.shapes.medium,color=Color(0xFFE9DDC5),tonalElevation=2.dp){if(bmp!=null)Image(bmp.asImageBitmap(),book.title,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)else Box(contentAlignment=Alignment.Center){Text("📖",style=MaterialTheme.typography.headlineLarge)}}}
+private val coverBitmapCache = object : LruCache<String, Bitmap>(20 * 1024) {
+    override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
+}
+
+private fun coverKey(book: Book): String =
+    book.uri.toString() + ":" + System.identityHashCode(book.cover)
+
+private fun decodeCover(book: Book): Bitmap? {
+    val bytes = book.cover ?: return null
+    val key = coverKey(book)
+    synchronized(coverBitmapCache) { coverBitmapCache.get(key) }?.let { return it }
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    var sample = 1
+    while (bounds.outWidth / sample > 900 || bounds.outHeight / sample > 1200) sample *= 2
+    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
+        BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
+    synchronized(coverBitmapCache) { coverBitmapCache.put(key, bitmap) }
+    return bitmap
+}
+
+@Composable
+private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compose.ui.unit.Dp) {
+    val cached = remember(book.cover, book.uri) {
+        synchronized(coverBitmapCache) { coverBitmapCache.get(coverKey(book)) }
+    }
+    val bmp by produceState<Bitmap?>(cached, book.uri, book.cover) {
+        if (value == null && book.cover != null) {
+            value = withContext(Dispatchers.Default) { decodeCover(book) }
+        }
+    }
+    Surface(Modifier.width(w).height(h), shape = MaterialTheme.shapes.medium,
+        color = Color(0xFFE9DDC5), tonalElevation = 2.dp) {
+        if (bmp != null) Image(bmp!!.asImageBitmap(), book.title, Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop)
+        else Box(contentAlignment = Alignment.Center) {
+            Text("📖", style = MaterialTheme.typography.headlineLarge)
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun BookDetail(
@@ -1553,27 +1623,7 @@ private fun openCasaDelLibro(context: Context) {
                     if (!openingEpub) scope.launch {
                         openingEpub = true
                         try {
-                            val file = withContext(Dispatchers.IO) { cachedEpub(context, book) }
-                            val uri = FileProvider.getUriForFile(context,
-                                context.packageName + ".fileprovider", file)
-                            val intent = Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(uri, "application/epub+zip")
-                                clipData = ClipData.newRawUri("EPUB", uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(intent)
-                            setStatus(ReadingStatus.READING)
-                        } catch (_: Exception) {
-                            try {
-                                context.startActivity(Intent(Intent.ACTION_VIEW).apply {
-                                    setDataAndType(book.uri, "application/epub+zip")
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                })
-                                setStatus(ReadingStatus.READING)
-                            } catch (_: Exception) {
-                                android.widget.Toast.makeText(context, "No hay un lector EPUB disponible",
-                                    android.widget.Toast.LENGTH_LONG).show()
-                            }
+                            if (openEpubInReader(context, book)) setStatus(ReadingStatus.READING)
                         } finally { openingEpub = false }
                     }
                 }, modifier = Modifier.fillMaxWidth(), enabled = !openingEpub) {
