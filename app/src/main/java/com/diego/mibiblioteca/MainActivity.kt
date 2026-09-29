@@ -1339,14 +1339,19 @@ private fun openCasaDelLibro(context: Context) {
         if (tab == "Inicio") vm.books.takeLast(6).reversed() else filteredBooks
     }
     val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Inicio") "Todos" else vm.groupMode
-    val groupedBooks = remember(visibleBooks, groupMode) {
+    val groupedBooks = remember(visibleBooks, groupMode, vm.sections, tab) {
         val groups = when (groupMode) {
             "Autores" -> visibleBooks.groupBy { displayAuthor(it) }
             "Sagas" -> visibleBooks.groupBy { it.saga.ifBlank { "Sin saga" } }
             "Secciones" -> visibleBooks.groupBy { it.section.ifBlank { "Sin sección" } }
             else -> mapOf("" to visibleBooks)
-        }.toSortedMap(String.CASE_INSENSITIVE_ORDER)
-        groups.mapValues { (_, group) ->
+        }
+        val names = if (tab == "Secciones")
+            vm.sections.filter(groups::containsKey) +
+                groups.keys.filterNot { it in vm.sections }.sortedWith(String.CASE_INSENSITIVE_ORDER)
+        else groups.keys.sortedWith(String.CASE_INSENSITIVE_ORDER)
+        names.associateWith { name ->
+            val group = groups[name].orEmpty()
             if (groupMode == "Sagas") group.sortedWith(
                 compareBy<Book> { sagaNumber(it) }.thenBy(String.CASE_INSENSITIVE_ORDER) { displayTitle(it) })
             else group
