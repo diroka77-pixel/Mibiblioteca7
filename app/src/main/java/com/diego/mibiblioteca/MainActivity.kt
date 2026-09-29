@@ -385,6 +385,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             (!onlyFavorites || b.favorite) && (selectedSection == null || b.section == selectedSection)
     }
 
+    fun recordOpen(uri: Uri) {
+        prefs.edit().putLong("opened_" + uri.toString().hashCode(), System.currentTimeMillis()).apply()
+    }
+
+    fun readingBooks(): List<Book> = books.filter { it.status == ReadingStatus.READING }
+        .sortedByDescending { prefs.getLong("opened_" + it.uri.toString().hashCode(), 0L) }
+
     fun selectFolder(uri: Uri) {
         val resolver = getApplication<Application>().contentResolver
         try {
@@ -1171,9 +1178,12 @@ private fun openCasaDelLibro(context: Context) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var openingReading by remember { mutableStateOf<Uri?>(null) }
+    val readingBooks = remember(vm.books) { vm.readingBooks() }
+    val filteredBooks = remember(vm.books, vm.query, vm.statusFilter, vm.onlyFavorites, vm.selectedSection) { vm.filtered }
     val shown = current
     if (shown != null) {
             BookDetail(shown, { selected = null }, { vm.toggleFavorite(shown.uri) },
+                { vm.recordOpen(shown.uri) },
                 { vm.setStatus(shown.uri, it) }, vm.message, vm.isPossibleDuplicate(shown),
                 { vm.deleteDuplicate(shown) }, { vm.enrich(shown) }, vm.infoLoading == shown.uri,
                 vm.sections, { vm.assignSection(shown.uri, it) },
@@ -1209,6 +1219,15 @@ private fun openCasaDelLibro(context: Context) {
                     Text("Casa del Libro", color = Paper, fontSize = 12.sp,
                         modifier = Modifier.clickable { openCasaDelLibro(context) }.padding(6.dp))
                 }
+                OutlinedTextField(vm.query, { vm.query = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
+                    singleLine = true, placeholder = { Text("Buscar título, saga o autor") },
+                    leadingIcon = { Text("⌕") },
+                    trailingIcon = { if (vm.query.isNotEmpty()) TextButton(onClick = { vm.query = "" }) { Text("×") } },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Paper, unfocusedContainerColor = Paper,
+                        focusedTextColor = Ink, unfocusedTextColor = Ink),
+                    shape = MaterialTheme.shapes.medium)
             }
         }
     ) { p ->
@@ -1220,7 +1239,44 @@ private fun openCasaDelLibro(context: Context) {
         ) {
             item(key = "controls") {
                 Column {
-                    Spacer(Modifier.height(14.dp))
+                    val reading = readingBooks
+                    if (reading.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text("Continuar leyendo", fontFamily = FontFamily.Serif,
+                            fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Mahogany)
+                        Spacer(Modifier.height(8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(end = 8.dp)) {
+                            items(reading, key = { "reading:" + it.uri }) { book ->
+                                Card(Modifier.width(142.dp).clickable(enabled = openingReading == null) {
+                                    scope.launch {
+                                        openingReading = book.uri
+                                        try { if (openEpubInReader(context, book)) {
+                                            vm.recordOpen(book.uri)
+                                            vm.setStatus(book.uri, ReadingStatus.READING)
+                                        } }
+                                        finally { openingReading = null }
+                                    }
+                                },
+                                    colors = CardDefaults.cardColors(containerColor = Paper),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                                    Column(Modifier.padding(8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Cover(book, 122.dp, 170.dp)
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(displayTitle(book), fontSize = 12.sp, lineHeight = 15.sp,
+                                            maxLines = 2, textAlign = TextAlign.Center,
+                                            fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                                        Text(displayAuthor(book), fontSize = 10.sp,
+                                            maxLines = 1, textAlign = TextAlign.Center)
+                                        Text("Toca para leer", fontSize = 10.sp, color = Mahogany)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                    }
+                    Spacer(Modifier.height(12.dp))
                     Text("✦  ENTRE ESTANTERÍAS  ✦", color = Brass, fontFamily = FontFamily.Serif,
                         style = MaterialTheme.typography.labelMedium)
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1231,47 +1287,11 @@ private fun openCasaDelLibro(context: Context) {
                             Text("📖", fontSize = 18.sp)
                         }
                     }
-                    val reading = vm.books.filter { it.status == ReadingStatus.READING }
-                    if (reading.isNotEmpty()) {
-                        Spacer(Modifier.height(12.dp))
-                        Text("Estoy leyendo", fontFamily = FontFamily.Serif,
-                            fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Mahogany)
-                        Spacer(Modifier.height(8.dp))
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            contentPadding = PaddingValues(end = 8.dp)) {
-                            items(reading, key = { "reading:" + it.uri }) { book ->
-                                Card(Modifier.width(120.dp).clickable(enabled = openingReading == null) {
-                                    scope.launch {
-                                        openingReading = book.uri
-                                        try { if (openEpubInReader(context, book)) vm.setStatus(book.uri, ReadingStatus.READING) }
-                                        finally { openingReading = null }
-                                    }
-                                },
-                                    colors = CardDefaults.cardColors(containerColor = Paper),
-                                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
-                                    Column(Modifier.padding(8.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Cover(book, 100.dp, 142.dp)
-                                        Spacer(Modifier.height(6.dp))
-                                        Text(displayTitle(book), fontSize = 12.sp, lineHeight = 15.sp,
-                                            maxLines = 2, textAlign = TextAlign.Center,
-                                            fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-                                        Text(displayAuthor(book), fontSize = 10.sp,
-                                            maxLines = 1, textAlign = TextAlign.Center)
-                                    }
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(10.dp))
-                    }
                     if (vm.syncing) {
                         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
                         Text("Revisando ${vm.syncCount} libros…", modifier = Modifier.padding(vertical = 8.dp),
                             style = MaterialTheme.typography.bodySmall)
                     }
-                    OutlinedTextField(vm.query, { vm.query = it }, Modifier.fillMaxWidth(),
-                        singleLine = true, label = { Text("Buscar título, saga o autor") },
-                        leadingIcon = { Text("⌕") }, shape = MaterialTheme.shapes.medium)
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         FilterChip(vm.statusFilter == null, { vm.statusFilter = null }, { Text("Todos") })
@@ -1283,8 +1303,13 @@ private fun openCasaDelLibro(context: Context) {
                             { vm.statusFilter = if (vm.statusFilter == ReadingStatus.READ) null else ReadingStatus.READ },
                             { Text("Leídos") })
                     }
-                    Text("${vm.filtered.size} libros", fontFamily = FontFamily.Serif,
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${filteredBooks.size} libros", modifier = Modifier.weight(1f), fontFamily = FontFamily.Serif,
                         style = MaterialTheme.typography.titleMedium)
+                        if (vm.statusFilter != null || vm.onlyFavorites || vm.selectedSection != null) {
+                            TextButton(onClick = { vm.statusFilter = null; vm.onlyFavorites = false; vm.selectedSection = null }) { Text("Limpiar filtros") }
+                        }
+                    }
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("Todos", "Autores", "Sagas", "Secciones").forEach { mode ->
@@ -1336,16 +1361,16 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                 }
-            } else if (vm.filtered.isEmpty()) {
+            } else if (filteredBooks.isEmpty()) {
                 item(key = "no-results") {
                     Text("No hay libros con estos filtros.", modifier = Modifier.padding(20.dp))
                 }
             } else {
                 val groups = when (vm.groupMode) {
-                    "Autores" -> vm.filtered.groupBy { displayAuthor(it) }
-                    "Sagas" -> vm.filtered.groupBy { it.saga.ifBlank { "Sin saga" } }
-                    "Secciones" -> vm.filtered.groupBy { it.section.ifBlank { "Sin sección" } }
-                    else -> mapOf("" to vm.filtered)
+                    "Autores" -> filteredBooks.groupBy { displayAuthor(it) }
+                    "Sagas" -> filteredBooks.groupBy { it.saga.ifBlank { "Sin saga" } }
+                    "Secciones" -> filteredBooks.groupBy { it.section.ifBlank { "Sin sección" } }
+                    else -> mapOf("" to filteredBooks)
                 }
                 groups.toSortedMap(String.CASE_INSENSITIVE_ORDER).forEach { (name, group) ->
                     if (name.isNotBlank()) item(key = "group:$name") {
@@ -1455,7 +1480,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun BookDetail(
     book: Book, back: () -> Unit, toggleFavorite: () -> Unit,
-    setStatus: (ReadingStatus) -> Unit, message: String?,
+    onOpened: () -> Unit, setStatus: (ReadingStatus) -> Unit, message: String?,
     possibleDuplicate: Boolean, deleteBook: () -> Unit, enrich: () -> Unit, infoLoading: Boolean,
     sections: List<String>, assignSection: (String) -> Unit,
     saveNotes: (String) -> Unit, saveInfo: (String, String) -> Unit,
@@ -1516,13 +1541,14 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     )
     Scaffold(containerColor = Parchment, topBar = {
         TopAppBar(
-            title = { Text("Ficha del libro", fontFamily = FontFamily.Serif, color = Paper) },
+            title = { Text("Mi Biblioteca", fontFamily = FontFamily.Serif, color = Paper) },
             navigationIcon = { TextButton(onClick = back) { Text("‹ Volver", color = Paper) } },
             actions = { TextButton(onClick = toggleFavorite) { Text(if (book.favorite) "★" else "☆", color = Paper) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Mahogany)
         )
     }) { p ->
-        LazyColumn(Modifier.padding(p).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(Modifier.padding(p).fillMaxSize().padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(top = 14.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             (detailMessage ?: message)?.let { notice -> item { Text(notice, color = Mahogany, fontSize = 12.sp) } }
             item {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1534,7 +1560,21 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                     Text(displayAuthor(book), fontSize = 13.sp, color = Mahogany)
                     if (book.saga.isNotBlank()) Text("Saga: ${book.saga}" +
                         book.sagaOrder.takeIf { it.isNotBlank() }?.let { " · nº $it" }.orEmpty(), fontSize = 12.sp)
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(14.dp))
+                Button(onClick = {
+                    if (!openingEpub) scope.launch {
+                        openingEpub = true
+                        try {
+                            if (openEpubInReader(context, book)) {
+                                onOpened()
+                                setStatus(ReadingStatus.READING)
+                            }
+                        } finally { openingEpub = false }
+                    }
+                }, modifier = Modifier.fillMaxWidth(), enabled = !openingEpub) {
+                    Text(if (openingEpub) "Preparando EPUB…" else "📖  Abrir EPUB")
+                }
+                    Spacer(Modifier.height(14.dp))
                     OutlinedButton(onClick = {
                         titleDraft = displayTitle(book); authorDraft = displayAuthor(book)
                         sagaDraft = book.saga; orderDraft = book.sagaOrder
@@ -1580,10 +1620,16 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 }
             }
             item {
-                Info("Publicación", book.date); Info("Editorial", book.publisher)
-                Info("Género", book.genre); Info("ISBN", book.isbn)
+                Card(colors = CardDefaults.cardColors(containerColor = Paper), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp)) {
+                        Info("Publicación", book.date); Info("Editorial", book.publisher)
+                        Info("Género", book.genre); Info("ISBN", book.isbn)
+                    }
+                }
             }
             item {
+                Card(colors = CardDefaults.cardColors(containerColor = Paper), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp)) {
                 Text("Argumento", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Mahogany)
                 val plot = book.spanishPlot.ifBlank {
                     book.description.takeIf { book.language.lowercase().startsWith("es") ||
@@ -1610,24 +1656,20 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                         editInfo = true
                     }) { Text("Editar texto") }
                 }
+                    }
+                }
             }
             item {
+                Card(colors = CardDefaults.cardColors(containerColor = Paper), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp)) {
                 Text("Mis observaciones", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 OutlinedTextField(notesDraft, { notesDraft = it }, modifier = Modifier.fillMaxWidth(),
                     label = { Text("Escribe tus notas sobre este libro") }, minLines = 3)
                 OutlinedButton(onClick = { saveNotes(notesDraft) }) { Text("Guardar observaciones") }
+                    }
+                }
             }
             item {
-                Button(onClick = {
-                    if (!openingEpub) scope.launch {
-                        openingEpub = true
-                        try {
-                            if (openEpubInReader(context, book)) setStatus(ReadingStatus.READING)
-                        } finally { openingEpub = false }
-                    }
-                }, modifier = Modifier.fillMaxWidth(), enabled = !openingEpub) {
-                    Text(if (openingEpub) "Preparando EPUB…" else "📖  Abrir EPUB")
-                }
                 OutlinedButton(onClick = { openGoodreads(context, book) },
                     modifier = Modifier.fillMaxWidth()) { Text("Abrir este libro en Goodreads") }
                 OutlinedButton(onClick = { searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book)) },
