@@ -6,7 +6,7 @@ plugins {
 
 android { namespace = "com.diego.mibiblioteca"; compileSdk = 35
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 35; versionCode = 18; versionName = "0.18.0" }
+    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 35; versionCode = 19; versionName = "0.19.0" }
 }
 
 dependencies {
