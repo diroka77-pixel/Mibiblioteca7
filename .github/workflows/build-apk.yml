@@ -27,13 +27,13 @@ jobs:
         run: gradle :app:assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: MiBiblioteca-v0.32-debug
+          name: MiBiblioteca-v0.33-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Publicar APK descargable
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk MiBiblioteca-v0.32.apk
-          gh release view v0.32 >/dev/null 2>&1 || gh release create v0.32 --title "MiBiblioteca v0.32" --notes "APK de prueba para Android."
-          gh release upload v0.32 MiBiblioteca-v0.32.apk --clobber
+          cp app/build/outputs/apk/debug/app-debug.apk MiBiblioteca-v0.33.apk
+          gh release view v0.33 >/dev/null 2>&1 || gh release create v0.33 --title "MiBiblioteca v0.33" --notes "APK de prueba para Android."
+          gh release upload v0.33 MiBiblioteca-v0.33.apk --clobber
