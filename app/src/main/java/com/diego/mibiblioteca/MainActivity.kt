@@ -194,7 +194,7 @@ private fun fetchLaunchNews(source: LaunchSource): List<LaunchNews> {
     return try {
         val doc = Jsoup.connect(source.url).timeout(9000)
             .userAgent("Mozilla/5.0 (Android; MiBiblioteca)").get()
-        val candidates = doc.select(source.selector).distinctBy { it.absUrl("href") }.take(12)
+        val candidates = doc.select(source.selector).distinctBy { it.absUrl("href") }.take(8)
         candidates.mapNotNull { a ->
             val link = a.absUrl("href")
             val host = try { URL(link).host } catch (_: Exception) { "" }
