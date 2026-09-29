@@ -6,7 +6,7 @@ plugins {
 
 android { namespace = "com.diego.mibiblioteca"; compileSdk = 35
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 35; versionCode = 33; versionName = "0.33.0" }
+    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 35; versionCode = 34; versionName = "0.34.0" }
     buildTypes { getByName("release") {
         isMinifyEnabled = true
         proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
