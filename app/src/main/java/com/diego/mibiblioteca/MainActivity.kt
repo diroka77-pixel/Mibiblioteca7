@@ -1169,7 +1169,6 @@ private fun openCasaDelLibro(context: Context) {
         if (selected != null) selected = null else showWishList = false
     }
     val listState = rememberLazyListState()
-    val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var openingReading by remember { mutableStateOf<Uri?>(null) }
     val shown = current
