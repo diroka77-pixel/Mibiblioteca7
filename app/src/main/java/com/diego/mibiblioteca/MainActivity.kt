@@ -153,59 +153,118 @@ private data class LaunchSource(
     val name: String, val url: String, val host: String, val selector: String,
     val fallback: String
 )
-data class LaunchNews(val source: String, val title: String, val url: String)
+data class LaunchNews(
+    val source: String, val title: String, val url: String,
+    val imageUrl: String, val releaseDate: String
+)
 
 private val launchSources = listOf(
     LaunchSource("Casa del Libro", "https://www.casadellibro.com/proximos-lanzamientos-en-libros",
-        "casadellibro.com", "a[href*='/libro/'], a[href*='/ebook/']", "Libros en preventa en España"),
+        "casadellibro.com", "a[href*='/libro/'], a[href*='/ebook/']", ""),
     LaunchSource("Fnac", "https://www.fnac.es/s129487/Proximos-lanzamientos-en-libros",
-        "fnac.es", "a[href*='/a']", "Próximos lanzamientos en libros"),
+        "fnac.es", "a[href*='/a']", ""),
     LaunchSource("Kobo", "https://www.kobo.com/es/es/list/se-el-primero-en-resolver-el-caso-ya-en-preventa-la-novela-negra-imprescindible-de-los-proximos-meses/Ln5HatsHS84MRgjbdvGLTA",
-        "kobo.com", "h2 a, h3 a, a[href*='/ebook/']", "eBooks en preventa"),
-    LaunchSource("Google Play Libros", "https://play.google.com/store/books?gl=ES&hl=es",
-        "play.google.com", "", "Novedades y próximos eBooks"),
-    LaunchSource("Google Libros", "https://books.google.es/?hl=es",
-        "books.google.com", "", "Novedades en castellano")
+        "kobo.com", "a[href*='/ebook/']", "")
 )
 
-private fun fetchLaunchNews(source: LaunchSource): LaunchNews {
-    if (source.name == "Google Libros") {
-        try {
-            val data = getJson("https://www.googleapis.com/books/v1/volumes?q=subject:fiction" +
-                "&langRestrict=es&country=ES&orderBy=newest&maxResults=40")
-            val today = java.time.LocalDate.now()
-            val items = data.optJSONArray("items")
-            for (i in 0 until (items?.length() ?: 0)) {
-                val info = items?.optJSONObject(i)?.optJSONObject("volumeInfo") ?: continue
-                if (info.optString("language") != "es") continue
-                val day = try { java.time.LocalDate.parse(info.optString("publishedDate").take(10)) }
-                    catch (_: Exception) { continue }
-                if (day.isAfter(today)) {
-                    val title = info.optString("title").trim()
-                    val link = info.optString("infoLink")
-                    if (title.isNotBlank() && link.startsWith("https://books.google.")) {
-                        return LaunchNews(source.name, title + " · " + day.toString(), link)
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-    } else if (source.selector.isNotBlank()) {
-        try {
-            val doc = Jsoup.connect(source.url).timeout(9000)
-                .userAgent("Mozilla/5.0 (Android; MiBiblioteca)").get()
-            for (a in doc.select(source.selector).take(150)) {
-                val title = a.text().replace(Regex("\\s+"), " ").trim()
-                val link = a.absUrl("href")
-                val host = try { URL(link).host } catch (_: Exception) { "" }
-                if (title.length !in 10..100 || !host.endsWith(source.host) ||
-                    title.contains("Añadir a la cesta", true) || title.contains("Ver todos", true) ||
-                    title.contains("Próximos lanzamientos", true)) continue
-                if (source.name == "Fnac" && !Regex("/a\\d+").containsMatchIn(link)) continue
-                return LaunchNews(source.name, title, link)
-            }
-        } catch (_: Exception) {}
+private fun launchDate(text: String): String? {
+    val iso = Regex("20\\d{2}-\\d{2}-\\d{2}").find(text)?.value
+    val spanish = Regex("\\b(\\d{1,2})[/-](\\d{1,2})[/-](20\\d{2})\\b").find(text)
+    return iso ?: spanish?.let {
+        val (day, month, year) = it.destructured
+        "$year-${month.padStart(2, '0')}-${day.padStart(2, '0')}"
     }
-    return LaunchNews(source.name, source.fallback, source.url)
+}
+
+private fun launchImage(element: org.jsoup.nodes.Element?): String {
+    if (element == null) return ""
+    val image = element.selectFirst("img") ?: element.parent()?.selectFirst("img")
+    return listOf("data-src", "data-original", "src").firstNotNullOfOrNull { key ->
+        image?.absUrl(key)?.takeIf { it.startsWith("https://") }
+    }.orEmpty()
+}
+
+private fun isImminent(date: String): Boolean = try {
+    val day = java.time.LocalDate.parse(date)
+    val today = java.time.LocalDate.now()
+    !day.isBefore(today) && !day.isAfter(today.plusDays(120))
+} catch (_: Exception) { false }
+
+private fun fetchLaunchNews(source: LaunchSource): List<LaunchNews> {
+    return try {
+        val doc = Jsoup.connect(source.url).timeout(9000)
+            .userAgent("Mozilla/5.0 (Android; MiBiblioteca)").get()
+        val candidates = doc.select(source.selector).distinctBy { it.absUrl("href") }.take(12)
+        candidates.mapNotNull { a ->
+            val link = a.absUrl("href")
+            val host = try { URL(link).host } catch (_: Exception) { "" }
+            if (!host.endsWith(source.host) || (source.name == "Fnac" &&
+                    !Regex("/a\\d+").containsMatchIn(link))) return@mapNotNull null
+            val title = a.text().replace(Regex("\\s+"), " ").trim()
+            if (title.length !in 8..110) return@mapNotNull null
+            val block = a.parent()?.parent()
+            var date = launchDate(block?.text().orEmpty().take(500)).orEmpty()
+            var image = launchImage(a)
+            if (!isImminent(date) || image.isBlank()) {
+                try {
+                    val detail = Jsoup.connect(link).timeout(6000)
+                        .userAgent("Mozilla/5.0 (Android; MiBiblioteca)").get()
+                    date = launchDate(detail.select("script[type='application/ld+json']")
+                        .joinToString(" ") { it.data() }).orEmpty()
+                        .ifBlank { launchDate(detail.select("meta[property*=release], meta[property*=published]")
+                            .joinToString(" ") { it.attr("content") }).orEmpty() }
+                        .ifBlank { launchDate(detail.body().text().take(8000)).orEmpty() }
+                    if (image.isBlank()) image = detail.selectFirst("meta[property='og:image']")
+                        ?.absUrl("content").orEmpty()
+                } catch (_: Exception) {}
+            }
+            if (isImminent(date) && image.startsWith("https://"))
+                LaunchNews(source.name, title, link, image, date) else null
+        }.sortedBy { it.releaseDate }.take(4)
+    } catch (_: Exception) { emptyList() }
+}
+
+private fun fetchGoogleLaunchNews(): List<LaunchNews> = try {
+    val data = getJson("https://www.googleapis.com/books/v1/volumes?q=subject:fiction" +
+        "&langRestrict=es&country=ES&orderBy=newest&maxResults=40")
+    val items = data.optJSONArray("items")
+    (0 until (items?.length() ?: 0)).mapNotNull { i ->
+        val info = items?.optJSONObject(i)?.optJSONObject("volumeInfo") ?: return@mapNotNull null
+        if (info.optString("language") != "es") return@mapNotNull null
+        val date = info.optString("publishedDate").take(10)
+        val title = info.optString("title").trim()
+        val image = info.optJSONObject("imageLinks")?.optString("thumbnail")
+            ?.replace("http://", "https://").orEmpty()
+        val link = info.optString("infoLink")
+        if (isImminent(date) && title.isNotBlank() && image.startsWith("https://") &&
+            link.startsWith("https://books.google.")) LaunchNews("Google Libros", title, link, image, date)
+        else null
+    }.distinctBy { it.title.lowercase() }.sortedBy { it.releaseDate }.take(5)
+} catch (_: Exception) { emptyList() }
+
+private val newsImageCache = LruCache<String, Bitmap>(24)
+
+@Composable private fun LaunchImage(url: String, title: String) {
+    val picture by produceState<Bitmap?>(initialValue = newsImageCache.get(url), url) {
+        if (value == null) value = withContext(Dispatchers.IO) {
+            try {
+                val conn = URL(url).openConnection() as HttpURLConnection
+                conn.connectTimeout = 5000
+                conn.readTimeout = 6000
+                try {
+                    val bytes = conn.inputStream.use { it.readBytes() }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.also {
+                        newsImageCache.put(url, it)
+                    }
+                } finally { conn.disconnect() }
+            } catch (_: Exception) { null }
+        }
+    }
+    if (picture != null) Image(picture!!.asImageBitmap(), contentDescription = "Portada de $title",
+        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+    else Box(Modifier.fillMaxSize().background(Mahogany), contentAlignment = Alignment.Center) {
+        Text("📖", fontSize = 32.sp)
+    }
 }
 
 class LibraryViewModel(app: Application) : AndroidViewModel(app) {
@@ -255,29 +314,34 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun restoreLaunchNews() {
-        val saved = try { org.json.JSONArray(prefs.getString("launch_news", "[]")) }
+        val saved = try { org.json.JSONArray(prefs.getString("launch_news_v2", "[]")) }
             catch (_: Exception) { org.json.JSONArray() }
-        launchNews = if (saved.length() > 0) (0 until saved.length()).mapNotNull { i ->
-            try { saved.getJSONObject(i).let { LaunchNews(it.getString("source"),
-                it.getString("title"), it.getString("url")) } } catch (_: Exception) { null }
-        } else launchSources.map { LaunchNews(it.name, it.fallback, it.url) }
+        launchNews = (0 until saved.length()).mapNotNull { i ->
+            try { saved.getJSONObject(i).let {
+                LaunchNews(it.getString("source"), it.getString("title"), it.getString("url"),
+                    it.getString("image"), it.getString("date"))
+            } } catch (_: Exception) { null }
+        }
     }
 
     fun refreshLaunchNews(force: Boolean = false) {
         if (newsRefreshing || (!force &&
-            System.currentTimeMillis() - prefs.getLong("launch_news_checked", 0L) < 24L * 60 * 60 * 1000)) return
+            System.currentTimeMillis() - prefs.getLong("launch_news_v2_checked", 0L) < 24L * 60 * 60 * 1000)) return
         viewModelScope.launch {
             newsRefreshing = true
             try {
                 val results = launchSources.map { source ->
                     async(Dispatchers.IO) { fetchLaunchNews(source) }
-                }.awaitAll()
-                launchNews = results
+                }.awaitAll().flatten() + withContext(Dispatchers.IO) { fetchGoogleLaunchNews() }
+                val sorted = results.distinctBy { it.title.lowercase() }
+                    .sortedBy { it.releaseDate }.take(12)
+                if (sorted.isNotEmpty()) launchNews = sorted
                 val array = org.json.JSONArray()
-                results.forEach { array.put(JSONObject().put("source", it.source)
-                    .put("title", it.title).put("url", it.url)) }
-                prefs.edit().putString("launch_news", array.toString())
-                    .putLong("launch_news_checked", System.currentTimeMillis()).apply()
+                launchNews.forEach { array.put(JSONObject().put("source", it.source)
+                    .put("title", it.title).put("url", it.url)
+                    .put("image", it.imageUrl).put("date", it.releaseDate)) }
+                prefs.edit().putString("launch_news_v2", array.toString())
+                    .putLong("launch_news_v2_checked", System.currentTimeMillis()).apply()
             } finally { newsRefreshing = false }
         }
     }
@@ -1823,28 +1887,42 @@ private fun openCasaDelLibro(context: Context) {
                                 Text("Actualizar", fontSize = 12.sp)
                             }
                         }
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        if (vm.launchNews.isEmpty()) {
+                            Text(if (vm.newsRefreshing) "Buscando próximos lanzamientos…" else
+                                "No hay lanzamientos con fecha e imagen confirmadas por ahora.",
+                                color = Mahogany, fontSize = 12.sp, modifier = Modifier.padding(vertical = 14.dp))
+                        } else LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp),
                             contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp, end = 8.dp)) {
-                            items(vm.launchNews, key = { "news:" + it.source }) { news ->
-                                Card(Modifier.width(206.dp).heightIn(min = 144.dp).clickable {
-                                    try {
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url)))
-                                    } catch (_: Exception) {
-                                        android.widget.Toast.makeText(context, "No se pudo abrir la noticia", android.widget.Toast.LENGTH_SHORT).show()
+                            items(vm.launchNews, key = { "news:" + it.url }) { news ->
+                                Card(Modifier.width(302.dp).height(174.dp).clickable {
+                                    try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url))) }
+                                    catch (_: Exception) {
+                                        android.widget.Toast.makeText(context, "No se pudo abrir la noticia",
+                                            android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 }, colors = CardDefaults.cardColors(containerColor = Paper)) {
-                                    Column(Modifier.padding(14.dp)) {
-                                        Text(news.source, color = Brass, fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp)
-                                        Spacer(Modifier.height(8.dp))
-                                        Text(news.title, color = Mahogany, fontFamily = FontFamily.Serif,
-                                            fontSize = 15.sp, maxLines = 3)
-                                        Spacer(Modifier.height(10.dp))
-                                        Text("Ver novedades ↗", color = Mahogany, fontSize = 12.sp)
+                                    Row(Modifier.fillMaxSize()) {
+                                        Box(Modifier.width(112.dp).fillMaxHeight()) {
+                                            LaunchImage(news.imageUrl, news.title)
+                                        }
+                                        Column(Modifier.fillMaxSize().padding(12.dp),
+                                            verticalArrangement = Arrangement.SpaceBetween) {
+                                            Text(news.source.uppercase(), color = Brass,
+                                                fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                                            Text(news.title, color = Mahogany, fontFamily = FontFamily.Serif,
+                                                fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                                                maxLines = 3, lineHeight = 18.sp)
+                                            Text("Sale el " + try {
+                                                java.time.LocalDate.parse(news.releaseDate)
+                                                    .format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale("es", "ES")))
+                                            } catch (_: Exception) { news.releaseDate },
+                                                color = Mahogany, fontSize = 12.sp)
+                                        }
                                     }
                                 }
                             }
                         }
+
                     }
                 }
                 if (vm.books.isEmpty() && !vm.syncing) item(key = "empty-home") {
