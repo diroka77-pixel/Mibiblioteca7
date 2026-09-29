@@ -3,6 +3,10 @@ package com.diego.mibiblioteca
 import android.app.Application
 import android.app.SearchManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.res.painterResource
 import android.content.Context
 import android.content.ClipData
 import android.content.Intent
@@ -475,7 +479,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 if (removed) {
                     books = books.filterNot { it.uri == book.uri }
                     saveBooks()
-                    message = "EPUB eliminado de la carpeta."
+                    message = null
                 } else message = "No se pudo borrar. Comprueba el permiso de escritura de Drive."
             } catch (e: Exception) {
                 message = "No se pudo borrar: ${e.localizedMessage ?: "sin permiso"}"
@@ -1140,26 +1144,33 @@ private fun openCasaDelLibro(context: Context) {
     BackHandler(enabled = selected != null || showWishList) {
         if (selected != null) selected = null else showWishList = false
     }
-    if (current != null) {
-        BookDetail(current, { selected = null }, { vm.toggleFavorite(current.uri) },
-            { vm.setStatus(current.uri, it) }, vm.message, vm.isPossibleDuplicate(current), { vm.deleteDuplicate(current) },
-            { vm.enrich(current) }, vm.infoLoading == current.uri,
-            vm.sections, { vm.assignSection(current.uri, it) },
-            { vm.saveNotes(current.uri, it) }, { plot, bio -> vm.saveManualInfo(current.uri, plot, bio) },
-            { vm.replaceCover(current.uri, it) },
-            { vm.setGoodreadsUrl(current.uri, it) }, { vm.toggleWantToRead(current.uri) },
-            vm.detailMessage,
-            { title, author, saga, order -> vm.editIdentity(current.uri, title, author, saga, order) })
-        return
-    }
+    val listState = rememberLazyListState()
+    Crossfade(targetState = current?.uri, animationSpec = tween(160), label = "Pantallas") { screenUri ->
+        val shown = screenUri?.let { uri -> vm.books.firstOrNull { it.uri == uri } }
+        if (shown != null) {
+            BookDetail(shown, { selected = null }, { vm.toggleFavorite(shown.uri) },
+                { vm.setStatus(shown.uri, it) }, vm.message, vm.isPossibleDuplicate(shown),
+                { vm.deleteDuplicate(shown) }, { vm.enrich(shown) }, vm.infoLoading == shown.uri,
+                vm.sections, { vm.assignSection(shown.uri, it) },
+                { vm.saveNotes(shown.uri, it) }, { plot, bio -> vm.saveManualInfo(shown.uri, plot, bio) },
+                { vm.replaceCover(shown.uri, it) },
+                { vm.setGoodreadsUrl(shown.uri, it) }, { vm.toggleWantToRead(shown.uri) },
+                vm.detailMessage,
+                { title, author, saga, order -> vm.editIdentity(shown.uri, title, author, saga, order) })
+        } else {
     Scaffold(
         containerColor = Parchment,
         topBar = {
             Column(Modifier.fillMaxWidth().background(Mahogany).statusBarsPadding()) {
-                Box(Modifier.fillMaxWidth().height(52.dp), contentAlignment = Alignment.Center) {
-                    Text("Mi Biblioteca   By Diroka77", color = Color.White,
-                        fontSize = 17.sp, fontFamily = FontFamily.Serif,
-                        fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Row(Modifier.fillMaxWidth().height(52.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Mi Biblioteca", color = Color.White, fontSize = 17.sp,
+                        fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                    Image(painterResource(R.drawable.ic_bookshelf_foreground), null,
+                        modifier = Modifier.size(36.dp))
+                    Text("By Diroka77", color = Color.White, fontSize = 17.sp,
+                        fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
                 }
                 Row(Modifier.fillMaxWidth().height(44.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
@@ -1178,6 +1189,7 @@ private fun openCasaDelLibro(context: Context) {
     ) { p ->
         LazyColumn(
             modifier = Modifier.padding(p).fillMaxSize(),
+            state = listState,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -1328,6 +1340,8 @@ private fun openCasaDelLibro(context: Context) {
                     }
                 }
             }
+        }
+    }
         }
     }
 }
@@ -1548,12 +1562,14 @@ private fun openCasaDelLibro(context: Context) {
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
                             context.startActivity(intent)
+                            setStatus(ReadingStatus.READING)
                         } catch (_: Exception) {
                             try {
                                 context.startActivity(Intent(Intent.ACTION_VIEW).apply {
                                     setDataAndType(book.uri, "application/epub+zip")
                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                 })
+                                setStatus(ReadingStatus.READING)
                             } catch (_: Exception) {
                                 android.widget.Toast.makeText(context, "No hay un lector EPUB disponible",
                                     android.widget.Toast.LENGTH_LONG).show()
