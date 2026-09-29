@@ -1824,7 +1824,7 @@ private fun openCasaDelLibro(context: Context) {
                             }
                         }
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            contentPadding = PaddingValues(vertical = 8.dp, end = 8.dp)) {
+                            contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp, end = 8.dp)) {
                             items(vm.launchNews, key = { "news:" + it.source }) { news ->
                                 Card(Modifier.width(206.dp).heightIn(min = 144.dp).clickable {
                                     try {
