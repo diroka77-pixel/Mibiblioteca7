@@ -170,7 +170,7 @@ private val starterNews = listOf(
         "https://www.bing.com/th?id=ONUT.m7bQKzY3qjbARUUJY99_lA&pid=News", "2026-09-29")
 )
 
-private fun newsQueries(): List<String> {
+private fun newsQueries(includeLatest: Boolean = false): List<String> {
     val today = java.time.LocalDate.now()
     val next = today.plusMonths(1).format(java.time.format.DateTimeFormatter.ofPattern("MMMM yyyy",
         java.util.Locale("es", "ES")))
@@ -180,8 +180,10 @@ private fun newsQueries(): List<String> {
         9, 10, 11 -> "otoño"
         else -> "invierno"
     }
-    return listOf("lanzamientos libros $season ${today.year}",
+    val regular = listOf("lanzamientos libros $season ${today.year}",
         "libros nuevos $next", "novedades literarias $season ${today.year}")
+    return if (includeLatest) regular + listOf("libros nuevos literatura",
+        "próximos lanzamientos novelas", "novedades editoriales libros") else regular
 }
 
 private fun fetchLiteraryNews(query: String): List<LaunchNews> = try {
@@ -191,6 +193,8 @@ private fun fetchLiteraryNews(query: String): List<LaunchNews> = try {
     connection.connectTimeout = 7000
     connection.readTimeout = 8000
     connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+    connection.useCaches = false
+    connection.setRequestProperty("Cache-Control", "no-cache")
     val doc = try { connection.inputStream.use { stream ->
         Jsoup.parse(stream, "UTF-8", address, org.jsoup.parser.Parser.xmlParser())
     } } finally { connection.disconnect() }
@@ -266,6 +270,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var syncReport by mutableStateOf(""); private set
     var launchNews by mutableStateOf<List<LaunchNews>>(emptyList()); private set
     var newsRefreshing by mutableStateOf(false); private set
+    var newsFeedback by mutableStateOf<String?>(null); private set
     var folderName by mutableStateOf<String?>(null); private set
     var message by mutableStateOf<String?>(null); private set
 
@@ -305,20 +310,31 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshLaunchNews(force: Boolean = false) {
         if (newsRefreshing || (!force &&
             System.currentTimeMillis() - prefs.getLong("literary_news_v3_checked", 0L) < 12L * 60 * 60 * 1000)) return
+        newsRefreshing = true
+        if (force) newsFeedback = "Buscando noticias nuevas…"
         viewModelScope.launch {
-            newsRefreshing = true
             try {
-                val results = newsQueries().map { query ->
+                val previous = launchNews.map { it.url }.toSet()
+                val results = newsQueries(includeLatest = force).map { query ->
                     async(Dispatchers.IO) { fetchLiteraryNews(query) }
                 }.awaitAll().flatten()
                 val sorted = results.distinctBy { it.url }.sortedByDescending { it.releaseDate }.take(12)
-                if (sorted.isNotEmpty()) launchNews = sorted
+                if (sorted.isNotEmpty()) {
+                    val newCount = sorted.count { it.url !in previous }
+                    launchNews = sorted
+                    if (force) newsFeedback = if (newCount > 0)
+                        if (newCount == 1) "1 noticia nueva" else "$newCount noticias nuevas"
+                    else "Sin noticias nuevas por ahora"
+                } else if (force) newsFeedback =
+                    "No se encontraron noticias nuevas. Se conservan las anteriores."
                 val array = org.json.JSONArray()
                 launchNews.forEach { array.put(JSONObject().put("source", it.source)
                     .put("title", it.title).put("url", it.url)
                     .put("image", it.imageUrl).put("date", it.releaseDate)) }
                 prefs.edit().putString("literary_news", array.toString())
                     .putLong("literary_news_v3_checked", System.currentTimeMillis()).apply()
+            } catch (_: Exception) {
+                if (force) newsFeedback = "No se pudo actualizar. Se conservan las noticias anteriores."
             } finally { newsRefreshing = false }
         }
     }
@@ -1863,6 +1879,10 @@ private fun openCasaDelLibro(context: Context) {
                             TextButton(onClick = { vm.refreshLaunchNews(true) }, enabled = !vm.newsRefreshing) {
                                 Text("Actualizar", fontSize = 12.sp)
                             }
+                        }
+                        vm.newsFeedback?.let { feedback ->
+                            Text(feedback, color = Mahogany, fontSize = 12.sp,
+                                modifier = Modifier.padding(bottom = 4.dp))
                         }
                         if (vm.launchNews.isEmpty()) {
                             Text(if (vm.newsRefreshing) "Buscando próximos lanzamientos…" else
