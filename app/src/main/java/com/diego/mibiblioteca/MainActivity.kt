@@ -223,6 +223,30 @@ private fun fetchLiteraryNews(query: String): List<LaunchNews> = try {
     }.take(10)
 } catch (_: Exception) { emptyList() }
 
+private fun fetchCasaUpcomingBooks(): List<LaunchNews> = try {
+    val address = "https://www.casadellibro.com/proximos-lanzamientos-en-libros"
+    val connection = URL(address).openConnection() as HttpURLConnection
+    connection.connectTimeout = 7000
+    connection.readTimeout = 9000
+    connection.useCaches = false
+    connection.setRequestProperty("Cache-Control", "no-cache")
+    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+    val doc = try { connection.inputStream.use { stream ->
+        Jsoup.parse(stream, "UTF-8", address)
+    } } finally { connection.disconnect() }
+    val checked = java.time.LocalDate.now().toString()
+    doc.select(".product-card").mapNotNull { card ->
+        val title = card.selectFirst("a.product-title") ?: return@mapNotNull null
+        val author = card.selectFirst("p.autores")?.text()?.trim().orEmpty()
+        val image = card.selectFirst("a.image img")?.absUrl("src").orEmpty()
+        val link = title.absUrl("href")
+        if (title.text().isBlank() || !link.startsWith("https://www.casadellibro.com/") ||
+            !image.startsWith("https://imagessl")) return@mapNotNull null
+        LaunchNews("Casa del Libro", title.text() +
+            if (author.isBlank()) "" else " · $author", link, image, checked)
+    }.distinctBy { it.url }.take(5)
+} catch (_: Exception) { emptyList() }
+
 private val newsImageCache = LruCache<String, Bitmap>(24)
 
 @Composable private fun LaunchImage(url: String, title: String) {
@@ -270,7 +294,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var syncReport by mutableStateOf(""); private set
     var launchNews by mutableStateOf<List<LaunchNews>>(emptyList()); private set
     var newsRefreshing by mutableStateOf(false); private set
-    var newsFeedback by mutableStateOf<String?>(null); private set
     var folderName by mutableStateOf<String?>(null); private set
     var message by mutableStateOf<String?>(null); private set
 
@@ -311,22 +334,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         if (newsRefreshing || (!force &&
             System.currentTimeMillis() - prefs.getLong("literary_news_v3_checked", 0L) < 12L * 60 * 60 * 1000)) return
         newsRefreshing = true
-        if (force) newsFeedback = "Buscando noticias nuevas…"
         viewModelScope.launch {
             try {
-                val previous = launchNews.map { it.url }.toSet()
-                val results = newsQueries(includeLatest = force).map { query ->
+                val queries = newsQueries(includeLatest = force).map { query ->
                     async(Dispatchers.IO) { fetchLiteraryNews(query) }
-                }.awaitAll().flatten()
+                }
+                val books = async(Dispatchers.IO) { fetchCasaUpcomingBooks() }
+                val results = queries.awaitAll().flatten() + books.await()
                 val sorted = results.distinctBy { it.url }.sortedByDescending { it.releaseDate }.take(12)
-                if (sorted.isNotEmpty()) {
-                    val newCount = sorted.count { it.url !in previous }
-                    launchNews = sorted
-                    if (force) newsFeedback = if (newCount > 0)
-                        if (newCount == 1) "1 noticia nueva" else "$newCount noticias nuevas"
-                    else "Sin noticias nuevas por ahora"
-                } else if (force) newsFeedback =
-                    "No se encontraron noticias nuevas. Se conservan las anteriores."
+                if (sorted.isNotEmpty()) launchNews = sorted
                 val array = org.json.JSONArray()
                 launchNews.forEach { array.put(JSONObject().put("source", it.source)
                     .put("title", it.title).put("url", it.url)
@@ -334,7 +350,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 prefs.edit().putString("literary_news", array.toString())
                     .putLong("literary_news_v3_checked", System.currentTimeMillis()).apply()
             } catch (_: Exception) {
-                if (force) newsFeedback = "No se pudo actualizar. Se conservan las noticias anteriores."
+                // Se muestran las noticias guardadas si alguna fuente falla.
             } finally { newsRefreshing = false }
         }
     }
@@ -1876,13 +1892,12 @@ private fun openCasaDelLibro(context: Context) {
                             Text("Actualidad literaria en España", fontFamily = FontFamily.Serif,
                                 fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Mahogany,
                                 modifier = Modifier.weight(1f))
-                            TextButton(onClick = { vm.refreshLaunchNews(true) }, enabled = !vm.newsRefreshing) {
-                                Text("Actualizar", fontSize = 12.sp)
+                            TextButton(onClick = { vm.refreshLaunchNews(true) }, enabled = !vm.newsRefreshing,
+                                modifier = Modifier.semantics { contentDescription = "Actualizar noticias" }) {
+                                if (vm.newsRefreshing) CircularProgressIndicator(Modifier.size(18.dp),
+                                    strokeWidth = 2.dp, color = Brass)
+                                else Text("📰", fontSize = 21.sp)
                             }
-                        }
-                        vm.newsFeedback?.let { feedback ->
-                            Text(feedback, color = Mahogany, fontSize = 12.sp,
-                                modifier = Modifier.padding(bottom = 4.dp))
                         }
                         if (vm.launchNews.isEmpty()) {
                             Text(if (vm.newsRefreshing) "Buscando próximos lanzamientos…" else
@@ -1909,10 +1924,11 @@ private fun openCasaDelLibro(context: Context) {
                                             Text(news.title, color = Mahogany, fontFamily = FontFamily.Serif,
                                                 fontSize = 15.sp, fontWeight = FontWeight.Bold,
                                                 maxLines = 3, lineHeight = 18.sp)
-                                            Text("Publicado el " + try {
-                                                java.time.LocalDate.parse(news.releaseDate)
-                                                    .format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale("es", "ES")))
-                                            } catch (_: Exception) { news.releaseDate },
+                                            Text(if (news.source == "Casa del Libro") "Próximamente" else
+                                                "Publicado el " + try {
+                                                    java.time.LocalDate.parse(news.releaseDate)
+                                                        .format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale("es", "ES")))
+                                                } catch (_: Exception) { news.releaseDate },
                                                 color = Mahogany, fontSize = 12.sp)
                                         }
                                     }
