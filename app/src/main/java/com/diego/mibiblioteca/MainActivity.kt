@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.SearchManager
 import androidx.activity.compose.BackHandler
 import android.content.Context
+import android.content.ClipData
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.graphics.Bitmap
@@ -22,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -50,6 +52,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 import androidx.documentfile.provider.DocumentFile
+import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -677,6 +680,42 @@ private fun readEpub(context: Context, uri: Uri, fallbackName: String): Book {
     } catch (_: Exception) { fallback }
 }
 
+private fun cachedEpub(context: Context, book: Book): File {
+    val folder = File(context.cacheDir, "epubs").apply { mkdirs() }
+    val hash = MessageDigest.getInstance("SHA-256").digest(book.uri.toString().toByteArray())
+        .joinToString("") { "%02x".format(it) }
+    val file = File(folder, "$hash.epub")
+    val stampFile = File(folder, "$hash.meta")
+    val stamp = "${book.sourceSize}:${book.sourceModified}"
+    if (file.exists() && file.length() > 0 &&
+        (book.sourceSize <= 0 || file.length() == book.sourceSize) &&
+        stampFile.takeIf { it.exists() }?.readText() == stamp) {
+        file.setLastModified(System.currentTimeMillis())
+        return file
+    }
+    val temp = File(folder, "$hash.partial")
+    try {
+        context.contentResolver.openInputStream(book.uri)?.use { input ->
+            temp.outputStream().use { output -> input.copyTo(output, 64 * 1024) }
+        } ?: throw IllegalStateException("No se pudo leer el EPUB de Drive")
+        if (temp.length() == 0L) throw IllegalStateException("El EPUB está vacío")
+        if (file.exists()) file.delete()
+        if (!temp.renameTo(file)) throw IllegalStateException("No se pudo guardar el EPUB temporal")
+        stampFile.writeText(stamp)
+        file.setLastModified(System.currentTimeMillis())
+        val old = folder.listFiles()?.filter { it.extension == "epub" && it != file }
+            ?.sortedBy { it.lastModified() }.orEmpty()
+        var total = folder.listFiles()?.filter { it.extension == "epub" }?.sumOf { it.length() } ?: 0L
+        for (candidate in old) {
+            if (total <= 700L * 1024 * 1024) break
+            total -= candidate.length()
+            candidate.delete()
+            File(folder, candidate.nameWithoutExtension + ".meta").delete()
+        }
+        return file
+    } finally { temp.delete() }
+}
+
 private fun coverFile(context: Context, uri: Uri): File {
     val hash = MessageDigest.getInstance("SHA-256").digest(uri.toString().toByteArray())
         .joinToString("") { "%02x".format(it) }
@@ -1155,6 +1194,33 @@ private fun openCasaDelLibro(context: Context) {
                             Text("📖", fontSize = 18.sp)
                         }
                     }
+                    val reading = vm.books.filter { it.status == ReadingStatus.READING }
+                    if (reading.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text("Estoy leyendo", fontFamily = FontFamily.Serif,
+                            fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Mahogany)
+                        Spacer(Modifier.height(8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(end = 8.dp)) {
+                            items(reading, key = { "reading:" + it.uri }) { book ->
+                                Card(Modifier.width(120.dp).clickable { selected = book },
+                                    colors = CardDefaults.cardColors(containerColor = Paper),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                                    Column(Modifier.padding(8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Cover(book, 100.dp, 142.dp)
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(displayTitle(book), fontSize = 12.sp, lineHeight = 15.sp,
+                                            maxLines = 2, textAlign = TextAlign.Center,
+                                            fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                                        Text(displayAuthor(book), fontSize = 10.sp,
+                                            maxLines = 1, textAlign = TextAlign.Center)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                    }
                     if (vm.syncing) {
                         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
                         Text("Revisando ${vm.syncCount} libros…", modifier = Modifier.padding(vertical = 8.dp),
@@ -1315,6 +1381,8 @@ private fun openCasaDelLibro(context: Context) {
     editIdentity: (String, String, String, String) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var openingEpub by remember(book.uri) { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var sectionMenu by remember { mutableStateOf(false) }
     var editInfo by remember { mutableStateOf(false) }
@@ -1391,7 +1459,8 @@ private fun openCasaDelLibro(context: Context) {
                     }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                         Text("Editar título y autor", fontSize = 13.sp)
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Spacer(Modifier.height(14.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         OutlinedButton(onClick = { searchCoverImages(context, book) },
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
                             Text("Buscar portada", fontSize = 12.sp, maxLines = 1)
@@ -1467,12 +1536,33 @@ private fun openCasaDelLibro(context: Context) {
             }
             item {
                 Button(onClick = {
-                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(book.uri, "application/epub+zip")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    if (!openingEpub) scope.launch {
+                        openingEpub = true
+                        try {
+                            val file = withContext(Dispatchers.IO) { cachedEpub(context, book) }
+                            val uri = FileProvider.getUriForFile(context,
+                                context.packageName + ".fileprovider", file)
+                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, "application/epub+zip")
+                                clipData = ClipData.newRawUri("EPUB", uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {
+                            try {
+                                context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(book.uri, "application/epub+zip")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                })
+                            } catch (_: Exception) {
+                                android.widget.Toast.makeText(context, "No hay un lector EPUB disponible",
+                                    android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        } finally { openingEpub = false }
                     }
-                    try { context.startActivity(intent) } catch (_: Exception) {}
-                }, modifier = Modifier.fillMaxWidth()) { Text("📖  Abrir EPUB") }
+                }, modifier = Modifier.fillMaxWidth(), enabled = !openingEpub) {
+                    Text(if (openingEpub) "Preparando EPUB…" else "📖  Abrir EPUB")
+                }
                 OutlinedButton(onClick = { openGoodreads(context, book) },
                     modifier = Modifier.fillMaxWidth()) { Text("Abrir este libro en Goodreads") }
                 OutlinedButton(onClick = { searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book)) },
