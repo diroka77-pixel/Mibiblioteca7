@@ -11,6 +11,9 @@ import androidx.compose.ui.res.painterResource
 import android.content.Context
 import android.content.ClipData
 import android.content.Intent
+import android.content.ContentValues
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
 import android.graphics.BitmapFactory
 import android.graphics.Bitmap
 import android.net.Uri
@@ -110,6 +113,37 @@ data class InfoCandidate(
     val plotSource: String, val bioSource: String
 )
 
+private class BookStore(context: Context) : SQLiteOpenHelper(context, "catalog.db", null, 1) {
+    override fun onCreate(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE books (uri TEXT PRIMARY KEY, content TEXT NOT NULL)")
+    }
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+
+    fun readArray(): org.json.JSONArray {
+        val result = org.json.JSONArray()
+        readableDatabase.rawQuery("SELECT content FROM books ORDER BY rowid", null).use { cursor ->
+            while (cursor.moveToNext()) result.put(JSONObject(cursor.getString(0)))
+        }
+        return result
+    }
+
+    fun replaceAll(array: org.json.JSONArray) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("books", null, null)
+            for (i in 0 until array.length()) {
+                val book = array.getJSONObject(i)
+                db.insertOrThrow("books", null, ContentValues().apply {
+                    put("uri", book.getString("uri"))
+                    put("content", book.toString())
+                })
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+}
+
 class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var query by mutableStateOf("")
     var groupMode by mutableStateOf("Todos")
@@ -131,6 +165,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var message by mutableStateOf<String?>(null); private set
 
     private val prefs = app.getSharedPreferences("library", Context.MODE_PRIVATE)
+    private val bookStore = BookStore(app)
+    private val saveMutex = Mutex()
+    @Volatile private var saveVersion = 0
     private val folderKey = "folder_uri"
     private val cloudMutex = Mutex()
     private val cloudName = "MiBiblioteca_Diroka77.json"
@@ -139,17 +176,20 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         sections = org.json.JSONArray(prefs.getString("sections", "[]")).let { arr ->
             (0 until arr.length()).map { arr.optString(it) }
         }
-        restoreCachedBooks()
+        viewModelScope.launch { restoreCachedBooks(onlyIfEmpty = true) }
         viewMode = prefs.getString("view_mode", "Lista") ?: "Lista"
         loadWishList()
         folderName = prefs.getString("folder_name", null)
         syncReport = prefs.getString("sync_report", "Todavía no se ha sincronizado.") ?: ""
     }
 
-    private fun restoreCachedBooks() {
+    private suspend fun restoreCachedBooks(onlyIfEmpty: Boolean = false) {
         try {
-            val array = org.json.JSONArray(prefs.getString("books_cache", "[]"))
-            books = (0 until array.length()).mapNotNull { i ->
+            val restored = withContext(Dispatchers.IO) {
+            val fromDatabase = bookStore.readArray()
+            val array = if (fromDatabase.length() > 0) fromDatabase
+                else org.json.JSONArray(prefs.getString("books_cache", "[]"))
+            (0 until array.length()).mapNotNull { i ->
                 try {
                 val j = array.getJSONObject(i)
                 val uri = Uri.parse(j.getString("uri"))
@@ -173,12 +213,22 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     coverSource = j.optString("coverSource"))
                 } catch (_: Exception) { null }
             }
-        } catch (_: Exception) { books = emptyList() }
+            }
+            if (!onlyIfEmpty || books.isEmpty()) books = restored
+        } catch (_: Exception) { if (!onlyIfEmpty) books = emptyList() }
     }
 
     private fun saveBooks() {
+        val snapshot = books.toList()
+        val revision = ++saveVersion
+        prefs.edit().putLong("local_revision", System.currentTimeMillis()).apply()
+        viewModelScope.launch {
+            try {
+            withContext(Dispatchers.IO) {
+                saveMutex.withLock {
+                    if (revision != saveVersion) return@withLock
         val array = org.json.JSONArray()
-        books.forEach { b -> array.put(JSONObject().put("uri", b.uri.toString())
+        snapshot.forEach { b -> array.put(JSONObject().put("uri", b.uri.toString())
             .put("title", b.title).put("author", b.author).put("date", b.date)
             .put("publisher", b.publisher).put("genre", b.genre).put("description", b.description)
             .put("isbn", b.isbn).put("saga", b.saga).put("language", b.language)
@@ -189,8 +239,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .put("sourceSize", b.sourceSize).put("sourceModified", b.sourceModified)
             .put("sourceCoverChecked", b.sourceCoverChecked).put("hadEmbeddedCover", b.hadEmbeddedCover)
             .put("plotSource", b.plotSource).put("bioSource", b.bioSource).put("coverSource", b.coverSource)) }
-        prefs.edit().putString("books_cache", array.toString()).apply()
-        saveCloud()
+                    bookStore.replaceAll(array)
+                    prefs.edit().putString("books_cache", array.toString()).apply()
+                }
+            }
+            if (revision == saveVersion) saveCloud()
+            } catch (e: Exception) {
+                detailMessage = "No se pudo guardar el catálogo local: ${e.localizedMessage}"
+            }
+        }
     }
 
     private fun loadWishList() {
@@ -248,9 +305,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putLong("local_revision", System.currentTimeMillis()).apply()
         val tree = prefs.getString(folderKey, null)?.let(Uri::parse) ?: return
         viewModelScope.launch {
-            val snapshot = withContext(Dispatchers.IO) { cloudSnapshot() }
             try {
                 cloudMutex.withLock {
+                    val snapshot = withContext(Dispatchers.IO) { cloudSnapshot() }
                     withContext(Dispatchers.IO) {
                         val root = DocumentFile.fromTreeUri(getApplication(), tree)
                             ?: throw IllegalStateException("Carpeta no disponible")
@@ -282,6 +339,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .putString("sections", cloud.optJSONArray("sections")?.toString() ?: "[]")
             .putString("wish_list", cloud.optJSONArray("wishList")?.toString() ?: "[]")
             .putLong("local_revision", cloud.optLong("updatedAt")).apply()
+        withContext(Dispatchers.IO) { bookStore.replaceAll(booksArray) }
         for (i in 0 until booksArray.length()) {
             val j = booksArray.getJSONObject(i)
             val uri = Uri.parse(j.getString("uri"))
@@ -1253,6 +1311,14 @@ private fun openCasaDelLibro(context: Context) {
     var organizeSections by remember { mutableStateOf(false) }
     val readingBooks = remember(vm.books) { vm.readingBooks() }
     val filteredBooks = remember(vm.books, vm.query, vm.statusFilter, vm.onlyFavorites, vm.selectedSection) { vm.filtered }
+    val groupedBooks = remember(filteredBooks, vm.groupMode) {
+        when (vm.groupMode) {
+            "Autores" -> filteredBooks.groupBy { displayAuthor(it) }
+            "Sagas" -> filteredBooks.groupBy { it.saga.ifBlank { "Sin saga" } }
+            "Secciones" -> filteredBooks.groupBy { it.section.ifBlank { "Sin sección" } }
+            else -> mapOf("" to filteredBooks)
+        }.toSortedMap(String.CASE_INSENSITIVE_ORDER)
+    }
     vm.infoCandidate?.let { (uri, found) ->
         var authorDraft by remember(uri, found) { mutableStateOf(found.author) }
         var plotDraft by remember(uri, found) { mutableStateOf(found.plot) }
@@ -1484,13 +1550,7 @@ private fun openCasaDelLibro(context: Context) {
                     Text("No hay libros con estos filtros.", modifier = Modifier.padding(20.dp))
                 }
             } else {
-                val groups = when (vm.groupMode) {
-                    "Autores" -> filteredBooks.groupBy { displayAuthor(it) }
-                    "Sagas" -> filteredBooks.groupBy { it.saga.ifBlank { "Sin saga" } }
-                    "Secciones" -> filteredBooks.groupBy { it.section.ifBlank { "Sin sección" } }
-                    else -> mapOf("" to filteredBooks)
-                }
-                groups.toSortedMap(String.CASE_INSENSITIVE_ORDER).forEach { (name, group) ->
+                groupedBooks.forEach { (name, group) ->
                     if (name.isNotBlank()) item(key = "group:$name") {
                         Text(name, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
                             color = Mahogany, modifier = Modifier.padding(top = 10.dp))
