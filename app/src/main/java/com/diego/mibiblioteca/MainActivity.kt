@@ -19,6 +19,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.metrics.performance.JankStats
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -35,6 +36,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -1136,12 +1138,28 @@ private val libraryColors = lightColorScheme(
 
 class MainActivity : ComponentActivity() {
     private lateinit var libraryVm: LibraryViewModel
+    private var jankStats: JankStats? = null
+    private var metricScreen = "Inicio"
+    private val framesByScreen = mutableMapOf<String, IntArray>()
+
+    fun setMetricScreen(screen: String) { metricScreen = screen }
+    fun performanceReport(): String = listOf("Inicio", "Biblioteca", "Secciones", "Ficha")
+        .mapNotNull { name -> framesByScreen[name]?.let { "$name: ${it[1]} lentos de ${it[0]} fotogramas" } }
+        .joinToString("\n").ifBlank { "Aún no hay mediciones en esta sesión." }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         libraryVm = ViewModelProvider(this)[LibraryViewModel::class.java]
         handleSharedBook(intent)
         setContent { MaterialTheme(colorScheme = libraryColors) { LibraryApp(libraryVm) } }
+        jankStats = JankStats.createAndTrack(window) { frame ->
+            val counts = framesByScreen.getOrPut(metricScreen) { intArrayOf(0, 0) }
+            counts[0]++
+            if (frame.isJank) counts[1]++
+        }
     }
+    override fun onResume() { super.onResume(); jankStats?.isTrackingEnabled = true }
+    override fun onPause() { jankStats?.isTrackingEnabled = false; super.onPause() }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleSharedBook(intent)
@@ -1266,6 +1284,7 @@ private fun openCasaDelLibro(context: Context) {
 @Composable fun LibraryApp(vm: LibraryViewModel = viewModel()) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var selected by remember { mutableStateOf<Book?>(null) }
+    var tab by rememberSaveable { mutableStateOf("Inicio") }
     var addingSection by remember { mutableStateOf(false) }
     var sectionName by remember { mutableStateOf("") }
     var sectionToDelete by remember { mutableStateOf<String?>(null) }
@@ -1301,23 +1320,37 @@ private fun openCasaDelLibro(context: Context) {
     )
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
     val current = selected?.let { s -> vm.books.firstOrNull { it.uri == s.uri } }
-    BackHandler(enabled = selected != null || showWishList) {
-        if (selected != null) selected = null else showWishList = false
+    BackHandler(enabled = selected != null || showWishList || tab != "Inicio") {
+        when {
+            selected != null -> selected = null
+            showWishList -> showWishList = false
+            else -> { tab = "Inicio"; vm.selectedSection = null }
+        }
     }
     val listState = rememberLazyListState()
+    LaunchedEffect(tab) { listState.scrollToItem(0) }
     val scope = rememberCoroutineScope()
     var openingReading by remember { mutableStateOf<Uri?>(null) }
     var showSyncReport by remember { mutableStateOf(false) }
     var organizeSections by remember { mutableStateOf(false) }
     val readingBooks = remember(vm.books) { vm.readingBooks() }
     val filteredBooks = remember(vm.books, vm.query, vm.statusFilter, vm.onlyFavorites, vm.selectedSection) { vm.filtered }
-    val groupedBooks = remember(filteredBooks, vm.groupMode) {
-        when (vm.groupMode) {
-            "Autores" -> filteredBooks.groupBy { displayAuthor(it) }
-            "Sagas" -> filteredBooks.groupBy { it.saga.ifBlank { "Sin saga" } }
-            "Secciones" -> filteredBooks.groupBy { it.section.ifBlank { "Sin sección" } }
-            else -> mapOf("" to filteredBooks)
+    val visibleBooks = remember(vm.books, filteredBooks, tab) {
+        if (tab == "Inicio") vm.books.takeLast(6).reversed() else filteredBooks
+    }
+    val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Inicio") "Todos" else vm.groupMode
+    val groupedBooks = remember(visibleBooks, groupMode) {
+        val groups = when (groupMode) {
+            "Autores" -> visibleBooks.groupBy { displayAuthor(it) }
+            "Sagas" -> visibleBooks.groupBy { it.saga.ifBlank { "Sin saga" } }
+            "Secciones" -> visibleBooks.groupBy { it.section.ifBlank { "Sin sección" } }
+            else -> mapOf("" to visibleBooks)
         }.toSortedMap(String.CASE_INSENSITIVE_ORDER)
+        groups.mapValues { (_, group) ->
+            if (groupMode == "Sagas") group.sortedWith(
+                compareBy<Book> { sagaNumber(it) }.thenBy(String.CASE_INSENSITIVE_ORDER) { displayTitle(it) })
+            else group
+        }
     }
     vm.infoCandidate?.let { (uri, found) ->
         var authorDraft by remember(uri, found) { mutableStateOf(found.author) }
@@ -1359,9 +1392,17 @@ private fun openCasaDelLibro(context: Context) {
         confirmButton = { TextButton(onClick = { organizeSections = false }) { Text("Cerrar") } })
     if (showSyncReport) AlertDialog(onDismissRequest = { showSyncReport = false },
         title = { Text("Sincronización de Drive") },
-        text = { Text(vm.syncReport) },
+        text = { Column {
+            Text(vm.syncReport)
+            Spacer(Modifier.height(14.dp))
+            Text("Fluidez de esta sesión", fontWeight = FontWeight.Bold)
+            Text((context as? MainActivity)?.performanceReport().orEmpty(), fontSize = 12.sp)
+        } },
         confirmButton = { TextButton(onClick = { showSyncReport = false }) { Text("Cerrar") } })
     val shown = current
+    LaunchedEffect(tab, shown?.uri) {
+        (context as? MainActivity)?.setMetricScreen(if (shown != null) "Ficha" else tab)
+    }
     if (shown != null) {
             BookDetail(shown, { selected = null }, { vm.toggleFavorite(shown.uri) },
                 { vm.recordOpen(shown.uri) },
@@ -1376,6 +1417,16 @@ private fun openCasaDelLibro(context: Context) {
         } else {
     Scaffold(
         containerColor = Parchment,
+        bottomBar = {
+            NavigationBar(containerColor = Paper) {
+                listOf("Inicio", "Biblioteca", "Secciones").forEach { name ->
+                    NavigationBarItem(selected = tab == name, onClick = {
+                        tab = name; showWishList = false; vm.selectedSection = null
+                    }, icon = { Text(when (name) { "Inicio" -> "⌂"; "Biblioteca" -> "▦"; else -> "▤" }) },
+                        label = { Text(name) })
+                }
+            }
+        },
         topBar = {
             Column(Modifier.fillMaxWidth().background(Mahogany).statusBarsPadding()) {
                 Row(Modifier.fillMaxWidth().height(52.dp),
@@ -1400,7 +1451,7 @@ private fun openCasaDelLibro(context: Context) {
                     Text("Casa del Libro", color = Paper, fontSize = 12.sp,
                         modifier = Modifier.clickable { openCasaDelLibro(context) }.padding(6.dp))
                 }
-                OutlinedTextField(vm.query, { vm.query = it },
+                OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) tab = "Biblioteca" },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
                     singleLine = true, placeholder = { Text("Buscar título, saga o autor") },
                     leadingIcon = { Text("⌕") },
@@ -1420,6 +1471,7 @@ private fun openCasaDelLibro(context: Context) {
         ) {
             item(key = "controls") {
                 Column {
+                    if (tab == "Inicio") {
                     val reading = readingBooks
                     if (reading.isNotEmpty()) {
                         Spacer(Modifier.height(12.dp))
@@ -1471,52 +1523,67 @@ private fun openCasaDelLibro(context: Context) {
                             Text("📖", fontSize = 18.sp)
                         }
                     }
+                    }
+                    if (tab == "Inicio") Text("Algunos libros de tu biblioteca",
+                        fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = Mahogany)
+                    if (tab == "Biblioteca") Text("Tu biblioteca",
+                        fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall, color = Mahogany)
+                    if (tab == "Secciones") Text("Tus secciones",
+                        fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall, color = Mahogany)
                     if (vm.syncing) {
                         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
                         Text("Revisando ${vm.syncCount} libros…", modifier = Modifier.padding(vertical = 8.dp),
                             style = MaterialTheme.typography.bodySmall)
                     }
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        FilterChip(vm.statusFilter == null, { vm.statusFilter = null }, { Text("Todos") })
-                        FilterChip(vm.onlyFavorites, { vm.onlyFavorites = !vm.onlyFavorites }, { Text("★") })
-                        FilterChip(vm.statusFilter == ReadingStatus.READING,
-                            { vm.statusFilter = if (vm.statusFilter == ReadingStatus.READING) null else ReadingStatus.READING },
-                            { Text("Leyendo") })
-                        FilterChip(vm.statusFilter == ReadingStatus.READ,
-                            { vm.statusFilter = if (vm.statusFilter == ReadingStatus.READ) null else ReadingStatus.READ },
-                            { Text("Leídos") })
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("${filteredBooks.size} libros", modifier = Modifier.weight(1f), fontFamily = FontFamily.Serif,
-                        style = MaterialTheme.typography.titleMedium)
-                        if (vm.statusFilter != null || vm.onlyFavorites || vm.selectedSection != null) {
-                            TextButton(onClick = { vm.statusFilter = null; vm.onlyFavorites = false; vm.selectedSection = null }) { Text("Limpiar filtros") }
+                    if (tab == "Biblioteca") {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FilterChip(vm.statusFilter == null, { vm.statusFilter = null }, { Text("Todos") })
+                            FilterChip(vm.onlyFavorites, { vm.onlyFavorites = !vm.onlyFavorites }, { Text("★ Favoritos") })
+                            FilterChip(vm.statusFilter == ReadingStatus.READING,
+                                { vm.statusFilter = if (vm.statusFilter == ReadingStatus.READING) null else ReadingStatus.READING },
+                                { Text("Leyendo") })
+                            FilterChip(vm.statusFilter == ReadingStatus.READ,
+                                { vm.statusFilter = if (vm.statusFilter == ReadingStatus.READ) null else ReadingStatus.READ },
+                                { Text("Leídos") })
+                        }
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("Todos", "Autores", "Sagas", "Secciones").forEach { mode ->
+                                FilterChip(vm.groupMode == mode, { vm.groupMode = mode }, { Text(mode) })
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("${filteredBooks.size} libros", modifier = Modifier.weight(1f),
+                                fontFamily = FontFamily.Serif, style = MaterialTheme.typography.titleMedium)
+                            if (vm.statusFilter != null || vm.onlyFavorites || vm.selectedSection != null) {
+                                TextButton(onClick = {
+                                    vm.statusFilter = null; vm.onlyFavorites = false; vm.selectedSection = null
+                                }) { Text("Limpiar filtros") }
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FilterChip(showWishList, { showWishList = !showWishList },
+                                { Text("Quiero leer (${vm.wishList.size})") })
+                            if (showWishList) TextButton(onClick = { addWishDialog = true }) { Text("+ Goodreads") }
                         }
                     }
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Todos", "Autores", "Sagas", "Secciones").forEach { mode ->
-                            FilterChip(vm.groupMode == mode, { vm.groupMode = mode }, { Text(mode) })
+                    if (tab == "Secciones") {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(vm.selectedSection == null, { vm.selectedSection = null }, { Text("Todas") })
+                            vm.sections.forEach { name ->
+                                FilterChip(vm.selectedSection == name, { vm.selectedSection = name }, { Text(name) })
+                            }
+                        }
+                        Row {
+                            OutlinedButton(onClick = { addingSection = true }) { Text("+ Nueva sección") }
+                            Spacer(Modifier.width(8.dp))
+                            OutlinedButton(onClick = { organizeSections = true }) { Text("Ordenar secciones") }
                         }
                     }
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(vm.selectedSection == null, { vm.selectedSection = null }, { Text("Todas las secciones") })
-                        vm.sections.forEach { name ->
-                            FilterChip(vm.selectedSection == name, { vm.selectedSection = name }, { Text(name) })
-                        }
-                        TextButton(onClick = { addingSection = true }) { Text("+ Sección") }
-                        TextButton(onClick = { organizeSections = true }) { Text("Ordenar") }
-                    }
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        FilterChip(showWishList, { showWishList = !showWishList },
-                            { Text("Quiero leer (${vm.wishList.size})") })
-                        if (showWishList) TextButton(onClick = { addWishDialog = true }) { Text("+ Goodreads") }
-                    }
-                    if (!showWishList) {
+                    if (tab != "Inicio" && !showWishList) {
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("Lista", "Galería", "Compacta").forEach { mode ->
@@ -1526,7 +1593,7 @@ private fun openCasaDelLibro(context: Context) {
                     }
                 }
             }
-            if (showWishList) {
+            if (showWishList && tab == "Biblioteca") {
                 items(vm.wishList, key = { "wish:" + it.second }) { (title, url) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedButton(onClick = { openGoodreadsUrl(context, url) },
@@ -1545,7 +1612,7 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                 }
-            } else if (filteredBooks.isEmpty()) {
+            } else if (visibleBooks.isEmpty()) {
                 item(key = "no-results") {
                     Text("No hay libros con estos filtros.", modifier = Modifier.padding(20.dp))
                 }
@@ -1554,7 +1621,7 @@ private fun openCasaDelLibro(context: Context) {
                     if (name.isNotBlank()) item(key = "group:$name") {
                         Text(name, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
                             color = Mahogany, modifier = Modifier.padding(top = 10.dp))
-                        if (vm.groupMode == "Sagas" && name != "Sin saga") {
+                        if (groupMode == "Sagas" && name != "Sin saga") {
                             val numbers = group.map { sagaNumber(it) }
                                 .filter { it.isFinite() && it >= 1 && it <= 100 && it % 1.0 == 0.0 }
                                 .map { it.toInt() }.toSet()
@@ -1565,11 +1632,9 @@ private fun openCasaDelLibro(context: Context) {
                                 fontSize = 11.sp, color = Mahogany)
                         }
                     }
-                    val ordered = if (vm.groupMode == "Sagas") group.sortedWith(
-                        compareBy<Book> { sagaNumber(it) }.thenBy(String.CASE_INSENSITIVE_ORDER) { displayTitle(it) })
-                        else group
+                    val ordered = group
                     when (vm.viewMode) {
-                        "Galería" -> items(ordered.chunked(2), key = { "grid:" + it.first().uri }) { pair ->
+                        "Galería" -> items(ordered.chunked(2), key = { "grid:" + it.first().uri }, contentType = { "gallery" }) { pair ->
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 pair.forEach { book ->
                                     BookGalleryCard(book, Modifier.weight(1f)) { selected = book }
@@ -1577,7 +1642,7 @@ private fun openCasaDelLibro(context: Context) {
                                 if (pair.size == 1) Spacer(Modifier.weight(1f))
                             }
                         }
-                        else -> items(ordered, key = { it.uri.toString() }) { book ->
+                        else -> items(ordered, key = { it.uri.toString() }, contentType = { vm.viewMode }) { book ->
                             if (vm.viewMode == "Compacta") BookCompactCard(book) { selected = book }
                             else BookCard(book) { selected = book }
                         }
@@ -1659,8 +1724,16 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
         color = Color(0xFFE9DDC5), tonalElevation = 2.dp) {
         if (bmp != null) Image(bmp!!.asImageBitmap(), book.title, Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop)
-        else Box(contentAlignment = Alignment.Center) {
-            Text("📖", style = MaterialTheme.typography.headlineLarge)
+        else Box(Modifier.fillMaxSize().padding(7.dp)
+            .background(Mahogany, androidx.compose.foundation.shape.RoundedCornerShape(5.dp))) {
+            Box(Modifier.align(Alignment.CenterStart).width(5.dp).fillMaxHeight().background(Brass))
+            Column(Modifier.align(Alignment.Center).padding(horizontal = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("✦", color = Brass, fontSize = 15.sp)
+                Text(displayTitle(book), color = Paper, fontFamily = FontFamily.Serif,
+                    fontSize = 10.sp, lineHeight = 12.sp, maxLines = 3,
+                    textAlign = TextAlign.Center)
+            }
         }
     }
 }
@@ -1770,6 +1843,10 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
         confirmButton = { TextButton(onClick = { saveInfo(plotDraft, bioDraft); editInfo = false }) { Text("Guardar") } },
         dismissButton = { TextButton(onClick = { editInfo = false }) { Text("Cancelar") } }
     )
+    val plot = book.spanishPlot.ifBlank {
+        book.description.takeIf { book.language.lowercase().startsWith("es") ||
+            book.language.lowercase().startsWith("spa") }.orEmpty()
+    }
     Scaffold(containerColor = Parchment, topBar = {
         TopAppBar(
             title = { Text("Mi Biblioteca", fontFamily = FontFamily.Serif, color = Paper) },
@@ -1807,6 +1884,12 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                     }
                 }, modifier = Modifier.fillMaxWidth(), enabled = !openingEpub) {
                     Text(if (openingEpub) "Preparando EPUB…" else "📖  Abrir EPUB")
+                }
+                OutlinedButton(onClick = {
+                    val safeName = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), " ").trim().take(90)
+                    exportPicker.launch((safeName.ifBlank { "Libro" }) + ".epub")
+                }, modifier = Modifier.fillMaxWidth(), enabled = !exportingEpub) {
+                    Text(if (exportingEpub) "Guardando EPUB…" else "Descargar EPUB de Drive")
                 }
                     Spacer(Modifier.height(14.dp))
                     OutlinedButton(onClick = {
@@ -1854,70 +1937,82 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 }
             }
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = Paper), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp)) {
-                        Info("Publicación", book.date); Info("Editorial", book.publisher)
-                        Info("Género", book.genre); Info("ISBN", book.isbn)
-                    }
+                BookPanel("Datos del libro", book.uri.toString()) {
+                    Info("Publicación", book.date); Info("Editorial", book.publisher)
+                    Info("Género", book.genre); Info("ISBN", book.isbn)
                 }
             }
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = Paper), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp)) {
-                Text("Argumento", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Mahogany)
-                val plot = book.spanishPlot.ifBlank {
-                    book.description.takeIf { book.language.lowercase().startsWith("es") ||
-                        book.language.lowercase().startsWith("spa") }.orEmpty()
+                BookPanel("Argumento", book.uri.toString(), initiallyExpanded = true) {
+                    OutlinedTextField(value = plot, onValueChange = {}, readOnly = true,
+                        modifier = Modifier.fillMaxWidth(), minLines = 3,
+                        placeholder = { Text("Argumento en castellano pendiente. Puedes buscarlo o escribirlo.") },
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 19.sp))
+                    if (plot.isNotBlank()) Text("Fuente: " + book.plotSource.ifBlank { "No registrada" },
+                        fontSize = 11.sp, color = Mahogany)
                 }
-                OutlinedTextField(value = plot, onValueChange = {}, readOnly = true,
-                    modifier = Modifier.fillMaxWidth(), minLines = 3,
-                    shape = MaterialTheme.shapes.medium,
-                    placeholder = { Text("Argumento en castellano pendiente. Puedes buscarlo o escribirlo.") },
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 19.sp))
-                if (plot.isNotBlank()) Text("Fuente: " + book.plotSource.ifBlank { "No registrada" }, fontSize = 11.sp, color = Mahogany)
-                Spacer(Modifier.height(8.dp))
-                Text("Sobre el autor", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Mahogany)
-                OutlinedTextField(value = book.authorBio, onValueChange = {}, readOnly = true,
-                    modifier = Modifier.fillMaxWidth(), minLines = 3,
-                    placeholder = { Text("Biografía en castellano pendiente. Puedes buscarla o escribirla.") },
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 17.sp))
-                if (book.authorBio.isNotBlank()) Text("Fuente: " + book.bioSource.ifBlank { "No registrada" }, fontSize = 11.sp, color = Mahogany)
-                Row {
-                    OutlinedButton(onClick = enrich, enabled = !infoLoading) {
+            }
+            item {
+                BookPanel("Sobre el autor", book.uri.toString()) {
+                    OutlinedTextField(value = book.authorBio, onValueChange = {}, readOnly = true,
+                        modifier = Modifier.fillMaxWidth(), minLines = 3,
+                        placeholder = { Text("Biografía en castellano pendiente. Puedes buscarla o escribirla.") },
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 17.sp))
+                    if (book.authorBio.isNotBlank()) Text("Fuente: " + book.bioSource.ifBlank { "No registrada" },
+                        fontSize = 11.sp, color = Mahogany)
+                }
+            }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = enrich, enabled = !infoLoading,
+                        modifier = Modifier.weight(1f)) {
                         Text(if (infoLoading) "Consultando…" else "Buscar datos")
                     }
                     OutlinedButton(onClick = {
                         plotDraft = book.spanishPlot.ifBlank { plot }
                         bioDraft = book.authorBio
                         editInfo = true
-                    }) { Text("Editar texto") }
+                    }, modifier = Modifier.weight(1f)) { Text("Editar texto") }
                 }
+            }
+            item {
+                BookPanel("Mis observaciones", book.uri.toString()) {
+                    OutlinedTextField(notesDraft, { notesDraft = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Escribe tus notas sobre este libro") }, minLines = 3)
+                    OutlinedButton(onClick = { saveNotes(notesDraft) }) {
+                        Text("Guardar observaciones")
                     }
                 }
             }
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = Paper), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp)) {
-                Text("Mis observaciones", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                OutlinedTextField(notesDraft, { notesDraft = it }, modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Escribe tus notas sobre este libro") }, minLines = 3)
-                OutlinedButton(onClick = { saveNotes(notesDraft) }) { Text("Guardar observaciones") }
-                    }
-                }
-            }
-            item {
-                OutlinedButton(onClick = {
-                    val safeName = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), " ").trim().take(90)
-                    exportPicker.launch((safeName.ifBlank { "Libro" }) + ".epub")
-                }, modifier = Modifier.fillMaxWidth(), enabled = !exportingEpub) {
-                    Text(if (exportingEpub) "Guardando EPUB…" else "Descargar EPUB de Drive")
-                }
                 OutlinedButton(onClick = { openGoodreads(context, book) },
                     modifier = Modifier.fillMaxWidth()) { Text("Abrir este libro en Goodreads") }
                 OutlinedButton(onClick = { searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book)) },
                     modifier = Modifier.fillMaxWidth()) { Text("Consultar en Google") }
                 OutlinedButton(onClick = { confirmDelete = true },
                     modifier = Modifier.fillMaxWidth()) { Text("Borrar este EPUB de Drive") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookPanel(title: String, bookKey: String, initiallyExpanded: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit) {
+    var expanded by rememberSaveable(bookKey, title) { mutableStateOf(initiallyExpanded) }
+    Card(colors = CardDefaults.cardColors(containerColor = Paper),
+        modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(title, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp, color = Mahogany)
+                Text(if (expanded) "⌃" else "⌄", color = Mahogany, fontSize = 20.sp)
+            }
+            if (expanded) {
+                Spacer(Modifier.height(6.dp))
+                content()
             }
         }
     }
