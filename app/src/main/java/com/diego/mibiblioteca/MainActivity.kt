@@ -254,6 +254,34 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         syncReport = prefs.getString("sync_report", "Todavía no se ha sincronizado.") ?: ""
     }
 
+    private fun restoreLaunchNews() {
+        val saved = try { org.json.JSONArray(prefs.getString("launch_news", "[]")) }
+            catch (_: Exception) { org.json.JSONArray() }
+        launchNews = if (saved.length() > 0) (0 until saved.length()).mapNotNull { i ->
+            try { saved.getJSONObject(i).let { LaunchNews(it.getString("source"),
+                it.getString("title"), it.getString("url")) } } catch (_: Exception) { null }
+        } else launchSources.map { LaunchNews(it.name, it.fallback, it.url) }
+    }
+
+    fun refreshLaunchNews(force: Boolean = false) {
+        if (newsRefreshing || (!force &&
+            System.currentTimeMillis() - prefs.getLong("launch_news_checked", 0L) < 24L * 60 * 60 * 1000)) return
+        viewModelScope.launch {
+            newsRefreshing = true
+            try {
+                val results = launchSources.map { source ->
+                    async(Dispatchers.IO) { fetchLaunchNews(source) }
+                }.awaitAll()
+                launchNews = results
+                val array = org.json.JSONArray()
+                results.forEach { array.put(JSONObject().put("source", it.source)
+                    .put("title", it.title).put("url", it.url)) }
+                prefs.edit().putString("launch_news", array.toString())
+                    .putLong("launch_news_checked", System.currentTimeMillis()).apply()
+            } finally { newsRefreshing = false }
+        }
+    }
+
     private suspend fun restoreCachedBooks(onlyIfEmpty: Boolean = false) {
         try {
             val restored = withContext(Dispatchers.IO) {
@@ -1802,7 +1830,7 @@ private fun openCasaDelLibro(context: Context) {
                                     try {
                                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url)))
                                     } catch (_: Exception) {
-                                        Toast.makeText(context, "No se pudo abrir la noticia", Toast.LENGTH_SHORT).show()
+                                        android.widget.Toast.makeText(context, "No se pudo abrir la noticia", android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 }, colors = CardDefaults.cardColors(containerColor = Paper)) {
                                     Column(Modifier.padding(14.dp)) {
@@ -2254,32 +2282,4 @@ private fun BookPanel(title: String, bookKey: String, initiallyExpanded: Boolean
     }
 }
 
-@Composable private fun Info(label:String,value:String){if(value.isNotBlank()){Text(label,fontWeight=FontWeight.Bold,fontSize=13.sp);Text(value,fontSize=12.sp,lineHeight=17.sp);Spacer(Modifier.height(4.dp))}}    private fun restoreLaunchNews() {
-        val saved = try { org.json.JSONArray(prefs.getString("launch_news", "[]")) }
-            catch (_: Exception) { org.json.JSONArray() }
-        launchNews = if (saved.length() > 0) (0 until saved.length()).mapNotNull { i ->
-            try { saved.getJSONObject(i).let { LaunchNews(it.getString("source"),
-                it.getString("title"), it.getString("url")) } } catch (_: Exception) { null }
-        } else launchSources.map { LaunchNews(it.name, it.fallback, it.url) }
-    }
-
-    fun refreshLaunchNews(force: Boolean = false) {
-        if (newsRefreshing || (!force &&
-            System.currentTimeMillis() - prefs.getLong("launch_news_checked", 0L) < 24L * 60 * 60 * 1000)) return
-        viewModelScope.launch {
-            newsRefreshing = true
-            try {
-                val results = launchSources.map { source ->
-                    async(Dispatchers.IO) { fetchLaunchNews(source) }
-                }.awaitAll()
-                launchNews = results
-                val array = org.json.JSONArray()
-                results.forEach { array.put(JSONObject().put("source", it.source)
-                    .put("title", it.title).put("url", it.url)) }
-                prefs.edit().putString("launch_news", array.toString())
-                    .putLong("launch_news_checked", System.currentTimeMillis()).apply()
-            } finally { newsRefreshing = false }
-        }
-    }
-
-
+@Composable private fun Info(label:String,value:String){if(value.isNotBlank()){Text(label,fontWeight=FontWeight.Bold,fontSize=13.sp);Text(value,fontSize=12.sp,lineHeight=17.sp);Spacer(Modifier.height(4.dp))}}
