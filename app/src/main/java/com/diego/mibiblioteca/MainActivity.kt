@@ -54,6 +54,9 @@ import android.util.Base64
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
+import org.jsoup.Jsoup
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.TranslatorOptions
 import com.google.mlkit.nl.translate.TranslateLanguage
@@ -146,6 +149,65 @@ private class BookStore(context: Context) : SQLiteOpenHelper(context, "catalog.d
     }
 }
 
+private data class LaunchSource(
+    val name: String, val url: String, val host: String, val selector: String,
+    val fallback: String
+)
+data class LaunchNews(val source: String, val title: String, val url: String)
+
+private val launchSources = listOf(
+    LaunchSource("Casa del Libro", "https://www.casadellibro.com/proximos-lanzamientos-en-libros",
+        "casadellibro.com", "a[href*='/libro/'], a[href*='/ebook/']", "Libros en preventa en España"),
+    LaunchSource("Fnac", "https://www.fnac.es/s129487/Proximos-lanzamientos-en-libros",
+        "fnac.es", "a[href*='/a']", "Próximos lanzamientos en libros"),
+    LaunchSource("Kobo", "https://www.kobo.com/es/es/list/se-el-primero-en-resolver-el-caso-ya-en-preventa-la-novela-negra-imprescindible-de-los-proximos-meses/Ln5HatsHS84MRgjbdvGLTA",
+        "kobo.com", "h2 a, h3 a, a[href*='/ebook/']", "eBooks en preventa"),
+    LaunchSource("Google Play Libros", "https://play.google.com/store/books?gl=ES&hl=es",
+        "play.google.com", "", "Novedades y próximos eBooks"),
+    LaunchSource("Google Libros", "https://books.google.es/?hl=es",
+        "books.google.com", "", "Novedades en castellano")
+)
+
+private fun fetchLaunchNews(source: LaunchSource): LaunchNews {
+    if (source.name == "Google Libros") {
+        try {
+            val data = getJson("https://www.googleapis.com/books/v1/volumes?q=subject:fiction" +
+                "&langRestrict=es&country=ES&orderBy=newest&maxResults=40")
+            val today = java.time.LocalDate.now()
+            val items = data.optJSONArray("items")
+            for (i in 0 until (items?.length() ?: 0)) {
+                val info = items?.optJSONObject(i)?.optJSONObject("volumeInfo") ?: continue
+                if (info.optString("language") != "es") continue
+                val day = try { java.time.LocalDate.parse(info.optString("publishedDate").take(10)) }
+                    catch (_: Exception) { continue }
+                if (day.isAfter(today)) {
+                    val title = info.optString("title").trim()
+                    val link = info.optString("infoLink")
+                    if (title.isNotBlank() && link.startsWith("https://books.google.")) {
+                        return LaunchNews(source.name, title + " · " + day.toString(), link)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    } else if (source.selector.isNotBlank()) {
+        try {
+            val doc = Jsoup.connect(source.url).timeout(9000)
+                .userAgent("Mozilla/5.0 (Android; MiBiblioteca)").get()
+            for (a in doc.select(source.selector).take(150)) {
+                val title = a.text().replace(Regex("\\s+"), " ").trim()
+                val link = a.absUrl("href")
+                val host = try { URL(link).host } catch (_: Exception) { "" }
+                if (title.length !in 10..100 || !host.endsWith(source.host) ||
+                    title.contains("Añadir a la cesta", true) || title.contains("Ver todos", true) ||
+                    title.contains("Próximos lanzamientos", true)) continue
+                if (source.name == "Fnac" && !Regex("/a\\d+").containsMatchIn(link)) continue
+                return LaunchNews(source.name, title, link)
+            }
+        } catch (_: Exception) {}
+    }
+    return LaunchNews(source.name, source.fallback, source.url)
+}
+
 class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var query by mutableStateOf("")
     var groupMode by mutableStateOf("Todos")
@@ -166,6 +228,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var syncing by mutableStateOf(false); private set
     var syncCount by mutableIntStateOf(0); private set
     var syncReport by mutableStateOf(""); private set
+    var launchNews by mutableStateOf<List<LaunchNews>>(emptyList()); private set
+    var newsRefreshing by mutableStateOf(false); private set
     var folderName by mutableStateOf<String?>(null); private set
     var message by mutableStateOf<String?>(null); private set
 
@@ -185,6 +249,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         viewMode = prefs.getString("view_mode", "Lista") ?: "Lista"
         loadWishList()
         folderName = prefs.getString("folder_name", null)
+        restoreLaunchNews()
+        refreshLaunchNews()
         syncReport = prefs.getString("sync_report", "Todavía no se ha sincronizado.") ?: ""
     }
 
@@ -1455,7 +1521,7 @@ private fun openCasaDelLibro(context: Context) {
     val readingBooks = remember(vm.books) { vm.readingBooks() }
     val filteredBooks = remember(vm.books, vm.query, vm.statusFilter, vm.onlyFavorites, vm.selectedSection) { vm.filtered }
     val visibleBooks = remember(vm.books, filteredBooks, tab) {
-        if (tab == "Inicio") vm.books.takeLast(6).reversed() else filteredBooks
+        if (tab == "Inicio") emptyList<Book>() else filteredBooks
     }
     val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Inicio") "Todos" else vm.groupMode
     val groupedBooks = remember(visibleBooks, groupMode, vm.sections, tab) {
@@ -1650,8 +1716,6 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                     }
-                    if (tab == "Inicio") Text("Algunos libros de tu biblioteca",
-                        fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = Mahogany)
                     if (tab == "Biblioteca") Text("Tu biblioteca",
                         fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall, color = Mahogany)
                     if (tab == "Secciones") Text("Tus secciones",
@@ -1719,7 +1783,48 @@ private fun openCasaDelLibro(context: Context) {
                     }
                 }
             }
-            if (showWishList && tab == "Biblioteca") {
+            if (tab == "Inicio") {
+                item(key = "launch-news") {
+                    Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Próximos lanzamientos en España", fontFamily = FontFamily.Serif,
+                                fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Mahogany,
+                                modifier = Modifier.weight(1f))
+                            TextButton(onClick = { vm.refreshLaunchNews(true) }, enabled = !vm.newsRefreshing) {
+                                Text("Actualizar", fontSize = 12.sp)
+                            }
+                        }
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(vertical = 8.dp, end = 8.dp)) {
+                            items(vm.launchNews, key = { "news:" + it.source }) { news ->
+                                Card(Modifier.width(206.dp).heightIn(min = 144.dp).clickable {
+                                    try {
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url)))
+                                    } catch (_: Exception) {
+                                        Toast.makeText(context, "No se pudo abrir la noticia", Toast.LENGTH_SHORT).show()
+                                    }
+                                }, colors = CardDefaults.cardColors(containerColor = Paper)) {
+                                    Column(Modifier.padding(14.dp)) {
+                                        Text(news.source, color = Brass, fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp)
+                                        Spacer(Modifier.height(8.dp))
+                                        Text(news.title, color = Mahogany, fontFamily = FontFamily.Serif,
+                                            fontSize = 15.sp, maxLines = 3)
+                                        Spacer(Modifier.height(10.dp))
+                                        Text("Ver novedades ↗", color = Mahogany, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (vm.books.isEmpty() && !vm.syncing) item(key = "empty-home") {
+                    Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                        Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta de EPUB") }
+                    }
+                }
+            } else if (showWishList && tab == "Biblioteca") {
                 items(vm.wishList, key = { "wish:" + it.second }) { (title, url) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedButton(onClick = { openGoodreadsUrl(context, url) },
@@ -2149,4 +2254,32 @@ private fun BookPanel(title: String, bookKey: String, initiallyExpanded: Boolean
     }
 }
 
-@Composable private fun Info(label:String,value:String){if(value.isNotBlank()){Text(label,fontWeight=FontWeight.Bold,fontSize=13.sp);Text(value,fontSize=12.sp,lineHeight=17.sp);Spacer(Modifier.height(4.dp))}}
+@Composable private fun Info(label:String,value:String){if(value.isNotBlank()){Text(label,fontWeight=FontWeight.Bold,fontSize=13.sp);Text(value,fontSize=12.sp,lineHeight=17.sp);Spacer(Modifier.height(4.dp))}}    private fun restoreLaunchNews() {
+        val saved = try { org.json.JSONArray(prefs.getString("launch_news", "[]")) }
+            catch (_: Exception) { org.json.JSONArray() }
+        launchNews = if (saved.length() > 0) (0 until saved.length()).mapNotNull { i ->
+            try { saved.getJSONObject(i).let { LaunchNews(it.getString("source"),
+                it.getString("title"), it.getString("url")) } } catch (_: Exception) { null }
+        } else launchSources.map { LaunchNews(it.name, it.fallback, it.url) }
+    }
+
+    fun refreshLaunchNews(force: Boolean = false) {
+        if (newsRefreshing || (!force &&
+            System.currentTimeMillis() - prefs.getLong("launch_news_checked", 0L) < 24L * 60 * 60 * 1000)) return
+        viewModelScope.launch {
+            newsRefreshing = true
+            try {
+                val results = launchSources.map { source ->
+                    async(Dispatchers.IO) { fetchLaunchNews(source) }
+                }.awaitAll()
+                launchNews = results
+                val array = org.json.JSONArray()
+                results.forEach { array.put(JSONObject().put("source", it.source)
+                    .put("title", it.title).put("url", it.url)) }
+                prefs.edit().putString("launch_news", array.toString())
+                    .putLong("launch_news_checked", System.currentTimeMillis()).apply()
+            } finally { newsRefreshing = false }
+        }
+    }
+
+
