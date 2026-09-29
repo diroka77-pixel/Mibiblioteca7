@@ -160,6 +160,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var books by mutableStateOf<List<Book>>(emptyList()); private set
     var coverLoading by mutableStateOf<Uri?>(null); private set
     var infoLoading by mutableStateOf<Uri?>(null); private set
+    var autoInfoLoading by mutableStateOf<Set<Uri>>(emptySet()); private set
+    var autoCoverLoading by mutableStateOf<Set<Uri>>(emptySet()); private set
+    private val autoJobs = mutableSetOf<Uri>()
     var syncing by mutableStateOf(false); private set
     var syncCount by mutableIntStateOf(0); private set
     var syncReport by mutableStateOf(""); private set
@@ -535,7 +538,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 val missing = (previousUris - currentUris).size
                 saveBooks()
-                viewModelScope.launch { fillMissingDetails() }
                 syncCount = result.size
                 syncReport = "Última sincronización: " +
                     java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale("es", "ES"))
@@ -594,6 +596,86 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 } else message = "No se pudo borrar. Comprueba el permiso de escritura de Drive."
             } catch (e: Exception) {
                 message = "No se pudo borrar: ${e.localizedMessage ?: "sin permiso"}"
+            }
+        }
+    }
+
+    fun completeMissing(uri: Uri, force: Boolean = false) {
+        val initial = books.firstOrNull { it.uri == uri } ?: return
+        if (!autoJobs.add(uri)) return
+        val app = getApplication<Application>()
+        val now = System.currentTimeMillis()
+        val cooldown = 3L * 24 * 60 * 60 * 1000
+        val coverBlocked = File(app.filesDir, "removed-" + coverFile(app, uri).name).exists() ||
+            File(app.filesDir, "manual-" + coverFile(app, uri).name).exists()
+        val needCover = initial.cover == null && !coverBlocked &&
+            (force || now - prefs.getLong("auto_cover_v28_" + uri, 0L) > cooldown)
+        val needInfo = (initial.spanishPlot.isBlank() || initial.authorBio.isBlank() ||
+                displayAuthor(initial) == "Biblioteca de Diroka77") &&
+            (force || now - prefs.getLong("auto_info_v28_" + uri, 0L) > cooldown)
+        if (!needCover && !needInfo) { autoJobs.remove(uri); return }
+        viewModelScope.launch {
+            var changed = false
+            try {
+                if (needInfo) {
+                    autoInfoLoading = autoInfoLoading + uri
+                    prefs.edit().putLong("auto_info_v28_" + uri, now).apply()
+                    try {
+                        val latest = books.firstOrNull { it.uri == uri } ?: initial
+                        val google = withContext(Dispatchers.IO) { fetchGoogleBookInfo(latest) }
+                        val author = google.first.ifBlank { displayAuthor(latest) }
+                        val found = withContext(Dispatchers.IO) {
+                            fetchSpanishInfo(latest.copy(customAuthor = author))
+                        }
+                        val rawPlot = google.second.ifBlank { found.plot }
+                        val plotSource = if (google.second.isNotBlank()) "Google Libros" else found.plotSource
+                        val plot = if (rawPlot.isBlank()) "" else if (plotSource == "Google Libros" ||
+                            plotSource == "Wikipedia en español") rawPlot else ensureSpanish(rawPlot)
+                        val bio = if (found.bio.isBlank()) "" else if (found.bioSource == "Wikipedia (es)")
+                            found.bio else ensureSpanish(found.bio)
+                        val current = books.firstOrNull { it.uri == uri }
+                        if (current != null) {
+                            val updated = current.copy(
+                                customAuthor = if ((current.customAuthor.isBlank() ||
+                                    current.customAuthor == "Biblioteca de Diroka77") &&
+                                    google.first.isNotBlank()) google.first else current.customAuthor,
+                                spanishPlot = current.spanishPlot.ifBlank { plot },
+                                authorBio = current.authorBio.ifBlank { bio },
+                                plotSource = if (current.spanishPlot.isBlank() && plot.isNotBlank())
+                                    plotSource else current.plotSource,
+                                bioSource = if (current.authorBio.isBlank() && bio.isNotBlank())
+                                    found.bioSource else current.bioSource)
+                            if (updated != current) {
+                                books = books.map { if (it.uri == uri) updated else it }
+                                prefs.edit().putString("info_" + uri, JSONObject()
+                                    .put("plot", updated.spanishPlot).put("bio", updated.authorBio).toString()).apply()
+                                changed = true
+                            }
+                        }
+                    } catch (_: Exception) {}
+                    autoInfoLoading = autoInfoLoading - uri
+                }
+                if (needCover) {
+                    autoCoverLoading = autoCoverLoading + uri
+                    prefs.edit().putLong("auto_cover_v28_" + uri, now).apply()
+                    val bytes = try { withContext(Dispatchers.IO) { fetchCover(books.firstOrNull { it.uri == uri } ?: initial) } }
+                        catch (_: Exception) { null }
+                    val current = books.firstOrNull { it.uri == uri }
+                    if (bytes != null && current?.cover == null &&
+                        !File(app.filesDir, "removed-" + coverFile(app, uri).name).exists() &&
+                        !File(app.filesDir, "manual-" + coverFile(app, uri).name).exists()) {
+                        withContext(Dispatchers.IO) { coverFile(app, uri).writeBytes(bytes) }
+                        books = books.map { if (it.uri == uri) it.copy(
+                            cover = bytes, coverSource = "Catálogos públicos") else it }
+                        changed = true
+                    }
+                    autoCoverLoading = autoCoverLoading - uri
+                }
+                if (changed) saveBooks()
+            } finally {
+                autoCoverLoading = autoCoverLoading - uri
+                autoInfoLoading = autoInfoLoading - uri
+                autoJobs.remove(uri)
             }
         }
     }
@@ -897,6 +979,27 @@ private fun downloadImage(url: String): ByteArray? {
     } finally { connection.disconnect() }
 }
 
+private fun catalogMatch(candidateTitle: String, candidateAuthors: List<String>, book: Book): Boolean {
+    val normalize: (String) -> String = { value ->
+        java.text.Normalizer.normalize(cleanCatalogText(value).lowercase(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "")
+            .replace(Regex("[^\\p{L}\\p{N}]"), "")
+    }
+    val wanted = normalize(displayTitle(book))
+    val title = normalize(candidateTitle)
+    if (wanted.length < 3 || title.length < 3 ||
+        !(title.contains(wanted) || wanted.contains(title))) return false
+    val author = displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty()
+    if (author.isNotBlank() && candidateAuthors.isNotEmpty()) {
+        val wantedAuthor = normalize(author)
+        if (candidateAuthors.none { name ->
+                val candidate = normalize(name)
+                candidate.contains(wantedAuthor) || wantedAuthor.contains(candidate)
+            }) return false
+    }
+    return true
+}
+
 private fun fetchCover(book: Book): ByteArray? {
     val isbn = book.isbn.filter { it.isDigit() || it == 'X' || it == 'x' }
     if (isbn.length == 10 || isbn.length == 13) {
@@ -911,7 +1014,11 @@ private fun fetchCover(book: Book): ByteArray? {
         val docs = getJson("https://openlibrary.org/search.json?$q&fields=cover_i,title,author_name&limit=3")
             .optJSONArray("docs")
         for (i in 0 until (docs?.length() ?: 0)) {
-            val id = docs?.optJSONObject(i)?.optLong("cover_i", 0) ?: 0
+            val doc = docs?.optJSONObject(i) ?: continue
+            val authors = doc.optJSONArray("author_name")
+            val names = (0 until (authors?.length() ?: 0)).map { authors!!.optString(it) }
+            if (!catalogMatch(doc.optString("title"), names, book)) continue
+            val id = doc.optLong("cover_i", 0)
             if (id > 0) downloadImage("https://covers.openlibrary.org/b/id/$id-M.jpg?default=false")
                 ?.let { return it }
         }
@@ -923,8 +1030,11 @@ private fun fetchCover(book: Book): ByteArray? {
             java.net.URLEncoder.encode(q, "UTF-8") + "&maxResults=3"
         val items = getJson(url).optJSONArray("items")
         for (i in 0 until (items?.length() ?: 0)) {
-            val link = items?.optJSONObject(i)?.optJSONObject("volumeInfo")
-                ?.optJSONObject("imageLinks")?.optString("thumbnail").orEmpty()
+            val info = items?.optJSONObject(i)?.optJSONObject("volumeInfo") ?: continue
+            val authors = info.optJSONArray("authors")
+            val names = (0 until (authors?.length() ?: 0)).map { authors!!.optString(it) }
+            if (!catalogMatch(info.optString("title"), names, book)) continue
+            val link = info.optJSONObject("imageLinks")?.optString("thumbnail").orEmpty()
             if (link.isNotBlank()) downloadImage(link)?.let { return it }
         }
     } catch (_: Exception) {}
@@ -988,7 +1098,10 @@ private fun fetchSpanishInfo(book: Book): InfoCandidate {
         val items = getJson(url).optJSONArray("items")
         for (i in 0 until (items?.length() ?: 0)) {
             val info = items?.optJSONObject(i)?.optJSONObject("volumeInfo") ?: continue
-            if (info.optString("language") == "es") {
+            val authors = info.optJSONArray("authors")
+            val names = (0 until (authors?.length() ?: 0)).map { authors!!.optString(it) }
+            if (info.optString("language") == "es" &&
+                catalogMatch(info.optString("title"), names, book)) {
                 plot = android.text.Html.fromHtml(info.optString("description"), android.text.Html.FROM_HTML_MODE_LEGACY)
                     .toString().trim().take(2500)
                 if (plot.isNotBlank()) { plotSource = "Google Libros"; break }
@@ -1002,12 +1115,18 @@ private fun fetchSpanishInfo(book: Book): InfoCandidate {
     if (plot.isBlank()) try {
         val q = "title=" + java.net.URLEncoder.encode(displayTitle(book), "UTF-8") +
             "&author=" + java.net.URLEncoder.encode(displayAuthor(book), "UTF-8")
-        val key = getJson("https://openlibrary.org/search.json?$q&fields=key,title&limit=1")
-            .optJSONArray("docs")?.optJSONObject(0)?.optString("key").orEmpty()
-        if (key.startsWith("/works/")) {
-            val desc = getJson("https://openlibrary.org$key.json").opt("description")
+        val docs = getJson("https://openlibrary.org/search.json?${q}&fields=key,title,author_name&limit=5")
+            .optJSONArray("docs")
+        for (i in 0 until (docs?.length() ?: 0)) {
+            val doc = docs?.optJSONObject(i) ?: continue
+            val authors = doc.optJSONArray("author_name")
+            val names = (0 until (authors?.length() ?: 0)).map { authors!!.optString(it) }
+            if (!catalogMatch(doc.optString("title"), names, book)) continue
+            val key = doc.optString("key")
+            if (!key.startsWith("/works/")) continue
+            val desc = getJson("https://openlibrary.org${key}.json").opt("description")
             plot = (if (desc is JSONObject) desc.optString("value") else desc as? String).orEmpty().take(2500)
-            if (plot.isNotBlank()) plotSource = "Open Library"
+            if (plot.isNotBlank()) { plotSource = "Open Library"; break }
         }
     } catch (_: Exception) {}
     if (plot.isBlank()) {
@@ -1405,6 +1524,7 @@ private fun openCasaDelLibro(context: Context) {
         } },
         confirmButton = { TextButton(onClick = { showSyncReport = false }) { Text("Cerrar") } })
     val shown = current
+    LaunchedEffect(shown?.uri) { shown?.let { vm.completeMissing(it.uri) } }
     LaunchedEffect(tab, shown?.uri) {
         (context as? MainActivity)?.setMetricScreen(if (shown != null) "Ficha" else tab)
     }
@@ -1412,7 +1532,8 @@ private fun openCasaDelLibro(context: Context) {
             BookDetail(shown, { selected = null }, { vm.toggleFavorite(shown.uri) },
                 { vm.recordOpen(shown.uri) },
                 { vm.setStatus(shown.uri, it) }, vm.message, vm.possibleDuplicates(shown),
-                { vm.deleteDuplicate(shown) }, { vm.enrich(shown) }, vm.infoLoading == shown.uri,
+                { vm.deleteDuplicate(shown) }, { vm.completeMissing(shown.uri, force = true) },
+                vm.autoInfoLoading.contains(shown.uri), vm.autoCoverLoading.contains(shown.uri),
                 vm.sections, { vm.assignSection(shown.uri, it) },
                 { vm.saveNotes(shown.uri, it) }, { plot, bio -> vm.saveManualInfo(shown.uri, plot, bio) },
                 { vm.replaceCover(shown.uri, it) },
@@ -1747,7 +1868,8 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
 @Composable fun BookDetail(
     book: Book, back: () -> Unit, toggleFavorite: () -> Unit,
     onOpened: () -> Unit, setStatus: (ReadingStatus) -> Unit, message: String?,
-    possibleDuplicates: List<Book>, deleteBook: () -> Unit, enrich: () -> Unit, infoLoading: Boolean,
+    possibleDuplicates: List<Book>, deleteBook: () -> Unit, enrich: () -> Unit,
+    infoLoading: Boolean, coverSearching: Boolean,
     sections: List<String>, assignSection: (String) -> Unit,
     saveNotes: (String) -> Unit, saveInfo: (String, String) -> Unit,
     replaceCover: (Uri) -> Unit,
@@ -1866,6 +1988,8 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
             item {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Cover(book, 165.dp, 240.dp)
+                    if (book.cover == null && coverSearching) Text("Buscando portada…",
+                        fontSize = 11.sp, color = Mahogany)
                     if (book.cover != null) Text("Portada: " + book.coverSource.ifBlank {
                         if (book.hadEmbeddedCover) "EPUB" else "No registrada"
                     }, fontSize = 11.sp, color = Mahogany)
@@ -1951,7 +2075,8 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 BookPanel("Argumento", book.uri.toString(), initiallyExpanded = true) {
                     OutlinedTextField(value = plot, onValueChange = {}, readOnly = true,
                         modifier = Modifier.fillMaxWidth(), minLines = 3,
-                        placeholder = { Text("Argumento en castellano pendiente. Puedes buscarlo o escribirlo.") },
+                        placeholder = { Text(if (infoLoading) "Buscando argumento en castellano…" else
+                            "Argumento en castellano pendiente. Puedes escribirlo.") },
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 19.sp))
                     if (plot.isNotBlank()) Text("Fuente: " + book.plotSource.ifBlank { "No registrada" },
                         fontSize = 11.sp, color = Mahogany)
@@ -1961,7 +2086,8 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 BookPanel("Sobre el autor", book.uri.toString()) {
                     OutlinedTextField(value = book.authorBio, onValueChange = {}, readOnly = true,
                         modifier = Modifier.fillMaxWidth(), minLines = 3,
-                        placeholder = { Text("Biografía en castellano pendiente. Puedes buscarla o escribirla.") },
+                        placeholder = { Text(if (infoLoading) "Buscando biografía en castellano…" else
+                            "Biografía en castellano pendiente. Puedes escribirla.") },
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 17.sp))
                     if (book.authorBio.isNotBlank()) Text("Fuente: " + book.bioSource.ifBlank { "No registrada" },
                         fontSize = 11.sp, color = Mahogany)
@@ -1971,7 +2097,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(onClick = enrich, enabled = !infoLoading,
                         modifier = Modifier.weight(1f)) {
-                        Text(if (infoLoading) "Consultando…" else "Buscar datos")
+                        Text(if (infoLoading) "Buscando…" else "Reintentar búsqueda")
                     }
                     OutlinedButton(onClick = {
                         plotDraft = book.spanishPlot.ifBlank { plot }
