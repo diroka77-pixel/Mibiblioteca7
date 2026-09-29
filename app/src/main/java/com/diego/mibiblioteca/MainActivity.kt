@@ -172,12 +172,16 @@ private val starterNews = listOf(
 
 private fun newsQueries(): List<String> {
     val today = java.time.LocalDate.now()
-    val month = today.format(java.time.format.DateTimeFormatter.ofPattern("MMMM yyyy",
-        java.util.Locale("es", "ES")))
     val next = today.plusMonths(1).format(java.time.format.DateTimeFormatter.ofPattern("MMMM yyyy",
         java.util.Locale("es", "ES")))
-    return listOf("lanzamientos libros $month España", "novedades libros $next España",
-        "lanzamientos literarios $next España", "nuevos libros otoño ${today.year} España")
+    val season = when (today.monthValue) {
+        3, 4, 5 -> "primavera"
+        6, 7, 8 -> "verano"
+        9, 10, 11 -> "otoño"
+        else -> "invierno"
+    }
+    return listOf("lanzamientos libros $season ${today.year}",
+        "libros nuevos $next", "novedades literarias $season ${today.year}")
 }
 
 private fun fetchLiteraryNews(query: String): List<LaunchNews> = try {
@@ -205,6 +209,7 @@ private fun fetchLiteraryNews(query: String): List<LaunchNews> = try {
                 java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toLocalDate()
         } catch (_: Exception) { null }
         val topical = Regex("(?i)libros?|novelas?|literari|editorial|lecturas?")
+            .containsMatchIn(headline) && Regex("(?i)nuev|novedad|lanzamiento|próxim|esperad|publica|lectur")
             .containsMatchIn(headline)
         val timely = published != null && !published.isBefore(today.minusDays(60)) &&
             !published.isAfter(today.plusDays(1))
@@ -299,7 +304,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshLaunchNews(force: Boolean = false) {
         if (newsRefreshing || (!force &&
-            System.currentTimeMillis() - prefs.getLong("literary_news_checked", 0L) < 12L * 60 * 60 * 1000)) return
+            System.currentTimeMillis() - prefs.getLong("literary_news_v3_checked", 0L) < 12L * 60 * 60 * 1000)) return
         viewModelScope.launch {
             newsRefreshing = true
             try {
@@ -313,7 +318,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     .put("title", it.title).put("url", it.url)
                     .put("image", it.imageUrl).put("date", it.releaseDate)) }
                 prefs.edit().putString("literary_news", array.toString())
-                    .putLong("literary_news_checked", System.currentTimeMillis()).apply()
+                    .putLong("literary_news_v3_checked", System.currentTimeMillis()).apply()
             } finally { newsRefreshing = false }
         }
     }
