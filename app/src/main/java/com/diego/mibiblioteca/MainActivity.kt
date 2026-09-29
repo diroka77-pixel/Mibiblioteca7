@@ -89,7 +89,9 @@ data class Book(
     val customAuthor: String = "",
     val sagaOrder: String = "",
     val sourceSize: Long = -1L,
-    val sourceModified: Long = -1L
+    val sourceModified: Long = -1L,
+    val sourceCoverChecked: Boolean = false,
+    val hadEmbeddedCover: Boolean = false
 )
 
 class LibraryViewModel(app: Application) : AndroidViewModel(app) {
@@ -145,7 +147,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     sagaOrder = j.optString("sagaOrder"),
                     favorite = j.optBoolean("favorite"),
                     status = ReadingStatus.entries.firstOrNull { it.name == j.optString("status") } ?: ReadingStatus.PENDING,
-                    sourceSize = j.optLong("sourceSize", -1L), sourceModified = j.optLong("sourceModified", -1L))
+                    sourceSize = j.optLong("sourceSize", -1L), sourceModified = j.optLong("sourceModified", -1L),
+                    sourceCoverChecked = j.optBoolean("sourceCoverChecked"),
+                    hadEmbeddedCover = j.optBoolean("hadEmbeddedCover"))
                 } catch (_: Exception) { null }
             }
         } catch (_: Exception) { books = emptyList() }
@@ -161,7 +165,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .put("goodreadsUrl", b.goodreadsUrl).put("wantToRead", b.wantToRead)
             .put("customTitle", b.customTitle).put("customAuthor", b.customAuthor)
             .put("sagaOrder", b.sagaOrder).put("favorite", b.favorite).put("status", b.status.name)
-            .put("sourceSize", b.sourceSize).put("sourceModified", b.sourceModified)) }
+            .put("sourceSize", b.sourceSize).put("sourceModified", b.sourceModified)
+            .put("sourceCoverChecked", b.sourceCoverChecked).put("hadEmbeddedCover", b.hadEmbeddedCover)) }
         prefs.edit().putString("books_cache", array.toString()).commit()
         saveCloud()
     }
@@ -605,13 +610,18 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
             else if (f.name?.endsWith(".epub", true) == true) {
                 val size = f.length()
                 val modified = f.lastModified()
-                val prior = cached[f.uri]
-                val unchanged = prior != null && size > 0 && prior.sourceSize == size &&
-                    (modified <= 0L || prior.sourceModified == modified)
-                val epub = if (unchanged) prior!! else readEpub(context, f.uri, f.name ?: "Libro")
-                    .copy(sourceSize = size, sourceModified = modified)
                 val file = coverFile(context, f.uri)
                 val removed = File(context.filesDir, "removed-" + file.name).exists()
+                val prior = cached[f.uri]
+                val unchanged = prior != null && size > 0 && prior.sourceSize == size &&
+                    (modified <= 0L || prior.sourceModified == modified) &&
+                    prior.sourceCoverChecked && (!prior.hadEmbeddedCover || file.exists() || removed)
+                val epub = if (unchanged) prior!! else {
+                    val parsed = readEpub(context, f.uri, f.name ?: "Libro")
+                    parsed.copy(sourceSize = size, sourceModified = modified,
+                        sourceCoverChecked = true, hadEmbeddedCover = parsed.cover != null)
+                }
+                if (!removed && !file.exists() && epub.cover != null) file.writeBytes(epub.cover)
                 val saved = file.takeIf { it.exists() }?.readBytes()
                 out += if (removed) epub.copy(cover = null)
                     else if (saved != null) epub.copy(cover = saved) else epub
@@ -1018,6 +1028,18 @@ private fun searchInGoogleApp(context: Context, query: String) {
     }
 }
 
+private fun searchCoverImages(context: Context, book: Book) {
+    val query = listOf(displayTitle(book), displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty(),
+        "portada libro").filter(String::isNotBlank).joinToString(" ")
+    val url = Uri.parse("https://www.google.com/search?tbm=isch&q=" +
+        java.net.URLEncoder.encode(query, "UTF-8"))
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, url).setPackage("com.google.android.googlequicksearchbox"))
+    } catch (_: Exception) {
+        openChrome(context, url.toString())
+    }
+}
+
 private fun openChrome(context: Context, url: String) {
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.android.chrome"))
@@ -1081,8 +1103,7 @@ private fun openCasaDelLibro(context: Context) {
     }
     if (current != null) {
         BookDetail(current, { selected = null }, { vm.toggleFavorite(current.uri) },
-            { vm.setStatus(current.uri, it) }, { vm.downloadCover(current) }, vm.coverLoading == current.uri,
-            vm.message, vm.isPossibleDuplicate(current), { vm.deleteDuplicate(current) },
+            { vm.setStatus(current.uri, it) }, vm.message, vm.isPossibleDuplicate(current), { vm.deleteDuplicate(current) },
             { vm.enrich(current) }, vm.infoLoading == current.uri,
             vm.sections, { vm.assignSection(current.uri, it) },
             { vm.saveNotes(current.uri, it) }, { plot, bio -> vm.saveManualInfo(current.uri, plot, bio) },
@@ -1245,7 +1266,7 @@ private fun openCasaDelLibro(context: Context) {
     }
 }
 
-@Composable private fun BookCard(book:Book,onClick:()->Unit){Card(Modifier.fillMaxWidth().clickable(onClick=onClick), colors = CardDefaults.cardColors(containerColor = Paper), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Cover(book,92.dp,132.dp);Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Row(verticalAlignment=Alignment.CenterVertically){Text(displayTitle(book),fontWeight=FontWeight.Bold,fontFamily=FontFamily.Serif,fontSize=14.sp,lineHeight=18.sp,modifier=Modifier.weight(1f));if(book.favorite)Text("★")};Text(displayAuthor(book),fontSize=12.sp)}}}}
+@Composable private fun BookCard(book:Book,onClick:()->Unit){Card(Modifier.fillMaxWidth().clickable(onClick=onClick), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Paper), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Cover(book,92.dp,132.dp);Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Row(verticalAlignment=Alignment.CenterVertically){Text(displayTitle(book),fontWeight=FontWeight.Bold,fontFamily=FontFamily.Serif,fontSize=14.sp,lineHeight=18.sp,modifier=Modifier.weight(1f));if(book.favorite)Text("★")};Text(displayAuthor(book),fontSize=12.sp)}}}}
 
 @Composable private fun BookCompactCard(book: Book, onClick: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -1280,12 +1301,12 @@ private fun openCasaDelLibro(context: Context) {
     }
 }
 
-@Composable private fun Cover(book:Book,w:androidx.compose.ui.unit.Dp,h:androidx.compose.ui.unit.Dp){val bmp=remember(book.cover){book.cover?.let{BitmapFactory.decodeByteArray(it,0,it.size)}};Surface(Modifier.width(w).height(h),shape=MaterialTheme.shapes.small,tonalElevation=5.dp){if(bmp!=null)Image(bmp.asImageBitmap(),book.title,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)else Box(contentAlignment=Alignment.Center){Text("📖",style=MaterialTheme.typography.headlineLarge)}}}
+@Composable private fun Cover(book:Book,w:androidx.compose.ui.unit.Dp,h:androidx.compose.ui.unit.Dp){val bmp=remember(book.cover){book.cover?.let{BitmapFactory.decodeByteArray(it,0,it.size)}};Surface(Modifier.width(w).height(h),shape=MaterialTheme.shapes.medium,color=Color(0xFFE9DDC5),tonalElevation=2.dp){if(bmp!=null)Image(bmp.asImageBitmap(),book.title,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)else Box(contentAlignment=Alignment.Center){Text("📖",style=MaterialTheme.typography.headlineLarge)}}}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun BookDetail(
     book: Book, back: () -> Unit, toggleFavorite: () -> Unit,
-    setStatus: (ReadingStatus) -> Unit, downloadCover: () -> Unit, coverLoading: Boolean, message: String?,
+    setStatus: (ReadingStatus) -> Unit, message: String?,
     possibleDuplicate: Boolean, deleteBook: () -> Unit, enrich: () -> Unit, infoLoading: Boolean,
     sections: List<String>, assignSection: (String) -> Unit,
     saveNotes: (String) -> Unit, saveInfo: (String, String) -> Unit,
@@ -1358,20 +1379,27 @@ private fun openCasaDelLibro(context: Context) {
                     Spacer(Modifier.height(12.dp))
                     Text(displayTitle(book), fontSize = 16.sp, lineHeight = 20.sp,
                         fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-                    Text(displayAuthor(book), fontSize = 13.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Text(displayAuthor(book), fontSize = 13.sp, color = Mahogany)
                     if (book.saga.isNotBlank()) Text("Saga: ${book.saga}" +
                         book.sagaOrder.takeIf { it.isNotBlank() }?.let { " · nº $it" }.orEmpty(), fontSize = 12.sp)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = {
-                            titleDraft = displayTitle(book); authorDraft = displayAuthor(book)
-                            sagaDraft = book.saga; orderDraft = book.sagaOrder
-                            editIdentityDialog = true
-                        }, modifier = Modifier.weight(1f)) { Text("Editar título y autor", fontSize = 12.sp) }
-                        OutlinedButton(onClick = { coverPicker.launch("image/*") },
-                            modifier = Modifier.weight(1f)) { Text("Cambiar portada", fontSize = 12.sp) }
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(onClick = {
+                        titleDraft = displayTitle(book); authorDraft = displayAuthor(book)
+                        sagaDraft = book.saga; orderDraft = book.sagaOrder
+                        editIdentityDialog = true
+                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                        Text("Editar título y autor", fontSize = 13.sp)
                     }
-                    if (book.cover == null) OutlinedButton(onClick = downloadCover, enabled = !coverLoading) {
-                        Text(if (coverLoading) "Buscando portada…" else "Buscar portada")
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { searchCoverImages(context, book) },
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                            Text("Buscar portada", fontSize = 12.sp, maxLines = 1)
+                        }
+                        OutlinedButton(onClick = { coverPicker.launch("image/*") },
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                            Text("Cambiar portada", fontSize = 12.sp, maxLines = 1)
+                        }
                     }
                 }
             }
@@ -1392,7 +1420,7 @@ private fun openCasaDelLibro(context: Context) {
                 }
             }
             item {
-                Text("Estado", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text("Estado", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Mahogany)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ReadingStatus.entries.forEach { status ->
                         FilterChip(book.status == status, { setStatus(status) }, { Text(status.label) })
@@ -1404,17 +1432,18 @@ private fun openCasaDelLibro(context: Context) {
                 Info("Género", book.genre); Info("ISBN", book.isbn)
             }
             item {
-                Text("Argumento", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text("Argumento", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Mahogany)
                 val plot = book.spanishPlot.ifBlank {
                     book.description.takeIf { book.language.lowercase().startsWith("es") ||
                         book.language.lowercase().startsWith("spa") }.orEmpty()
                 }
                 OutlinedTextField(value = plot, onValueChange = {}, readOnly = true,
                     modifier = Modifier.fillMaxWidth(), minLines = 3,
+                    shape = MaterialTheme.shapes.medium,
                     placeholder = { Text("Argumento en castellano pendiente. Puedes buscarlo o escribirlo.") },
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 17.sp))
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 19.sp))
                 Spacer(Modifier.height(8.dp))
-                Text("Sobre el autor", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text("Sobre el autor", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Mahogany)
                 OutlinedTextField(value = book.authorBio, onValueChange = {}, readOnly = true,
                     modifier = Modifier.fillMaxWidth(), minLines = 3,
                     placeholder = { Text("Biografía en castellano pendiente. Puedes buscarla o escribirla.") },
