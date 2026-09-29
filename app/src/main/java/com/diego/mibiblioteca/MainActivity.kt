@@ -782,7 +782,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             File(app.filesDir, "manual-" + coverFile(app, uri).name).exists()
         val needCover = initial.cover == null && !coverBlocked &&
             (force || now - prefs.getLong("auto_cover_v28_" + uri, 0L) > cooldown)
-        val needInfo = (initial.spanishPlot.isBlank() || initial.authorBio.isBlank() ||
+        val needInfo = (force || initial.spanishPlot.isBlank() || initial.authorBio.isBlank() ||
                 displayAuthor(initial) == "Biblioteca de Diroka77") &&
             (force || now - prefs.getLong("auto_info_v28_" + uri, 0L) > cooldown)
         if (!needCover && !needInfo) { autoJobs.remove(uri); return }
@@ -799,23 +799,26 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         val found = withContext(Dispatchers.IO) {
                             fetchSpanishInfo(latest.copy(customAuthor = author))
                         }
-                        val rawPlot = google.second.ifBlank { found.plot }
-                        val plotSource = if (google.second.isNotBlank()) "Google Libros" else found.plotSource
+                        val rawPlot = found.plot.ifBlank { google.second }
+                        val plotSource = if (found.plot.isNotBlank()) found.plotSource else "Google Libros"
                         val plot = if (rawPlot.isBlank()) "" else if (plotSource == "Google Libros" ||
                             plotSource == "Wikipedia en español") rawPlot else ensureSpanish(rawPlot)
                         val bio = if (found.bio.isBlank()) "" else if (found.bioSource == "Wikipedia (es)")
                             found.bio else ensureSpanish(found.bio)
                         val current = books.firstOrNull { it.uri == uri }
                         if (current != null) {
+                            val replaceInfo = force && !prefs.getBoolean("manual_info_" + uri, false)
                             val updated = current.copy(
                                 customAuthor = if ((current.customAuthor.isBlank() ||
                                     current.customAuthor == "Biblioteca de Diroka77") &&
                                     google.first.isNotBlank()) google.first else current.customAuthor,
-                                spanishPlot = current.spanishPlot.ifBlank { plot },
-                                authorBio = current.authorBio.ifBlank { bio },
-                                plotSource = if (current.spanishPlot.isBlank() && plot.isNotBlank())
+                                spanishPlot = if (replaceInfo && plot.isNotBlank()) plot else
+                                    current.spanishPlot.ifBlank { plot },
+                                authorBio = if (replaceInfo && bio.isNotBlank()) bio else
+                                    current.authorBio.ifBlank { bio },
+                                plotSource = if ((replaceInfo || current.spanishPlot.isBlank()) && plot.isNotBlank())
                                     plotSource else current.plotSource,
-                                bioSource = if (current.authorBio.isBlank() && bio.isNotBlank())
+                                bioSource = if ((replaceInfo || current.authorBio.isBlank()) && bio.isNotBlank())
                                     found.bioSource else current.bioSource)
                             if (updated != current) {
                                 books = books.map { if (it.uri == uri) updated else it }
@@ -844,6 +847,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     autoCoverLoading = autoCoverLoading - uri
                 }
                 if (changed) saveBooks()
+                if (force) detailMessage = if (changed)
+                    "Ficha actualizada con los datos encontrados."
+                else "No se encontraron datos nuevos para este libro."
             } finally {
                 autoCoverLoading = autoCoverLoading - uri
                 autoInfoLoading = autoInfoLoading - uri
@@ -1257,11 +1263,87 @@ private fun fetchGoogleBookInfo(book: Book): Pair<String, String> {
     return "" to ""
 }
 
+private fun wikipediaPage(query: String, expected: String): Pair<String, String>? {
+    val term = java.net.URLEncoder.encode(query, "UTF-8")
+    val matches = getJson("https://es.wikipedia.org/w/api.php?action=query&list=search" +
+        "&srsearch=$term&srlimit=6&format=json").optJSONObject("query")?.optJSONArray("search")
+    val plain: (String) -> String = { value ->
+        java.text.Normalizer.normalize(value.lowercase(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "").replace(Regex("[^\\p{L}\\p{N}]"), "")
+    }
+    val target = plain(expected)
+    if (target.length < 4) return null
+    for (i in 0 until (matches?.length() ?: 0)) {
+        val title = matches?.optJSONObject(i)?.optString("title").orEmpty()
+        val candidate = plain(title)
+        if (!(candidate.contains(target) || target.contains(candidate))) continue
+        val encoded = java.net.URLEncoder.encode(title, "UTF-8")
+        val page = getJson("https://es.wikipedia.org/w/api.php?action=query&prop=extracts" +
+            "&exintro=1&explaintext=1&redirects=1&format=json&formatversion=2&titles=$encoded")
+            .optJSONObject("query")?.optJSONArray("pages")?.optJSONObject(0)
+        val extract = page?.optString("extract").orEmpty().trim()
+        if (extract.isNotBlank() && !title.contains("desambiguación", true)) return title to extract
+    }
+    return null
+}
+
+private fun wikipediaPlot(book: Book): String {
+    val title = displayTitle(book)
+    val author = displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty()
+    val page = try { wikipediaPage("$title $author", title) ?: wikipediaPage(title, title) }
+        catch (_: Exception) { null } ?: return ""
+    return try {
+        val encoded = java.net.URLEncoder.encode(page.first, "UTF-8")
+        val sections = getJson("https://es.wikipedia.org/w/api.php?action=parse&prop=sections" +
+            "&format=json&page=$encoded").optJSONObject("parse")?.optJSONArray("sections")
+        val index = (0 until (sections?.length() ?: 0)).mapNotNull { i ->
+            sections?.optJSONObject(i)?.takeIf { section ->
+                Regex("(?i)^(argumento|sinopsis|trama|resumen)$")
+                    .containsMatchIn(section.optString("line"))
+            }?.optString("index")
+        }.firstOrNull()
+        val body = if (index == null) "" else {
+            val html = getJson("https://es.wikipedia.org/w/api.php?action=parse&prop=text" +
+                "&format=json&page=$encoded&section=$index")
+                .optJSONObject("parse")?.optJSONObject("text")?.optString("*").orEmpty()
+            Jsoup.parse(html).select("p").joinToString(" ") { it.text() }.trim()
+        }
+        body.ifBlank { page.second }.take(1600)
+    } catch (_: Exception) { page.second.take(1100) }
+}
+
+private fun goodreadsPlot(book: Book): String {
+    val title = displayTitle(book)
+    val urls = mutableListOf<String>()
+    if (book.goodreadsUrl.startsWith("https://www.goodreads.com/book/show/"))
+        urls += book.goodreadsUrl
+    try {
+        val search = Jsoup.connect("https://www.goodreads.com/search?q=" +
+            java.net.URLEncoder.encode(title + " " + displayAuthor(book), "UTF-8"))
+            .timeout(6500).userAgent("Mozilla/5.0 (Android; MiBiblioteca)").get()
+        search.select("a[href*='/book/show/']").firstOrNull()?.absUrl("href")?.let(urls::add)
+    } catch (_: Exception) {}
+    for (url in urls.distinct()) try {
+        val page = Jsoup.connect(url).timeout(6500)
+            .userAgent("Mozilla/5.0 (Android; MiBiblioteca)").get()
+        if (!page.title().contains(title, ignoreCase = true)) continue
+        val description = page.selectFirst("meta[property='og:description']")
+            ?.attr("content").orEmpty().trim()
+        if (description.length > 90) return description.take(700)
+    } catch (_: Exception) {}
+    return ""
+}
+
 private fun fetchSpanishInfo(book: Book): InfoCandidate {
     var plotSource = ""
     var bioSource = ""
-    var plot = ""
-    try {
+    var plot = try { wikipediaPlot(book) } catch (_: Exception) { "" }
+    if (plot.isNotBlank()) plotSource = "Wikipedia en español"
+    if (plot.isBlank()) {
+        plot = goodreadsPlot(book)
+        if (plot.isNotBlank()) plotSource = "Goodreads"
+    }
+    if (plot.isBlank()) try {
         val isbn = book.isbn.filter { it.isDigit() || it == 'X' || it == 'x' }
         val query = if (isbn.length == 10 || isbn.length == 13) "isbn:$isbn"
             else "intitle:${displayTitle(book)} inauthor:${displayAuthor(book)}"
@@ -1324,12 +1406,16 @@ private fun fetchSpanishInfo(book: Book): InfoCandidate {
                     "&exintro=1&explaintext=1&redirects=1&format=json&formatversion=2&titles=$title"
                 val page = getJson(url).optJSONObject("query")?.optJSONArray("pages")?.optJSONObject(0)
                 if (page != null && !page.has("missing")) {
-                    bio = page.optString("extract").trim().take(1800)
+                    bio = page.optString("extract").trim().take(900)
                     if (bio.isNotBlank()) { bioSource = "Wikipedia (" + host + ")"; break }
                 }
             } catch (_: Exception) {}
         }
     }
+    if (bio.isBlank() && displayAuthor(book).isNotBlank() && displayAuthor(book) != "Biblioteca de Diroka77") try {
+        val page = wikipediaPage(displayAuthor(book), displayAuthor(book))
+        if (page != null) { bio = page.second.take(900); bioSource = "Wikipedia (es)" }
+    } catch (_: Exception) {}
     if (bio.isBlank() && displayAuthor(book).isNotBlank() && displayAuthor(book) != "Biblioteca de Diroka77") try {
         val q = java.net.URLEncoder.encode(displayAuthor(book), "UTF-8")
         val key = getJson("https://openlibrary.org/search/authors.json?q=$q")
@@ -2293,10 +2379,9 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 }
             }
             item {
-                BookPanel("Datos del libro", book.uri.toString()) {
-                    Info("Publicación", book.date); Info("Editorial", book.publisher)
-                    Info("Género", book.genre); Info("ISBN", book.isbn)
-                }
+                Text("Datos del libro", fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold, fontSize = 17.sp,
+                    color = Mahogany, modifier = Modifier.padding(top = 8.dp))
             }
             item {
                 BookPanel("Argumento", book.uri.toString(), initiallyExpanded = true) {
