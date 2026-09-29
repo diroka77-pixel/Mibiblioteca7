@@ -6,7 +6,7 @@ plugins {
 
 android { namespace = "com.diego.mibiblioteca"; compileSdk = 35
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 35; versionCode = 28; versionName = "0.28.0" }
+    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 35; versionCode = 29; versionName = "0.29.0" }
     buildTypes { getByName("release") {
         isMinifyEnabled = true
         proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
@@ -27,5 +27,6 @@ dependencies {
     implementation("androidx.metrics:metrics-performance:1.0.0")
     implementation("com.google.mlkit:translate:17.0.3")
     implementation("com.google.mlkit:language-id:17.0.6")
+    implementation("org.jsoup:jsoup:1.23.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
