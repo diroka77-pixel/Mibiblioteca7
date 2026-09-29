@@ -249,24 +249,29 @@ private fun fetchCasaUpcomingBooks(): List<LaunchNews> = try {
 
 private val newsImageCache = LruCache<String, Bitmap>(24)
 
-@Composable private fun LaunchImage(url: String, title: String) {
-    val picture by produceState<Bitmap?>(initialValue = newsImageCache.get(url), url) {
+@Composable private fun LaunchImage(url: String, title: String, fit: Boolean = false) {
+    val imageUrl = when {
+        url.startsWith("https://www.bing.com/th?") && !url.contains("&w=") -> "$url&w=800&h=450"
+        url.contains("casadellibro.com/a/l/s5/") -> url.replace("/s5/", "/s7/")
+        else -> url
+    }
+    val picture by produceState<Bitmap?>(initialValue = newsImageCache.get(imageUrl), imageUrl) {
         if (value == null) value = withContext(Dispatchers.IO) {
             try {
-                val conn = URL(url).openConnection() as HttpURLConnection
+                val conn = URL(imageUrl).openConnection() as HttpURLConnection
                 conn.connectTimeout = 5000
                 conn.readTimeout = 6000
                 try {
                     val bytes = conn.inputStream.use { it.readBytes() }
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.also {
-                        newsImageCache.put(url, it)
+                        newsImageCache.put(imageUrl, it)
                     }
                 } finally { conn.disconnect() }
             } catch (_: Exception) { null }
         }
     }
     if (picture != null) Image(picture!!.asImageBitmap(), contentDescription = "Portada de $title",
-        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        modifier = Modifier.fillMaxSize(), contentScale = if (fit) ContentScale.Fit else ContentScale.Crop)
     else Box(Modifier.fillMaxSize().background(Mahogany), contentAlignment = Alignment.Center) {
         Text("📖", fontSize = 32.sp)
     }
@@ -1899,43 +1904,41 @@ private fun openCasaDelLibro(context: Context) {
                                 else Text("📰", fontSize = 21.sp)
                             }
                         }
-                        if (vm.launchNews.isEmpty()) {
-                            Text(if (vm.newsRefreshing) "Buscando próximos lanzamientos…" else
-                                "No hay lanzamientos con fecha e imagen confirmadas por ahora.",
-                                color = Mahogany, fontSize = 12.sp, modifier = Modifier.padding(vertical = 14.dp))
-                        } else LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp, end = 8.dp)) {
-                            items(vm.launchNews, key = { "news:" + it.url }) { news ->
-                                Card(Modifier.width(302.dp).height(174.dp).clickable {
-                                    try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url))) }
-                                    catch (_: Exception) {
-                                        android.widget.Toast.makeText(context, "No se pudo abrir la noticia",
-                                            android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                }, colors = CardDefaults.cardColors(containerColor = Paper)) {
-                                    Row(Modifier.fillMaxSize()) {
-                                        Box(Modifier.width(112.dp).fillMaxHeight()) {
-                                            LaunchImage(news.imageUrl, news.title)
-                                        }
-                                        Column(Modifier.fillMaxSize().padding(12.dp),
-                                            verticalArrangement = Arrangement.SpaceBetween) {
-                                            Text(news.source.uppercase(), color = Brass,
-                                                fontWeight = FontWeight.Bold, fontSize = 10.sp)
-                                            Text(news.title, color = Mahogany, fontFamily = FontFamily.Serif,
-                                                fontSize = 15.sp, fontWeight = FontWeight.Bold,
-                                                maxLines = 3, lineHeight = 18.sp)
-                                            Text(if (news.source == "Casa del Libro") "Próximamente" else
-                                                "Publicado el " + try {
-                                                    java.time.LocalDate.parse(news.releaseDate)
-                                                        .format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale("es", "ES")))
-                                                } catch (_: Exception) { news.releaseDate },
-                                                color = Mahogany, fontSize = 12.sp)
-                                        }
-                                    }
+                        if (vm.newsRefreshing && vm.launchNews.isEmpty())
+                            Text("Buscando noticias literarias…", color = Mahogany, fontSize = 12.sp)
+                    }
+                }
+                items(vm.launchNews, key = { "news:" + it.url }, contentType = { "news" }) { news ->
+                    Card(Modifier.fillMaxWidth().padding(bottom = 8.dp).clickable {
+                        try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url))) }
+                        catch (_: Exception) {
+                            android.widget.Toast.makeText(context, "No se pudo abrir la noticia",
+                                android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }, colors = CardDefaults.cardColors(containerColor = Paper)) {
+                        Column(Modifier.fillMaxWidth()) {
+                            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                                Text(news.title, fontFamily = FontFamily.Serif,
+                                    fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Mahogany,
+                                    lineHeight = 23.sp, maxLines = 4)
+                                Spacer(Modifier.height(12.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(news.source, color = Brass, fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                    Text(if (news.source == "Casa del Libro") "Próximamente" else
+                                        try {
+                                            java.time.LocalDate.parse(news.releaseDate).format(
+                                                java.time.format.DateTimeFormatter.ofPattern("d MMM",
+                                                    java.util.Locale("es", "ES")))
+                                        } catch (_: Exception) { news.releaseDate },
+                                        color = Mahogany, fontSize = 11.sp)
                                 }
                             }
+                            Box(Modifier.fillMaxWidth().height(188.dp).background(Mahogany)) {
+                                LaunchImage(news.imageUrl, news.title,
+                                    fit = news.source == "Casa del Libro")
+                            }
                         }
-
                     }
                 }
                 if (vm.books.isEmpty() && !vm.syncing) item(key = "empty-home") {
