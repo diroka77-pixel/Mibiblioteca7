@@ -7,6 +7,9 @@ import android.app.Activity
 import android.graphics.Typeface
 import android.text.SpannableString
 import android.text.Spanned
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import android.text.style.BackgroundColorSpan
 import android.util.TypedValue
 import android.view.ActionMode
@@ -19,6 +22,15 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.using
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -70,6 +82,56 @@ private sealed interface ReadingDocument {
 
 private data class ReadingParagraph(val text: String, val heading: Boolean = false)
 private data class ReaderHighlight(val paragraph: Int, val start: Int, val end: Int, val quote: String)
+private data class ReadingSlice(val paragraph: Int, val start: Int, val end: Int, val height: Int)
+private data class ReadingPage(val slices: List<ReadingSlice>, val startChar: Int)
+
+private fun paginateText(paragraphs: List<ReadingParagraph>, width: Int, height: Int,
+    textSizePx: Float, gapPx: Int): List<ReadingPage> {
+    val pages = mutableListOf<ReadingPage>()
+    val slices = mutableListOf<ReadingSlice>()
+    var occupied = 0
+    val positions = IntArray(paragraphs.size + 1)
+    paragraphs.forEachIndexed { i, p -> positions[i + 1] = positions[i] + p.text.length }
+    fun finish() {
+        if (slices.isNotEmpty()) {
+            pages += ReadingPage(slices.toList(), positions[slices.first().paragraph] +
+                slices.first().start)
+            slices.clear(); occupied = 0
+        }
+    }
+    paragraphs.forEachIndexed { index, paragraph ->
+        val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
+            textSize = textSizePx + if (paragraph.heading) 4 * textSizePx / 18f else 0f
+            typeface = Typeface.create(Typeface.SERIF,
+                if (paragraph.heading) Typeface.BOLD else Typeface.NORMAL)
+        }
+        val layout = StaticLayout.Builder.obtain(paragraph.text, 0, paragraph.text.length,
+            paint, width.coerceAtLeast(1)).setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setLineSpacing(0f, 1.45f).setIncludePad(false).build()
+        var line = 0
+        while (line < layout.lineCount) {
+            if (slices.isNotEmpty() && occupied + gapPx +
+                layout.getLineBottom(line) - layout.getLineTop(line) > height) finish()
+            val first = line
+            var used = 0
+            val room = height - occupied - if (slices.isEmpty()) 0 else gapPx
+            while (line < layout.lineCount) {
+                val lineHeight = layout.getLineBottom(line) - layout.getLineTop(line)
+                if (used + lineHeight > room && line > first) break
+                used += lineHeight; line++
+                if (used >= room) break
+            }
+            val start = layout.getLineStart(first)
+            val end = if (line == layout.lineCount) paragraph.text.length else layout.getLineStart(line)
+            if (slices.isNotEmpty()) occupied += gapPx
+            slices += ReadingSlice(index, start, end, used)
+            occupied += used
+            if (line < layout.lineCount) finish()
+        }
+    }
+    finish()
+    return pages.ifEmpty { listOf(ReadingPage(emptyList(), 0)) }
+}
 
 private fun readHighlights(raw: String?): List<ReaderHighlight> = try {
     val array = JSONArray(raw ?: "[]")
@@ -312,7 +374,7 @@ private fun renderPdfPage(file: File, index: Int): Bitmap =
 
 @Composable
 private fun SelectableParagraph(
-    paragraph: ReadingParagraph, index: Int, size: Float, foreground: Color,
+    paragraph: ReadingParagraph, index: Int, start: Int, end: Int, size: Float, foreground: Color,
     dark: Boolean, highlights: List<ReaderHighlight>, onHighlight: (ReaderHighlight) -> Unit
 ) {
     val action by rememberUpdatedState(onHighlight)
@@ -333,13 +395,14 @@ private fun SelectableParagraph(
                 override fun onDestroyActionMode(mode: ActionMode) = Unit
                 override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
                     if (item.itemId !in 8001..8003) return false
-                    val start = selectable.selectionStart.coerceAtLeast(0)
-                    val end = selectable.selectionEnd.coerceAtMost(selectable.text.length)
-                    if (end <= start) return false
-                    val quote = selectable.text.subSequence(start, end).toString().trim()
+                    val selectedStart = selectable.selectionStart.coerceAtLeast(0)
+                    val selectedEnd = selectable.selectionEnd.coerceAtMost(selectable.text.length)
+                    if (selectedEnd <= selectedStart) return false
+                    val quote = selectable.text.subSequence(selectedStart, selectedEnd).toString().trim()
                     if (quote.isBlank()) return false
                     when (item.itemId) {
-                        8001 -> action(ReaderHighlight(index, start, end, quote))
+                        8001 -> action(ReaderHighlight(index, start + selectedStart,
+                            start + selectedEnd, quote))
                         8002 -> {
                             val word = quote.split(Regex("\\s+")).first().trim('¿', '¡', '.', ',', ';',
                                 ':', '!', '?', '«', '»', '"', '\'')
@@ -364,14 +427,17 @@ private fun SelectableParagraph(
             if (paragraph.heading) Typeface.BOLD else Typeface.NORMAL)
         view.setLineSpacing(0f, 1.45f)
         view.setTextColor(foreground.toArgb())
-        val relevant = highlights.filter { it.paragraph == index }
-        val stamp = Triple(paragraph.text, relevant, dark)
+        val content = paragraph.text.substring(start, end)
+        val relevant = highlights.filter { it.paragraph == index && it.end > start && it.start < end }
+        val stamp = Triple(content, relevant, dark)
         if (view.tag != stamp) {
-            val styled = SpannableString(paragraph.text)
+            val styled = SpannableString(content)
             relevant.forEach { h ->
-                if (h.start >= 0 && h.end <= styled.length && h.end > h.start)
+                val from = (h.start - start).coerceIn(0, styled.length)
+                val to = (h.end - start).coerceIn(0, styled.length)
+                if (to > from)
                     styled.setSpan(BackgroundColorSpan(if (dark) 0xFF80622D.toInt()
-                        else 0xFFFFE39A.toInt()), h.start, h.end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        else 0xFFFFE39A.toInt()), from, to, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
             view.text = styled
             view.tag = stamp
@@ -543,10 +609,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             }
             is ReadingDocument.PdfDocument -> {
                 val index = page.coerceIn(0, document.pages - 1)
-                val image by produceState<Bitmap?>(null, document.file, index) {
-                    value = try { withContext(Dispatchers.IO) { renderPdfPage(document.file, index) } }
-                    catch (_: Exception) { null }
-                }
                 LaunchedEffect(index) {
                     prefs.edit().putInt("page_$key", index).apply()
                     onProgress(((index + 1) * 100f / document.pages).toInt())
@@ -563,10 +625,23 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 })
                         },
                         contentAlignment = Alignment.TopCenter) {
-                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                            if (image != null) Image(image!!.asImageBitmap(), "Página ${index + 1}",
-                                Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
-                            else CircularProgressIndicator()
+                        AnimatedContent(targetState = index, transitionSpec = {
+                            val forward = targetState > initialState
+                            (slideInHorizontally(tween(360)) { if (forward) it else -it } +
+                                fadeIn(tween(260))).togetherWith(
+                                slideOutHorizontally(tween(360)) { if (forward) -it else it } +
+                                    fadeOut(tween(250))).using(SizeTransform(clip = true))
+                        }, label = "Pasar página PDF") { shown ->
+                            val shownImage by produceState<Bitmap?>(null, document.file, shown) {
+                                value = try { withContext(Dispatchers.IO) { renderPdfPage(document.file, shown) } }
+                                catch (_: Exception) { null }
+                            }
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                                if (shownImage != null) Image(shownImage!!.asImageBitmap(),
+                                    "Página ${shown + 1}", Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit)
+                                else CircularProgressIndicator()
+                            }
                         }
                         Box(Modifier.align(Alignment.CenterStart).width(38.dp).fillMaxHeight()
                             .clickable { page = (index - 1).coerceAtLeast(0) })
@@ -589,78 +664,90 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             is ReadingDocument.TextDocument -> {
                 val paragraphs = document.paragraphs
                 val positions = remember(document) {
-                    val sums = IntArray(paragraphs.size + 1)
-                    paragraphs.forEachIndexed { i, value -> sums[i + 1] = sums[i] + value.text.length.coerceAtLeast(1) }
-                    sums
+                    IntArray(paragraphs.size + 1).also { sums ->
+                        paragraphs.forEachIndexed { i, value -> sums[i + 1] = sums[i] + value.text.length }
+                    }
                 }
                 val total = positions.last().coerceAtLeast(1)
-                val list = rememberLazyListState()
+                var textPage by remember(book.uri) { mutableIntStateOf(0) }
+                var ready by remember(book.uri) { mutableStateOf(false) }
                 var percent by remember(book.uri) { mutableIntStateOf(prefs.getInt("percent_$key", 0)) }
-                LaunchedEffect(document) {
-                    list.scrollToItem(prefs.getInt("item_$key", 0).coerceIn(0, paragraphs.lastIndex),
-                        prefs.getInt("offset_$key", 0).coerceAtLeast(0))
-                }
-                LaunchedEffect(jumpToItem, document) {
-                    if (jumpToItem >= 0) {
-                        list.scrollToItem(jumpToItem.coerceIn(0, paragraphs.lastIndex))
-                        jumpToItem = -1
-                    }
-                }
-                LaunchedEffect(list, document) {
-                    snapshotFlow { list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset }
-                        .distinctUntilChanged().debounce(700).collect { (item, offset) ->
-                            val at = item.coerceIn(0, paragraphs.lastIndex)
-                            val height = list.layoutInfo.visibleItemsInfo.firstOrNull()?.size?.coerceAtLeast(1) ?: 1
-                            percent = if (!list.canScrollForward) 100 else ((positions[at] + paragraphs[at].text.length *
-                                (offset.toFloat() / height).coerceIn(0f, 1f)) * 100 / total)
-                                .toInt().coerceIn(0, 100)
-                            prefs.edit().putInt("item_$key", at).putInt("offset_$key", offset)
-                                .putInt("percent_$key", percent).apply()
-                            onProgress(percent)
-                        }
-                }
                 Column(Modifier.padding(padding).fillMaxSize()) {
-                    Box(Modifier.weight(1f).fillMaxWidth().pointerInput(document, swipeDistance) {
-                        var drag = 0f
-                        detectHorizontalDragGestures(onDragStart = { drag = 0f },
-                            onHorizontalDrag = { _, amount -> drag += amount },
-                            onDragEnd = {
-                                val height = list.layoutInfo.viewportEndOffset - list.layoutInfo.viewportStartOffset
-                                if (drag < -swipeDistance) scope.launch { list.animateScrollBy(height * 0.88f) }
-                                if (drag > swipeDistance) scope.launch { list.animateScrollBy(-height * 0.88f) }
-                            })
-                    }) {
-                        LazyColumn(Modifier.fillMaxSize(), state = list,
-                            contentPadding = PaddingValues(horizontal = 22.dp, vertical = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            itemsIndexed(paragraphs) { index, paragraph ->
-                                SelectableParagraph(paragraph, index, fontSize, foreground, dark, highlights) { mark ->
-                                    highlights = (highlights + mark).distinct()
-                                    saveHighlights(context, key, highlights)
-                                    onHighlightsChanged()
-                                }
+                    BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                        val density = LocalDensity.current
+                        val width = with(density) { (maxWidth - 44.dp).roundToPx() }
+                        val height = with(density) { (maxHeight - 32.dp).roundToPx() }
+                        val textSizePx = with(density) { fontSize.sp.toPx() }
+                        val gap = with(density) { 14.dp.roundToPx() }
+                        val pages = remember(document, width, height, fontSize) {
+                            paginateText(paragraphs, width, height.coerceAtLeast(1), textSizePx, gap)
+                        }
+                        LaunchedEffect(pages) {
+                            val legacyItem = prefs.getInt("item_$key", 0).coerceIn(0, paragraphs.lastIndex)
+                            val savedChar = prefs.getInt("char_$key", positions[legacyItem])
+                            textPage = pages.indexOfLast { it.startChar <= savedChar }.coerceAtLeast(0)
+                            ready = true
+                        }
+                        LaunchedEffect(jumpToItem, pages) {
+                            if (jumpToItem >= 0) {
+                                val target = positions[jumpToItem.coerceIn(0, paragraphs.lastIndex)]
+                                textPage = pages.indexOfLast { it.startChar <= target }.coerceAtLeast(0)
+                                jumpToItem = -1
                             }
                         }
-                        Box(Modifier.align(Alignment.CenterStart).width(32.dp).fillMaxHeight()
-                            .clickable {
-                                val height = list.layoutInfo.viewportEndOffset - list.layoutInfo.viewportStartOffset
-                                scope.launch { list.animateScrollBy(-height * 0.88f) }
-                            })
-                        Box(Modifier.align(Alignment.CenterEnd).width(32.dp).fillMaxHeight()
-                            .clickable {
-                                val height = list.layoutInfo.viewportEndOffset - list.layoutInfo.viewportStartOffset
-                                scope.launch { list.animateScrollBy(height * 0.88f) }
-                            })
+                        LaunchedEffect(textPage, pages, ready) {
+                            if (ready) {
+                                val current = pages[textPage.coerceIn(pages.indices)]
+                                percent = if (textPage >= pages.lastIndex) 100
+                                    else (current.startChar * 100 / total).coerceIn(0, 100)
+                                prefs.edit().putInt("char_$key", current.startChar)
+                                    .putInt("percent_$key", percent).apply()
+                                onProgress(percent)
+                            }
+                        }
+                        val currentPage = textPage.coerceIn(pages.indices)
+                        fun turn(delta: Int) {
+                            textPage = (textPage + delta).coerceIn(pages.indices)
+                        }
+                        Box(Modifier.fillMaxSize().pointerInput(pages, swipeDistance) {
+                            var drag = 0f
+                            detectHorizontalDragGestures(onDragStart = { drag = 0f },
+                                onHorizontalDrag = { _, amount -> drag += amount },
+                                onDragEnd = {
+                                    if (drag < -swipeDistance) turn(1)
+                                    if (drag > swipeDistance) turn(-1)
+                                })
+                        }) {
+                            AnimatedContent(targetState = currentPage,
+                                transitionSpec = {
+                                    val forward = targetState > initialState
+                                    (slideInHorizontally(tween(360)) { if (forward) it else -it } +
+                                        fadeIn(tween(260))).togetherWith(
+                                        slideOutHorizontally(tween(360)) { if (forward) -it else it } +
+                                            fadeOut(tween(250))).using(SizeTransform(clip = true))
+                                }, label = "Pasar página") { shown ->
+                                Column(Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    pages[shown].slices.forEach { slice ->
+                                        SelectableParagraph(paragraphs[slice.paragraph], slice.paragraph,
+                                            slice.start, slice.end, fontSize, foreground, dark, highlights) { mark ->
+                                            highlights = (highlights + mark).distinct()
+                                            saveHighlights(context, key, highlights)
+                                            onHighlightsChanged()
+                                        }
+                                    }
+                                }
+                            }
+                            Box(Modifier.align(Alignment.CenterStart).width(32.dp).fillMaxHeight()
+                                .clickable { turn(-1) })
+                            Box(Modifier.align(Alignment.CenterEnd).width(32.dp).fillMaxHeight()
+                                .clickable { turn(1) })
+                        }
                     }
-                    Text("$percent % leído", Modifier.align(Alignment.CenterHorizontally), color = foreground)
-                    Slider(value = percent.toFloat(), onValueChange = { value ->
-                        percent = value.toInt()
-                    }, onValueChangeFinished = {
-                        val wanted = total * percent / 100
-                        val target = positions.binarySearch(wanted).let { if (it >= 0) it else -it - 2 }
-                            .coerceIn(0, paragraphs.lastIndex)
-                        scope.launch { list.scrollToItem(target) }
-                    }, valueRange = 0f..100f, modifier = Modifier.padding(horizontal = 22.dp))
+                    Text("Página ${textPage + 1} · $percent % leído",
+                        Modifier.align(Alignment.CenterHorizontally), color = foreground)
+                    if (percent > 0) LinearProgressIndicator(progress = { percent / 100f },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp))
                 }
             }
         }
