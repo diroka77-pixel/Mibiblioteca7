@@ -363,7 +363,7 @@ private fun SelectableParagraph(
         view.setLineSpacing(0f, 1.45f)
         view.setTextColor(foreground.toArgb())
         val relevant = highlights.filter { it.paragraph == index }
-        val stamp = paragraph.text to relevant
+        val stamp = Triple(paragraph.text, relevant, dark)
         if (view.tag != stamp) {
             val styled = SpannableString(paragraph.text)
             relevant.forEach { h ->
@@ -476,6 +476,25 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     brightness = -1f
                     prefs.edit().putFloat("brightness", -1f).apply()
                 }) { Text("Usar brillo del sistema") }
+                if (document is ReadingDocument.TextDocument) {
+                    Text("Tamaño de letra: ${fontSize.toInt()}", fontSize = 12.sp)
+                    Row {
+                        OutlinedButton(onClick = {
+                            fontSize = (fontSize - 2).coerceAtLeast(12f)
+                            prefs.edit().putFloat("font_size", fontSize).apply()
+                        }) { Text("A−") }
+                        Spacer(Modifier.width(12.dp))
+                        OutlinedButton(onClick = {
+                            fontSize = (fontSize + 2).coerceAtMost(30f)
+                            prefs.edit().putFloat("font_size", fontSize).apply()
+                        }) { Text("A+") }
+                    }
+                }
+                TextButton(onClick = { scope.launch {
+                    try { shareReadingFile(context, book) }
+                    catch (e: Exception) { android.widget.Toast.makeText(context,
+                        "No se pudo compartir: ${e.localizedMessage}", android.widget.Toast.LENGTH_LONG).show() }
+                } }) { Text("Compartir libro") }
             }
         }
     }) {
@@ -484,17 +503,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             navigationIcon = { TextButton(onClick = onBack) { Text("‹ Volver") } },
             actions = {
                 TextButton(onClick = { scope.launch { drawer.open() } }) { Text("☰") }
-                TextButton(onClick = { scope.launch {
-                    try { shareReadingFile(context, book) }
-                    catch (e: Exception) { android.widget.Toast.makeText(context,
-                        "No se pudo compartir: ${e.localizedMessage}", android.widget.Toast.LENGTH_LONG).show() }
-                } }) { Text("↗") }
-                if (document is ReadingDocument.TextDocument) {
-                    TextButton(onClick = { fontSize = (fontSize - 2).coerceAtLeast(12f);
-                        prefs.edit().putFloat("font_size", fontSize).apply() }) { Text("A−") }
-                    TextButton(onClick = { fontSize = (fontSize + 2).coerceAtMost(30f);
-                        prefs.edit().putFloat("font_size", fontSize).apply() }) { Text("A+") }
-                }
                 TextButton(onClick = { dark = !dark; prefs.edit().putBoolean("dark", dark).apply() }) {
                     Text(if (dark) "☀" else "☾")
                 }
