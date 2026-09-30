@@ -55,6 +55,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -616,7 +617,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     onProgress(((index + 1) * 100f / document.pages).toInt())
                 }
                 Column(Modifier.padding(padding).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.weight(1f).fillMaxWidth().background(if (dark) Color.DarkGray else Color.LightGray)
+                    Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()
+                        .background(if (dark) Color.DarkGray else Color.LightGray)
                         .pointerInput(index, document.pages) {
                             var drag = 0f
                             detectHorizontalDragGestures(onDragStart = { drag = 0f },
@@ -632,7 +634,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             (slideInHorizontally(tween(440)) { if (forward) it / 5 else -it / 5 } +
                                 fadeIn(tween(300))).togetherWith(
                                 slideOutHorizontally(tween(440)) { if (forward) -it / 5 else it / 5 } +
-                                    fadeOut(tween(300))).using(SizeTransform(clip = false))
+                                    fadeOut(tween(300))).using(SizeTransform(clip = true))
                         }, label = "Pasar página PDF") { shown ->
                             val angle by transition.animateFloat(transitionSpec = { tween(440) },
                                 label = "Pliegue PDF") { state ->
@@ -716,7 +718,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         fun turn(delta: Int) {
                             textPage = (textPage + delta).coerceIn(pages.indices)
                         }
-                        Box(Modifier.fillMaxSize().pointerInput(pages, swipeDistance) {
+                        Box(Modifier.fillMaxSize().clipToBounds().pointerInput(pages, swipeDistance) {
                             var drag = 0f
                             detectHorizontalDragGestures(onDragStart = { drag = 0f },
                                 onHorizontalDrag = { _, amount -> drag += amount },
@@ -731,7 +733,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     (slideInHorizontally(tween(440)) { if (forward) it / 5 else -it / 5 } +
                                         fadeIn(tween(300))).togetherWith(
                                         slideOutHorizontally(tween(440)) { if (forward) -it / 5 else it / 5 } +
-                                            fadeOut(tween(300))).using(SizeTransform(clip = false))
+                                            fadeOut(tween(300))).using(SizeTransform(clip = true))
                                 }, label = "Pasar página") { shown ->
                                 val angle by transition.animateFloat(transitionSpec = { tween(440) },
                                     label = "Pliegue") { state ->
