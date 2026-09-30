@@ -25,6 +25,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -51,6 +52,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -59,10 +62,6 @@ import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
@@ -453,6 +452,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     val key = remember(book.uri) { readerProgressKey(book.uri) }
     var fontSize by remember { mutableFloatStateOf(prefs.getFloat("font_size", 18f)) }
     var dark by remember { mutableStateOf(prefs.getBoolean("dark", false)) }
+    var controlsVisible by remember(book.uri) { mutableStateOf(false) }
     var page by remember(book.uri) { mutableIntStateOf(prefs.getInt("page_$key", 0)) }
     val scope = rememberCoroutineScope()
     val swipeDistance = with(LocalDensity.current) { 64.dp.toPx() }
@@ -566,6 +566,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         }
     }) {
     Scaffold(containerColor = background, contentWindowInsets = WindowInsets.safeDrawing, topBar = {
+        if (document !is ReadingDocument.TextDocument && document !is ReadingDocument.PdfDocument)
         TopAppBar(title = { Text(book.customTitle.ifBlank { book.title }.take(38), maxLines = 1) },
             navigationIcon = { TextButton(onClick = onBack) { Text("‹ Volver") } },
             actions = {
@@ -577,6 +578,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 titleContentColor = foreground, navigationIconContentColor = foreground,
                 actionIconContentColor = foreground))
     }) { padding ->
+      Box(Modifier.fillMaxSize()) {
         when (document) {
             null -> Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -626,16 +628,28 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         contentAlignment = Alignment.TopCenter) {
                         AnimatedContent(targetState = index, transitionSpec = {
                             val forward = targetState > initialState
-                            (slideInHorizontally(tween(360)) { if (forward) it else -it } +
-                                fadeIn(tween(260))).togetherWith(
-                                slideOutHorizontally(tween(360)) { if (forward) -it else it } +
-                                    fadeOut(tween(250))).using(SizeTransform(clip = true))
+                            (slideInHorizontally(tween(440)) { if (forward) it / 5 else -it / 5 } +
+                                fadeIn(tween(300))).togetherWith(
+                                slideOutHorizontally(tween(440)) { if (forward) -it / 5 else it / 5 } +
+                                    fadeOut(tween(300))).using(SizeTransform(clip = false))
                         }, label = "Pasar página PDF") { shown ->
+                            val angle by transition.animateFloat(transitionSpec = { tween(440) },
+                                label = "Pliegue PDF") { state ->
+                                if (state == shown) 0f else if (state > shown) -62f else 62f
+                            }
+                            val forward = transition.targetState > transition.currentState
+                            val entering = shown == transition.targetState
                             val shownImage by produceState<Bitmap?>(null, document.file, shown) {
                                 value = try { withContext(Dispatchers.IO) { renderPdfPage(document.file, shown) } }
                                 catch (_: Exception) { null }
                             }
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                            Box(Modifier.fillMaxSize().graphicsLayer {
+                                rotationY = angle
+                                transformOrigin = TransformOrigin(
+                                    if (forward == entering) 1f else 0f, 0.5f)
+                                cameraDistance = 12000f
+                                shadowElevation = if (angle == 0f) 0f else 18.dp.toPx()
+                            }, contentAlignment = Alignment.TopCenter) {
                                 if (shownImage != null) Image(shownImage!!.asImageBitmap(),
                                     "Página ${shown + 1}", Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Fit)
@@ -649,15 +663,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     }
                     Text("Página ${index + 1} de ${document.pages} · ${((index + 1) * 100f / document.pages).toInt()} %",
                         color = foreground, modifier = Modifier.padding(6.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { page = (index - 1).coerceAtLeast(0) }, enabled = index > 0) { Text("‹ Anterior") }
-                        if (document.pages > 1) Slider(value = index.toFloat(),
-                            onValueChange = { page = it.toInt() },
-                            valueRange = 0f..(document.pages - 1).toFloat(), modifier = Modifier.weight(1f))
-                        else Spacer(Modifier.weight(1f))
-                        TextButton(onClick = { page = (index + 1).coerceAtMost(document.pages - 1) },
-                            enabled = index + 1 < document.pages) { Text("Siguiente ›") }
-                    }
                 }
             }
             is ReadingDocument.TextDocument -> {
@@ -720,12 +725,24 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             AnimatedContent(targetState = currentPage,
                                 transitionSpec = {
                                     val forward = targetState > initialState
-                                    (slideInHorizontally(tween(360)) { if (forward) it else -it } +
-                                        fadeIn(tween(260))).togetherWith(
-                                        slideOutHorizontally(tween(360)) { if (forward) -it else it } +
-                                            fadeOut(tween(250))).using(SizeTransform(clip = true))
+                                    (slideInHorizontally(tween(440)) { if (forward) it / 5 else -it / 5 } +
+                                        fadeIn(tween(300))).togetherWith(
+                                        slideOutHorizontally(tween(440)) { if (forward) -it / 5 else it / 5 } +
+                                            fadeOut(tween(300))).using(SizeTransform(clip = false))
                                 }, label = "Pasar página") { shown ->
-                                Column(Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 16.dp),
+                                val angle by transition.animateFloat(transitionSpec = { tween(440) },
+                                    label = "Pliegue") { state ->
+                                    if (state == shown) 0f else if (state > shown) -62f else 62f
+                                }
+                                val forward = transition.targetState > transition.currentState
+                                val entering = shown == transition.targetState
+                                Column(Modifier.fillMaxSize().graphicsLayer {
+                                    rotationY = angle
+                                    transformOrigin = TransformOrigin(
+                                        if (forward == entering) 1f else 0f, 0.5f)
+                                    cameraDistance = 12000f
+                                    shadowElevation = if (angle == 0f) 0f else 18.dp.toPx()
+                                }.background(background).padding(horizontal = 22.dp, vertical = 16.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                     pages[shown].slices.forEach { slice ->
                                         SelectableParagraph(paragraphs[slice.paragraph], slice.paragraph,
@@ -745,11 +762,59 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     }
                     Text("Página ${textPage + 1} · $percent % leído",
                         Modifier.align(Alignment.CenterHorizontally), color = foreground)
-                    if (percent > 0) LinearProgressIndicator(progress = { percent / 100f },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp))
                 }
             }
         }
+        if (document is ReadingDocument.TextDocument || document is ReadingDocument.PdfDocument) {
+            if (controlsVisible) {
+                Surface(Modifier.padding(padding).align(Alignment.TopCenter).fillMaxWidth(),
+                    color = background.copy(alpha = 0.97f), shadowElevation = 6.dp) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onBack) { Text("‹", fontSize = 25.sp, color = foreground) }
+                        Text(book.customTitle.ifBlank { book.title }.take(42), maxLines = 1,
+                            modifier = Modifier.weight(1f), color = foreground, fontSize = 15.sp)
+                        TextButton(onClick = { scope.launch { drawer.open() } }) {
+                            Text("☰", color = foreground, fontSize = 21.sp)
+                        }
+                        TextButton(onClick = {
+                            dark = !dark; prefs.edit().putBoolean("dark", dark).apply()
+                        }) { Text(if (dark) "☀" else "☾", color = foreground, fontSize = 22.sp) }
+                        TextButton(onClick = { controlsVisible = false }) {
+                            Text("×", color = foreground, fontSize = 23.sp)
+                        }
+                    }
+                }
+                Surface(Modifier.padding(padding).align(Alignment.BottomCenter).fillMaxWidth(),
+                    color = background.copy(alpha = 0.97f), shadowElevation = 6.dp) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center) {
+                        if (document is ReadingDocument.TextDocument) {
+                            OutlinedButton(onClick = {
+                                fontSize = (fontSize - 1).coerceAtLeast(12f)
+                                prefs.edit().putFloat("font_size", fontSize).apply()
+                            }, enabled = fontSize > 12f) { Text("A−") }
+                            Text("${fontSize.toInt()} pt", modifier = Modifier.padding(horizontal = 16.dp),
+                                color = foreground, fontSize = 13.sp)
+                            OutlinedButton(onClick = {
+                                fontSize = (fontSize + 1).coerceAtMost(30f)
+                                prefs.edit().putFloat("font_size", fontSize).apply()
+                            }, enabled = fontSize < 30f) { Text("A+") }
+                        } else Text("Desliza o toca los bordes para pasar página",
+                            color = foreground, fontSize = 12.sp)
+                    }
+                }
+            } else {
+                Surface(Modifier.padding(padding).align(Alignment.TopEnd).padding(8.dp),
+                    color = background.copy(alpha = 0.88f), shape = MaterialTheme.shapes.large) {
+                    TextButton(onClick = { controlsVisible = true }) {
+                        Text("☰", color = foreground, fontSize = 20.sp)
+                    }
+                }
+            }
+        }
+      }
     }
     }
 }
