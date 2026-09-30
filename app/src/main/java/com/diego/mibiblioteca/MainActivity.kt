@@ -1083,7 +1083,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun setHomeNews(show: Boolean) {
         showHomeNews = show; prefs.edit().putBoolean("show_home_news", show).apply()
     }
-    fun setReadingFirst(first: Boolean) {
+    fun updateReadingFirst(first: Boolean) {
         readingFirst = first; prefs.edit().putBoolean("reading_first", first).apply()
     }
     fun clearMessage() { message = null }
@@ -1974,7 +1974,7 @@ private fun openCasaDelLibro(context: Context) {
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Continuar leyendo primero", Modifier.weight(1f))
-                Switch(vm.readingFirst, vm::setReadingFirst)
+                Switch(vm.readingFirst, vm::updateReadingFirst)
             }
         } },
         confirmButton = { TextButton(onClick = { homeSettings = false }) { Text("Cerrar") } })
