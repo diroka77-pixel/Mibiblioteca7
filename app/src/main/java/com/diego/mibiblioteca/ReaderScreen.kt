@@ -1,6 +1,7 @@
 package com.diego.mibiblioteca
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -284,7 +285,26 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit) {
             }
             is ReadingDocument.Unsupported -> Box(Modifier.padding(padding).fillMaxSize().padding(24.dp),
                 contentAlignment = Alignment.Center) {
-                Text(document.reason, color = foreground)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(document.reason, color = foreground)
+                    Spacer(Modifier.height(16.dp))
+                    OutlinedButton(onClick = {
+                        val mime = when (book.uri.lastPathSegment.orEmpty().substringAfterLast('.').lowercase()) {
+                            "mobi", "azw", "azw3" -> "application/x-mobipocket-ebook"
+                            "pdf" -> "application/pdf"
+                            else -> "application/octet-stream"
+                        }
+                        try {
+                            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(book.uri, mime)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }, "Abrir con otra aplicación"))
+                        } catch (_: Exception) {
+                            android.widget.Toast.makeText(context, "No hay otra aplicación compatible",
+                                android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }) { Text("Abrir con otra aplicación") }
+                }
             }
             is ReadingDocument.PdfDocument -> {
                 val index = page.coerceIn(0, document.pages - 1)
