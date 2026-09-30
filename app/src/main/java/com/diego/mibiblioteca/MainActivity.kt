@@ -1455,6 +1455,7 @@ private fun wikipediaPage(query: String, expected: String): Pair<String, String>
 private fun wikipediaPlot(book: Book): String {
     val title = displayTitle(book)
     val author = displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty()
+    if (author.isBlank()) return ""
     val page = try { wikipediaPage("$title $author", title) ?: wikipediaPage(title, title) }
         catch (_: Exception) { null } ?: return ""
     // A title alone can also resolve to a film, a place or another book.
