@@ -11,11 +11,14 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.style.BackgroundColorSpan
+import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
 import android.util.TypedValue
 import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
 import android.widget.TextView
+import android.speech.tts.TextToSpeech
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -71,6 +74,8 @@ import org.jsoup.parser.Parser
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.security.MessageDigest
 import java.util.zip.ZipFile
 
@@ -81,9 +86,12 @@ private sealed interface ReadingDocument {
 }
 
 private data class ReadingParagraph(val text: String, val heading: Boolean = false)
-private data class ReaderHighlight(val paragraph: Int, val start: Int, val end: Int, val quote: String)
+private data class ReaderHighlight(val paragraph: Int, val start: Int, val end: Int,
+    val quote: String, val color: String = "amarillo", val note: String = "")
 private data class ReadingSlice(val paragraph: Int, val start: Int, val end: Int, val height: Int)
 private data class ReadingPage(val slices: List<ReadingSlice>, val startChar: Int)
+private fun openingParagraph(paragraphs: List<ReadingParagraph>, index: Int): Boolean =
+    !paragraphs[index].heading && (index == 0 || paragraphs[index - 1].heading)
 
 private fun paginateText(paragraphs: List<ReadingParagraph>, width: Int, height: Int,
     textSizePx: Float, gapPx: Int): List<ReadingPage> {
@@ -105,8 +113,15 @@ private fun paginateText(paragraphs: List<ReadingParagraph>, width: Int, height:
             typeface = Typeface.create(Typeface.SERIF,
                 if (paragraph.heading) Typeface.BOLD else Typeface.NORMAL)
         }
-        val layout = StaticLayout.Builder.obtain(paragraph.text, 0, paragraph.text.length,
+        val measured = SpannableString(paragraph.text)
+        if (openingParagraph(paragraphs, index) && measured.isNotEmpty()) {
+            measured.setSpan(RelativeSizeSpan(1.9f), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            measured.setSpan(StyleSpan(Typeface.BOLD), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        val layout = StaticLayout.Builder.obtain(measured, 0, measured.length,
             paint, width.coerceAtLeast(1)).setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setJustificationMode(if (paragraph.heading) Layout.JUSTIFICATION_MODE_NONE
+                else Layout.JUSTIFICATION_MODE_INTER_WORD)
             .setLineSpacing(0f, 1.45f).setIncludePad(false).build()
         var line = 0
         while (line < layout.lineCount) {
@@ -136,17 +151,36 @@ private fun paginateText(paragraphs: List<ReadingParagraph>, width: Int, height:
 private fun readHighlights(raw: String?): List<ReaderHighlight> = try {
     val array = JSONArray(raw ?: "[]")
     (0 until array.length()).mapNotNull { i -> array.optJSONObject(i)?.let { j ->
-        ReaderHighlight(j.optInt("paragraph"), j.optInt("start"), j.optInt("end"), j.optString("quote"))
+        ReaderHighlight(j.optInt("paragraph"), j.optInt("start"), j.optInt("end"), j.optString("quote"),
+            j.optString("color", "amarillo"), j.optString("note"))
     } }
 } catch (_: Exception) { emptyList() }
 
 private fun saveHighlights(context: Context, key: String, highlights: List<ReaderHighlight>) {
     val array = JSONArray()
     highlights.forEach { h -> array.put(JSONObject().put("paragraph", h.paragraph)
-        .put("start", h.start).put("end", h.end).put("quote", h.quote)) }
+        .put("start", h.start).put("end", h.end).put("quote", h.quote)
+        .put("color", h.color).put("note", h.note)) }
     context.getSharedPreferences("reader", Context.MODE_PRIVATE).edit()
         .putString("highlights_$key", array.toString()).apply()
 }
+
+private fun dictionaryDefinitions(word: String): List<String> = try {
+    val url = "https://es.wiktionary.org/w/api.php?action=parse&format=json&prop=text&page=" +
+        java.net.URLEncoder.encode(word, "UTF-8")
+    val connection = URL(url).openConnection() as HttpURLConnection
+    connection.connectTimeout = 7000
+    connection.readTimeout = 9000
+    connection.setRequestProperty("User-Agent", "MiBiblioteca/0.47 (lector; contacto: GitHub diroka77-pixel)")
+    val html = try {
+        connection.inputStream.use { stream ->
+            JSONObject(stream.bufferedReader().readText()).getJSONObject("parse")
+                .getJSONObject("text").getString("*")
+        }
+    } finally { connection.disconnect() }
+    Jsoup.parse(html).select("ol > li").map { it.text().trim() }
+        .filter { it.length in 8..400 }.distinct().take(4)
+} catch (_: Exception) { emptyList() }
 
 private suspend fun shareReadingFile(context: Context, book: Book) {
     val file = withContext(Dispatchers.IO) { localReaderFile(context, book) }
@@ -375,9 +409,17 @@ private fun renderPdfPage(file: File, index: Int): Bitmap =
 @Composable
 private fun SelectableParagraph(
     paragraph: ReadingParagraph, index: Int, start: Int, end: Int, size: Float, foreground: Color,
-    dark: Boolean, highlights: List<ReaderHighlight>, onHighlight: (ReaderHighlight) -> Unit
+    dark: Boolean, opening: Boolean, highlights: List<ReaderHighlight>,
+    onHighlight: (ReaderHighlight) -> Unit, onNote: (ReaderHighlight) -> Unit,
+    onLookup: (String) -> Unit, onTranslate: (String) -> Unit, onSpeak: (String) -> Unit,
+    onSearch: (String) -> Unit
 ) {
     val action by rememberUpdatedState(onHighlight)
+    val noteAction by rememberUpdatedState(onNote)
+    val lookupAction by rememberUpdatedState(onLookup)
+    val translateAction by rememberUpdatedState(onTranslate)
+    val speakAction by rememberUpdatedState(onSpeak)
+    val searchAction by rememberUpdatedState(onSearch)
     AndroidView(modifier = Modifier.fillMaxWidth(), factory = { context ->
         TextView(context).apply {
             setTextIsSelectable(true)
@@ -386,35 +428,41 @@ private fun SelectableParagraph(
             val selectable = this
             setCustomSelectionActionModeCallback(object : ActionMode.Callback {
                 override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-                    menu.add(0, 8001, 0, "Resaltar")
-                    menu.add(0, 8002, 1, "Significado")
-                    menu.add(0, 8003, 2, "Compartir")
+                    menu.add(0, 8001, 0, "Subrayar amarillo")
+                    menu.add(0, 8004, 1, "Subrayar azul")
+                    menu.add(0, 8005, 2, "Nota")
+                    menu.add(0, 8002, 3, "Diccionario")
+                    menu.add(0, 8003, 4, "Compartir")
+                    menu.add(0, 8006, 5, "Traducir")
+                    menu.add(0, 8007, 6, "Escuchar")
+                    menu.add(0, 8008, 7, "Buscar en el libro")
                     return true
                 }
                 override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
                 override fun onDestroyActionMode(mode: ActionMode) = Unit
                 override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
-                    if (item.itemId !in 8001..8003) return false
+                    if (item.itemId !in 8001..8008) return false
                     val selectedStart = selectable.selectionStart.coerceAtLeast(0)
                     val selectedEnd = selectable.selectionEnd.coerceAtMost(selectable.text.length)
                     if (selectedEnd <= selectedStart) return false
                     val quote = selectable.text.subSequence(selectedStart, selectedEnd).toString().trim()
                     if (quote.isBlank()) return false
                     when (item.itemId) {
-                        8001 -> action(ReaderHighlight(index, start + selectedStart,
+                        8001, 8004 -> action(ReaderHighlight(index, start + selectedStart,
+                            start + selectedEnd, quote, if (item.itemId == 8004) "azul" else "amarillo"))
+                        8005 -> noteAction(ReaderHighlight(index, start + selectedStart,
                             start + selectedEnd, quote))
                         8002 -> {
                             val word = quote.split(Regex("\\s+")).first().trim('¿', '¡', '.', ',', ';',
                                 ':', '!', '?', '«', '»', '"', '\'')
-                            if (word.isNotBlank()) try {
-                                context.startActivity(Intent(Intent.ACTION_VIEW,
-                                    Uri.parse("https://dle.rae.es/" +
-                                        java.net.URLEncoder.encode(word, "UTF-8"))))
-                            } catch (_: Exception) { }
+                            if (word.isNotBlank()) lookupAction(word)
                         }
                         8003 -> context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"; putExtra(Intent.EXTRA_TEXT, quote)
                         }, "Compartir cita"))
+                        8006 -> translateAction(quote)
+                        8007 -> speakAction(quote)
+                        8008 -> searchAction(quote)
                     }
                     mode.finish()
                     return true
@@ -426,18 +474,30 @@ private fun SelectableParagraph(
         view.typeface = Typeface.create(Typeface.SERIF,
             if (paragraph.heading) Typeface.BOLD else Typeface.NORMAL)
         view.setLineSpacing(0f, 1.45f)
+        view.justificationMode = if (paragraph.heading) Layout.JUSTIFICATION_MODE_NONE
+            else Layout.JUSTIFICATION_MODE_INTER_WORD
+        view.textAlignment = if (paragraph.heading) TextView.TEXT_ALIGNMENT_CENTER
+            else TextView.TEXT_ALIGNMENT_INHERIT
         view.setTextColor(foreground.toArgb())
         val content = paragraph.text.substring(start, end)
         val relevant = highlights.filter { it.paragraph == index && it.end > start && it.start < end }
-        val stamp = Triple(content, relevant, dark)
+        val stamp = listOf(content, relevant, dark, opening)
         if (view.tag != stamp) {
             val styled = SpannableString(content)
+            if (opening && start == 0 && styled.isNotEmpty()) {
+                styled.setSpan(RelativeSizeSpan(1.9f), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                styled.setSpan(StyleSpan(Typeface.BOLD), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
             relevant.forEach { h ->
                 val from = (h.start - start).coerceIn(0, styled.length)
                 val to = (h.end - start).coerceIn(0, styled.length)
                 if (to > from)
-                    styled.setSpan(BackgroundColorSpan(if (dark) 0xFF80622D.toInt()
-                        else 0xFFFFE39A.toInt()), from, to, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    styled.setSpan(BackgroundColorSpan(when {
+                        h.color == "azul" && dark -> 0xFF285D69.toInt()
+                        h.color == "azul" -> 0xFFACEEF5.toInt()
+                        dark -> 0xFF80622D.toInt()
+                        else -> 0xFFFFE39A.toInt()
+                    }), from, to, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
             view.text = styled
             view.tag = stamp
@@ -454,6 +514,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     val key = remember(book.uri) { readerProgressKey(book.uri) }
     var fontSize by remember { mutableFloatStateOf(prefs.getFloat("font_size", 18f)) }
     var dark by remember { mutableStateOf(prefs.getBoolean("dark", false)) }
+    var sepia by remember { mutableStateOf(prefs.getBoolean("sepia", false)) }
     var controlsVisible by remember(book.uri) { mutableStateOf(false) }
     var page by remember(book.uri) { mutableIntStateOf(prefs.getInt("page_$key", 0)) }
     val scope = rememberCoroutineScope()
@@ -462,6 +523,17 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var jumpToItem by remember(book.uri) { mutableIntStateOf(-1) }
     var highlights by remember(book.uri) {
         mutableStateOf(readHighlights(prefs.getString("highlights_$key", "[]")))
+    }
+    var pendingNote by remember { mutableStateOf<ReaderHighlight?>(null) }
+    var noteDraft by remember { mutableStateOf("") }
+    var dictionaryWord by remember { mutableStateOf<String?>(null) }
+    var translationQuote by remember { mutableStateOf<String?>(null) }
+    var searchText by remember { mutableStateOf("") }
+    var speech by remember { mutableStateOf<TextToSpeech?>(null) }
+    DisposableEffect(context) {
+        val engine = TextToSpeech(context) { }
+        speech = engine
+        onDispose { engine.stop(); engine.shutdown(); speech = null }
     }
     var brightness by remember { mutableFloatStateOf(prefs.getFloat("brightness", -1f)) }
     val activity = context as? Activity
@@ -477,8 +549,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         if (activity != null)
             activity.window.attributes = activity.window.attributes.apply { screenBrightness = brightness }
     }
-    val background = if (dark) Color(0xFF1D1A17) else Color(0xFFF5EEDD)
-    val foreground = if (dark) Color(0xFFF3E9D7) else Color(0xFF31271F)
+    val background = if (dark) Color(0xFF1D1A17) else if (sepia) Color(0xFFF5EEDD) else Color.White
+    val foreground = if (dark) Color(0xFFF3E9D7) else Color(0xFF24201D)
     val state by produceState<ReadingDocument?>(null, book.uri) {
         value = try { withContext(Dispatchers.IO) { loadReadingDocument(context, book) } }
         catch (e: Exception) { ReadingDocument.Unsupported(e.localizedMessage ?: "No se pudo abrir") }
@@ -490,11 +562,27 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             Column(Modifier.fillMaxHeight().widthIn(max = 320.dp).padding(16.dp)) {
                 Text("Índice de lectura", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(12.dp))
+                if (document is ReadingDocument.TextDocument)
+                    OutlinedTextField(searchText, { searchText = it }, singleLine = true,
+                        label = { Text("Buscar en el libro") },
+                        modifier = Modifier.fillMaxWidth())
                 Text("Capítulos", fontWeight = FontWeight.Bold)
                 val chapters = if (document is ReadingDocument.TextDocument)
                     document.paragraphs.withIndex().filter { it.value.heading }
                 else emptyList()
                 LazyColumn(Modifier.weight(1f)) {
+                    if (document is ReadingDocument.TextDocument && searchText.isNotBlank()) {
+                        val matches = document.paragraphs.withIndex()
+                            .filter { it.value.text.contains(searchText, ignoreCase = true) }
+                            .take(30)
+                        item { Text("${matches.size} coincidencias", fontSize = 12.sp) }
+                        items(matches.size) { number ->
+                            val match = matches[number]
+                            TextButton(onClick = {
+                                jumpToItem = match.index; scope.launch { drawer.close() }
+                            }) { Text(match.value.text.take(100), maxLines = 2) }
+                        }
+                    }
                     when (document) {
                         is ReadingDocument.TextDocument -> {
                             if (chapters.isEmpty()) item { TextButton(onClick = {
@@ -524,7 +612,11 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     jumpToItem = highlight.paragraph
                                     scope.launch { drawer.close() }
                                 }, modifier = Modifier.weight(1f)) {
-                                    Text(highlight.quote.take(60), maxLines = 2)
+                                    Column {
+                                        Text(highlight.quote.take(60), maxLines = 2)
+                                        if (highlight.note.isNotBlank()) Text(highlight.note.take(80),
+                                            fontSize = 11.sp, maxLines = 2)
+                                    }
                                 }
                                 TextButton(onClick = {
                                     highlights = highlights.filterIndexed { i, _ -> i != number }
@@ -753,11 +845,31 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                     pages[shown].slices.forEach { slice ->
                                         SelectableParagraph(paragraphs[slice.paragraph], slice.paragraph,
-                                            slice.start, slice.end, fontSize, foreground, dark, highlights) { mark ->
-                                            highlights = (highlights + mark).distinct()
-                                            saveHighlights(context, key, highlights)
-                                            onHighlightsChanged()
-                                        }
+                                            slice.start, slice.end, fontSize, foreground, dark,
+                                            openingParagraph(paragraphs, slice.paragraph), highlights,
+                                            onHighlight = { mark ->
+                                                highlights = (highlights + mark).distinct()
+                                                saveHighlights(context, key, highlights)
+                                                onHighlightsChanged()
+                                            }, onNote = { mark ->
+                                                pendingNote = mark
+                                                noteDraft = highlights.firstOrNull { h ->
+                                                    h.paragraph == mark.paragraph && h.start == mark.start &&
+                                                        h.end == mark.end
+                                                }?.note.orEmpty()
+                                            }, onLookup = { word -> dictionaryWord = word },
+                                            onTranslate = { quote -> translationQuote = quote },
+                                            onSpeak = { quote ->
+                                                speech?.apply {
+                                                    language = if (book.language.startsWith("en", true))
+                                                        java.util.Locale.ENGLISH else
+                                                        java.util.Locale.forLanguageTag("es-ES")
+                                                    speak(quote, TextToSpeech.QUEUE_FLUSH, null, "reader_quote")
+                                                }
+                                            }, onSearch = { quote ->
+                                                searchText = quote.take(80)
+                                                scope.launch { drawer.open() }
+                                            })
                                     }
                                 }
                             }
@@ -798,6 +910,10 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center) {
                         if (document is ReadingDocument.TextDocument) {
+                            TextButton(onClick = {
+                                sepia = !sepia; prefs.edit().putBoolean("sepia", sepia).apply()
+                            }) { Text(if (sepia) "Blanco" else "Sepia", color = foreground,
+                                fontSize = 12.sp) }
                             OutlinedButton(onClick = {
                                 fontSize = (fontSize - 1).coerceAtLeast(12f)
                                 prefs.edit().putFloat("font_size", fontSize).apply()
@@ -823,5 +939,76 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         }
       }
     }
+    }
+    pendingNote?.let { selected ->
+        AlertDialog(onDismissRequest = { pendingNote = null },
+            title = { Text("Nota de lectura") },
+            text = { Column {
+                Text("«${selected.quote.take(180)}»", fontFamily = FontFamily.Serif)
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(noteDraft, { noteDraft = it },
+                    label = { Text("Escribe tu nota") }, minLines = 3)
+            } },
+            confirmButton = { TextButton(onClick = {
+                highlights = highlights.filterNot { h ->
+                    h.paragraph == selected.paragraph && h.start == selected.start &&
+                        h.end == selected.end
+                } + selected.copy(note = noteDraft.trim())
+                saveHighlights(context, key, highlights)
+                onHighlightsChanged()
+                pendingNote = null
+            }) { Text("Guardar") } },
+            dismissButton = { TextButton(onClick = { pendingNote = null }) { Text("Cancelar") } })
+    }
+    dictionaryWord?.let { word ->
+        val definitions by produceState<List<String>?>(null, word) {
+            value = withContext(Dispatchers.IO) { dictionaryDefinitions(word) }
+        }
+        ModalBottomSheet(onDismissRequest = { dictionaryWord = null },
+            containerColor = background, contentColor = foreground) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 460.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(start = 24.dp, end = 24.dp, bottom = 30.dp)) {
+                Text(word, fontFamily = FontFamily.Serif, fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(14.dp))
+                Text("Diccionario · Wikcionario en castellano", fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                when {
+                    definitions == null -> CircularProgressIndicator(Modifier.size(24.dp))
+                    definitions!!.isEmpty() -> Text("No se encontró una definición para esta palabra.")
+                    else -> definitions!!.forEachIndexed { i, definition ->
+                        Text("${i + 1}. $definition", modifier = Modifier.padding(bottom = 10.dp),
+                            fontSize = 15.sp, lineHeight = 22.sp)
+                    }
+                }
+                TextButton(onClick = {
+                    try { context.startActivity(Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://dle.rae.es/" +
+                            java.net.URLEncoder.encode(word, "UTF-8")))) }
+                    catch (_: Exception) {}
+                }) { Text("Consultar también en la RAE") }
+            }
+        }
+    }
+    translationQuote?.let { quote ->
+        val translation by produceState<String?>(null, quote) {
+            value = withContext(Dispatchers.IO) { ensureSpanish(quote) }
+        }
+        ModalBottomSheet(onDismissRequest = { translationQuote = null },
+            containerColor = background, contentColor = foreground) {
+            Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 36.dp)) {
+                Text("Traducción al castellano", fontFamily = FontFamily.Serif,
+                    fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                Text("«${quote.take(500)}»", fontSize = 13.sp)
+                Spacer(Modifier.height(16.dp))
+                when {
+                    translation == null -> CircularProgressIndicator(Modifier.size(24.dp))
+                    translation!!.isBlank() -> Text("No se pudo traducir este fragmento.")
+                    else -> Text(translation!!, fontSize = 17.sp, lineHeight = 24.sp)
+                }
+            }
+        }
     }
 }
