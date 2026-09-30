@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import java.io.File
 import java.net.HttpURLConnection
@@ -164,31 +165,33 @@ private val newsImageCache = object : LruCache<String, Bitmap>(12 * 1024) {
         (value.byteCount / 1024).coerceAtLeast(1)
 }
 
-@Composable private fun LaunchImage(url: String, title: String, fit: Boolean = false) {
+@Composable private fun rememberNewsImage(url: String): State<Bitmap?> {
     val imageUrl = when {
         url.startsWith("https://www.bing.com/th?") && !url.contains("&w=") -> "$url&w=800&h=450"
         url.contains("casadellibro.com/a/l/s5/") -> url.replace("/s5/", "/s7/")
         else -> url
     }
-    val picture by produceState<Bitmap?>(initialValue = newsImageCache.get(imageUrl), imageUrl) {
+    return produceState<Bitmap?>(initialValue = newsImageCache.get(imageUrl), imageUrl) {
         if (value == null) value = withContext(Dispatchers.IO) {
             try {
                 val conn = URL(imageUrl).openConnection() as HttpURLConnection
                 conn.connectTimeout = 5000
                 conn.readTimeout = 6000
                 try {
-                    val bytes = conn.inputStream.use { it.readBytes() }
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.also {
+                    if (conn.contentLengthLong > 4_000_000) return@withContext null
+                    val bytes = conn.inputStream.use { it.readNBytes(4_000_001) }
+                    if (bytes.size > 4_000_000) return@withContext null
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    val sample = generateSequence(1) { it * 2 }
+                        .first { bounds.outWidth / it <= 1400 && bounds.outHeight / it <= 1400 }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
+                        BitmapFactory.Options().apply { inSampleSize = sample })?.also {
                         newsImageCache.put(imageUrl, it)
                     }
                 } finally { conn.disconnect() }
             } catch (_: Exception) { null }
         }
-    }
-    if (picture != null) Image(picture!!.asImageBitmap(), contentDescription = "Portada de $title",
-        modifier = Modifier.fillMaxSize(), contentScale = if (fit) ContentScale.Fit else ContentScale.Crop)
-    else Box(Modifier.fillMaxSize().background(Mahogany), contentAlignment = Alignment.Center) {
-        Text("📖", fontSize = 32.sp)
     }
 }
 
@@ -2334,38 +2337,59 @@ private fun openCasaDelLibro(context: Context) {
                     }
                 }
                 items(visibleNews, key = { "news:" + it.url }, contentType = { "news" }) { news ->
-                    Card(Modifier.fillMaxWidth().padding(bottom = 8.dp).clickable {
+                    val picture by rememberNewsImage(news.imageUrl)
+                    Card(Modifier.fillMaxWidth().padding(bottom = 10.dp).clickable {
                         try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url))) }
                         catch (_: Exception) {
                             android.widget.Toast.makeText(context, "No se pudo abrir la noticia",
                                 android.widget.Toast.LENGTH_SHORT).show()
                         }
-                    }, colors = CardDefaults.cardColors(containerColor = Paper)) {
+                    }, shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = Paper),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) {
                         Column(Modifier.fillMaxWidth()) {
-                            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 16.dp,
+                                end = 12.dp, bottom = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text(news.title, fontFamily = FontFamily.Serif,
                                     fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Mahogany,
-                                    lineHeight = 23.sp, maxLines = 4)
-                                Spacer(Modifier.height(12.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(news.source, color = Brass, fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                    Text(if (news.source == "Casa del Libro") "Próximamente" else
-                                        try {
-                                            java.time.LocalDate.parse(news.releaseDate).format(
-                                                java.time.format.DateTimeFormatter.ofPattern("d MMM",
-                                                    java.util.Locale("es", "ES")))
-                                        } catch (_: Exception) { news.releaseDate },
-                                        color = Mahogany, fontSize = 11.sp)
-                                    TextButton(onClick = { vm.hideNews(news.url) },
-                                        modifier = Modifier.semantics { contentDescription = "Ocultar noticia" }) {
-                                        Text("×")
-                                    }
+                                    lineHeight = 23.sp, maxLines = 4, modifier = Modifier.weight(1f))
+                                if (picture != null) Image(picture!!.asImageBitmap(),
+                                    contentDescription = "Imagen de la noticia: ${news.title}",
+                                    modifier = Modifier.size(72.dp)
+                                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
+                                    contentScale = ContentScale.Crop)
+                            }
+                            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, bottom = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(22.dp).background(Brass.copy(alpha = 0.16f),
+                                    androidx.compose.foundation.shape.CircleShape),
+                                    contentAlignment = Alignment.Center) {
+                                    Text(news.source.take(1).uppercase(), color = Mahogany,
+                                        fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(Modifier.width(7.dp))
+                                Text(news.source, color = Mahogany, fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold, maxLines = 1,
+                                    modifier = Modifier.weight(1f))
+                                Text(if (news.source == "Casa del Libro") "Próximamente" else
+                                    try {
+                                        java.time.LocalDate.parse(news.releaseDate).format(
+                                            java.time.format.DateTimeFormatter.ofPattern("d MMM",
+                                                java.util.Locale("es", "ES")))
+                                    } catch (_: Exception) { news.releaseDate },
+                                    color = Mahogany.copy(alpha = 0.7f), fontSize = 11.sp)
+                                TextButton(onClick = { vm.hideNews(news.url) },
+                                    modifier = Modifier.semantics { contentDescription = "Ocultar noticia" }) {
+                                    Text("×", color = Mahogany)
                                 }
                             }
-                            Box(Modifier.fillMaxWidth().height(188.dp).background(Mahogany)) {
-                                LaunchImage(news.imageUrl, news.title,
-                                    fit = news.source == "Casa del Libro")
+                            if (picture != null) {
+                                HorizontalDivider(color = Brass.copy(alpha = 0.22f))
+                                Image(picture!!.asImageBitmap(), contentDescription = null,
+                                    modifier = Modifier.fillMaxWidth().height(202.dp),
+                                    contentScale = if (news.source == "Casa del Libro")
+                                        ContentScale.Fit else ContentScale.Crop)
                             }
                         }
                     }
