@@ -212,6 +212,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var autoInfoLoading by mutableStateOf<Set<Uri>>(emptySet()); private set
     var autoCoverLoading by mutableStateOf<Set<Uri>>(emptySet()); private set
     private val autoJobs = mutableSetOf<Uri>()
+    private var catalogInfoJob: Job? = null
     var syncing by mutableStateOf(false); private set
     var syncCount by mutableIntStateOf(0); private set
     var syncReport by mutableStateOf(""); private set
@@ -236,7 +237,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         sections = org.json.JSONArray(prefs.getString("sections", "[]")).let { arr ->
             (0 until arr.length()).map { arr.optString(it) }
         }
-        viewModelScope.launch { restoreCachedBooks(onlyIfEmpty = true) }
+        viewModelScope.launch {
+            restoreCachedBooks(onlyIfEmpty = true)
+            scheduleCatalogInfo()
+        }
         viewMode = prefs.getString("view_mode", "Lista") ?: "Lista"
         reviewPending = org.json.JSONArray(prefs.getString("review_pending", "[]")).let { arr ->
             (0 until arr.length()).map { Uri.parse(arr.optString(it)) }.toSet()
@@ -734,6 +738,24 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private fun needsDetails(book: Book) = book.cover == null || book.spanishPlot.isBlank() ||
         book.authorBio.isBlank() || displayAuthor(book) == "Biblioteca de Diroka77"
 
+    private fun scheduleCatalogInfo() {
+        catalogInfoJob?.cancel()
+        catalogInfoJob = viewModelScope.launch {
+            val cooldown = 3L * 24 * 60 * 60 * 1000
+            for (book in books.toList()) {
+                val current = books.firstOrNull { it.uri == book.uri } ?: continue
+                if (prefs.getBoolean("manual_info_" + current.uri, false)) continue
+                if (current.spanishPlot.isNotBlank() && current.authorBio.isNotBlank() &&
+                    displayAuthor(current) != "Biblioteca de Diroka77") continue
+                if (System.currentTimeMillis() - prefs.getLong("auto_info_v37_" + current.uri, 0) < cooldown)
+                    continue
+                completeMissing(current.uri)
+                while (current.uri in autoJobs) delay(300)
+                delay(350)
+            }
+        }
+    }
+
     private fun markForReview(uri: Uri) {
         reviewPending = reviewPending + uri
         prefs.edit().putString("review_pending",
@@ -846,6 +868,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 folderName = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(getApplication(), uri)?.name }
                 prefs.edit().putString("folder_name", folderName).apply()
                 message = "${result.size} EPUB encontrados"
+                scheduleCatalogInfo()
             } catch (e: Exception) {
                 message = "No se pudo leer la carpeta de Drive: ${e.localizedMessage ?: "error de acceso"}"
                 syncReport = message.orEmpty()
@@ -920,14 +943,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             (force || now - prefs.getLong("auto_cover_v28_" + uri, 0L) > cooldown)
         val needInfo = (force || initial.spanishPlot.isBlank() || initial.authorBio.isBlank() ||
                 displayAuthor(initial) == "Biblioteca de Diroka77") &&
-            (force || now - prefs.getLong("auto_info_v28_" + uri, 0L) > cooldown)
+            (force || now - prefs.getLong("auto_info_v37_" + uri, 0L) > cooldown)
         if (!needCover && !needInfo) { autoJobs.remove(uri); return }
         viewModelScope.launch {
             var changed = false
             try {
                 if (needInfo) {
                     autoInfoLoading = autoInfoLoading + uri
-                    prefs.edit().putLong("auto_info_v28_" + uri, now).apply()
+                    prefs.edit().putLong("auto_info_v37_" + uri, now).apply()
                     try {
                         val latest = books.firstOrNull { it.uri == uri } ?: initial
                         val google = withContext(Dispatchers.IO) { fetchGoogleBookInfo(latest) }
@@ -935,8 +958,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         val found = withContext(Dispatchers.IO) {
                             fetchSpanishInfo(latest.copy(customAuthor = author))
                         }
-                        val rawPlot = found.plot.ifBlank { google.second }
-                        val plotSource = if (found.plot.isNotBlank()) found.plotSource else "Google Libros"
+                        val rawPlot = google.second.ifBlank { found.plot }
+                        val plotSource = if (google.second.isNotBlank()) "Google Libros" else found.plotSource
                         val plot = if (rawPlot.isBlank()) "" else if (plotSource == "Google Libros" ||
                             plotSource == "Wikipedia en español") rawPlot else ensureSpanish(rawPlot)
                         val bio = if (found.bio.isBlank()) "" else if (found.bioSource == "Wikipedia (es)")
@@ -1384,32 +1407,25 @@ private fun fetchGoogleBookInfo(book: Book): Pair<String, String> {
     val knownAuthor = displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty()
     val queries = if (isbn.length == 10 || isbn.length == 13) listOf("isbn:$isbn", "intitle:$title")
         else listOf("intitle:$title" + if (knownAuthor.isNotBlank()) " inauthor:$knownAuthor" else "", "intitle:$title")
-    val titleKey = title.lowercase().replace(Regex("""[^\p{L}\p{N}]"""), "")
+    var bestAuthor = ""
     for (query in queries.distinct()) try {
         val url = "https://www.googleapis.com/books/v1/volumes?q=" +
             java.net.URLEncoder.encode(query, "UTF-8") + "&langRestrict=es&maxResults=10"
         val items = getJson(url).optJSONArray("items")
         for (i in 0 until (items?.length() ?: 0)) {
             val info = items?.optJSONObject(i)?.optJSONObject("volumeInfo") ?: continue
-            val candidate = info.optString("title").lowercase()
-                .replace(Regex("""[^\p{L}\p{N}]"""), "")
-            val isbnMatch = query.startsWith("isbn:")
-            if (!isbnMatch && (titleKey.length < 3 || !candidate.contains(titleKey))) continue
             val authors = info.optJSONArray("authors")
-            val author = (0 until (authors?.length() ?: 0))
-                .mapNotNull { authors?.optString(it)?.takeIf(String::isNotBlank) }
-                .joinToString(", ")
-            if (knownAuthor.isNotBlank() && !isbnMatch && author.isNotBlank()) {
-                val authorKey = knownAuthor.lowercase().replace(Regex("""[^\p{L}\p{N}]"""), "")
-                val candidateAuthor = author.lowercase().replace(Regex("""[^\p{L}\p{N}]"""), "")
-                if (!candidateAuthor.contains(authorKey) && !authorKey.contains(candidateAuthor)) continue
-            }
+            val names = (0 until (authors?.length() ?: 0)).map { authors!!.optString(it) }
+            if (!catalogMatch(info.optString("title"), names, book)) continue
+            val author = names.filter(String::isNotBlank).joinToString(", ")
+            if (bestAuthor.isBlank() && author.isNotBlank()) bestAuthor = author
+            if (info.optString("language") != "es") continue
             val plot = android.text.Html.fromHtml(info.optString("description"),
                 android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim().take(2500)
-            if (author.isNotBlank() || plot.isNotBlank()) return author to plot
+            if (plot.length > 80) return (author.ifBlank { bestAuthor }) to plot
         }
     } catch (_: Exception) {}
-    return "" to ""
+    return bestAuthor to ""
 }
 
 private fun wikipediaPage(query: String, expected: String): Pair<String, String>? {
@@ -1441,6 +1457,16 @@ private fun wikipediaPlot(book: Book): String {
     val author = displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty()
     val page = try { wikipediaPage("$title $author", title) ?: wikipediaPage(title, title) }
         catch (_: Exception) { null } ?: return ""
+    // A title alone can also resolve to a film, a place or another book.
+    if (author.isNotBlank()) {
+        val plain: (String) -> String = { value ->
+            java.text.Normalizer.normalize(value.lowercase(), java.text.Normalizer.Form.NFD)
+                .replace(Regex("\\p{M}+"), "").replace(Regex("[^\\p{L}\\p{N}]"), "")
+        }
+        val lead = plain(page.second)
+        val authorParts = author.split(Regex("[ ,]+")).filter { it.length > 3 }
+        if (authorParts.none { lead.contains(plain(it)) }) return ""
+    }
     return try {
         val encoded = java.net.URLEncoder.encode(page.first, "UTF-8")
         val sections = getJson("https://es.wikipedia.org/w/api.php?action=parse&prop=sections" +
@@ -1532,20 +1558,6 @@ private fun fetchSpanishInfo(book: Book): InfoCandidate {
             if (plot.isNotBlank()) { plotSource = "Open Library"; break }
         }
     } catch (_: Exception) {}
-    if (plot.isBlank()) {
-        for (title in listOf(displayTitle(book), displayTitle(book) + " (novela)")) {
-            try {
-                val encoded = java.net.URLEncoder.encode(title, "UTF-8")
-                val url = "https://es.wikipedia.org/w/api.php?action=query&prop=extracts" +
-                    "&exintro=1&explaintext=1&redirects=1&format=json&formatversion=2&titles=$encoded"
-                val page = getJson(url).optJSONObject("query")?.optJSONArray("pages")?.optJSONObject(0)
-                if (page != null && !page.has("missing")) {
-                    plot = page.optString("extract").trim().take(2500)
-                    if (plot.isNotBlank()) { plotSource = "Wikipedia en español"; break }
-                }
-            } catch (_: Exception) {}
-        }
-    }
     var bio = ""
     if (displayAuthor(book).isNotBlank() && displayAuthor(book) != "Biblioteca de Diroka77") {
         for (host in listOf("es", "en")) {
@@ -1567,8 +1579,16 @@ private fun fetchSpanishInfo(book: Book): InfoCandidate {
     } catch (_: Exception) {}
     if (bio.isBlank() && displayAuthor(book).isNotBlank() && displayAuthor(book) != "Biblioteca de Diroka77") try {
         val q = java.net.URLEncoder.encode(displayAuthor(book), "UTF-8")
-        val key = getJson("https://openlibrary.org/search/authors.json?q=$q")
-            .optJSONArray("docs")?.optJSONObject(0)?.optString("key").orEmpty()
+        val authorDocs = getJson("https://openlibrary.org/search/authors.json?q=$q")
+            .optJSONArray("docs")
+        val wanted = java.text.Normalizer.normalize(displayAuthor(book).lowercase(),
+            java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")
+        val key = (0 until minOf(authorDocs?.length() ?: 0, 8)).mapNotNull { i ->
+            authorDocs?.optJSONObject(i)
+        }.firstOrNull { candidate ->
+            java.text.Normalizer.normalize(candidate.optString("name").lowercase(),
+                java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "") == wanted
+        }?.optString("key").orEmpty()
         if (key.matches(Regex("OL[0-9]+A"))) {
             val value = getJson("https://openlibrary.org/authors/$key.json").opt("bio")
             bio = (if (value is JSONObject) value.optString("value") else value as? String)
