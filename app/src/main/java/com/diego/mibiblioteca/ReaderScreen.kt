@@ -115,12 +115,12 @@ private fun paragraphsFromHtml(html: String): List<ReadingParagraph> {
 
 private fun readEpubText(file: File): ReadingDocument = ZipFile(file).use { zip ->
     val container = zip.getEntry("META-INF/container.xml")?.let { zip.getInputStream(it).bufferedReader().readText() }
-        ?: return ReadingDocument.Unsupported("El EPUB no contiene su índice principal")
+        ?: return@use ReadingDocument.Unsupported("El EPUB no contiene su índice principal")
     val opf = Regex("full-path\\s*=\\s*['\"]([^'\"]+)['\"]")
         .find(container)?.groupValues?.get(1)
-        ?: return ReadingDocument.Unsupported("No se encontró el contenido del EPUB")
+        ?: return@use ReadingDocument.Unsupported("No se encontró el contenido del EPUB")
     val packageXml = zip.getEntry(opf)?.let { zip.getInputStream(it).bufferedReader().readText() }
-        ?: return ReadingDocument.Unsupported("No se pudo leer el contenido del EPUB")
+        ?: return@use ReadingDocument.Unsupported("No se pudo leer el contenido del EPUB")
     val xml = Jsoup.parse(packageXml, "", Parser.xmlParser())
     val manifest = xml.select("manifest > item").associate { it.attr("id") to it.attr("href") }
     val spine = xml.select("spine > itemref").mapNotNull { manifest[it.attr("idref")] }
