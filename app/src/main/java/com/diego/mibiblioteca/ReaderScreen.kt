@@ -1,6 +1,7 @@
 package com.diego.mibiblioteca
 
 import android.content.Context
+import android.content.ClipData
 import android.content.Intent
 import android.app.Activity
 import android.graphics.Typeface
@@ -100,6 +101,7 @@ private suspend fun shareReadingFile(context: Context, book: Book) {
     context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
         type = mime
         putExtra(Intent.EXTRA_STREAM, uri)
+        clipData = ClipData.newRawUri("Libro", uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }, "Compartir libro"))
 }
