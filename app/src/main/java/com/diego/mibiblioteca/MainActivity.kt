@@ -9,7 +9,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.painterResource
 import android.content.Context
-import android.content.ClipData
 import android.content.Intent
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
@@ -68,7 +67,6 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 import androidx.documentfile.provider.DocumentFile
-import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -210,6 +208,20 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private var bulkJob: Job? = null
     var reviewPending by mutableStateOf<Set<Uri>>(emptySet()); private set
     var books by mutableStateOf<List<Book>>(emptyList()); private set
+    private val readerPrefs = app.getSharedPreferences("reader", Context.MODE_PRIVATE)
+    var readingPercents by mutableStateOf<Map<Uri, Int>>(emptyMap()); private set
+    private var readerCloudJob: Job? = null
+    fun readingPercent(uri: Uri): Int = readingPercents[uri]
+        ?: readerPrefs.getInt("percent_" + readerProgressKey(uri), 0)
+    fun updateReadingPercent(uri: Uri, percent: Int) {
+        if (readingPercents[uri] == percent) return
+        readingPercents = readingPercents + (uri to percent.coerceIn(0, 100))
+        readerCloudJob?.cancel()
+        readerCloudJob = viewModelScope.launch {
+            delay(15_000)
+            saveCloud()
+        }
+    }
     var coverLoading by mutableStateOf<Uri?>(null); private set
     var infoLoading by mutableStateOf<Uri?>(null); private set
     var autoInfoLoading by mutableStateOf<Set<Uri>>(emptySet()); private set
@@ -433,6 +445,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             val uri = Uri.parse(j.getString("uri"))
             val info = prefs.getString("info_" + uri, null)?.let(::JSONObject)
             j.put("manualInfo", prefs.getBoolean("manual_info_" + uri, false))
+            val progressKey = readerProgressKey(uri)
+            j.put("readerPercent", readerPrefs.getInt("percent_$progressKey", 0))
+                .put("readerItem", readerPrefs.getInt("item_$progressKey", 0))
+                .put("readerOffset", readerPrefs.getInt("offset_$progressKey", 0))
+                .put("readerPage", readerPrefs.getInt("page_$progressKey", 0))
             j.put("plot", info?.optString("plot").orEmpty())
             j.put("bio", info?.optString("bio").orEmpty())
             val manual = File(getApplication<Application>().filesDir,
@@ -479,7 +496,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 if (matched < backup.getJSONArray("books").length()) {
                     prefs.edit().putString("pending_backup", payload).apply()
                     message = if (books.isEmpty())
-                        "Respaldo recibido. Selecciona tu carpeta de EPUB y sincroniza para recuperarlo."
+                        "Respaldo recibido. Selecciona tu carpeta de libros y sincroniza para recuperarlo."
                     else "$matched fichas restauradas. Las restantes se recuperarán al sincronizar."
                 } else message = "$matched fichas restauradas."
             } catch (e: Exception) { message = "No se pudo importar: ${e.localizedMessage}" }
@@ -515,6 +532,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 (0 until arr.length()).map { arr.optString(it) }.filter(String::isNotBlank)
             }.orEmpty().ifEmpty { listOfNotNull(record.optString("section").takeIf(String::isNotBlank)) }
             val uri = book.uri
+            val progressKey = readerProgressKey(uri)
+            readerPrefs.edit().putInt("percent_$progressKey", record.optInt("readerPercent"))
+                .putInt("item_$progressKey", record.optInt("readerItem"))
+                .putInt("offset_$progressKey", record.optInt("readerOffset"))
+                .putInt("page_$progressKey", record.optInt("readerPage")).apply()
             prefs.edit().putString("info_" + uri, JSONObject()
                 .put("plot", record.optString("plot")).put("bio", record.optString("bio")).toString())
                 .putBoolean("manual_info_" + uri, record.optBoolean("manualInfo")).apply()
@@ -593,6 +615,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         for (i in 0 until booksArray.length()) {
             val j = booksArray.getJSONObject(i)
             val uri = Uri.parse(j.getString("uri"))
+            val progressKey = readerProgressKey(uri)
+            readerPrefs.edit().putInt("percent_$progressKey", j.optInt("readerPercent"))
+                .putInt("item_$progressKey", j.optInt("readerItem"))
+                .putInt("offset_$progressKey", j.optInt("readerOffset"))
+                .putInt("page_$progressKey", j.optInt("readerPage")).apply()
             prefs.edit().putString("info_" + uri, JSONObject()
                 .put("plot", j.optString("plot")).put("bio", j.optString("bio")).toString())
                 .putBoolean("manual_info_" + uri, j.optBoolean("manualInfo")).apply()
@@ -875,11 +902,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 syncReport = "Última sincronización: " +
                     java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale("es", "ES"))
                         .format(java.util.Date()) +
-                    "\n${result.size} EPUB · $added nuevos · $changed modificados · $missing ya no están en la carpeta."
+                    "\n${result.size} archivos · $added nuevos · $changed modificados · $missing ya no están en la carpeta."
                 prefs.edit().putString("sync_report", syncReport).apply()
                 folderName = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(getApplication(), uri)?.name }
                 prefs.edit().putString("folder_name", folderName).apply()
-                message = "${result.size} EPUB encontrados"
+                message = "${result.size} libros y documentos encontrados"
                 scheduleCatalogInfo()
             } catch (e: Exception) {
                 message = "No se pudo leer la carpeta de Drive: ${e.localizedMessage ?: "error de acceso"}"
@@ -1204,7 +1231,8 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
     fun walk(dir: DocumentFile) {
         dir.listFiles().forEach { f ->
             if (f.isDirectory) walk(f)
-            else if (f.name?.endsWith(".epub", true) == true) {
+            else if (f.name.orEmpty().substringAfterLast('.', "").lowercase() in
+                setOf("epub", "pdf", "mobi", "azw", "azw3", "txt", "html", "htm", "rtf", "docx", "md")) {
                 val size = f.length()
                 val modified = f.lastModified()
                 val file = coverFile(context, f.uri)
@@ -1214,7 +1242,10 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
                     (modified <= 0L || prior.sourceModified == modified) &&
                     prior.sourceCoverChecked && (!prior.hadEmbeddedCover || file.exists() || removed)
                 val epub = if (unchanged) prior!! else {
-                    val parsed = readEpub(context, f.uri, f.name ?: "Libro")
+                    val parsed = if (f.name?.endsWith(".epub", true) == true)
+                        readEpub(context, f.uri, f.name ?: "Libro")
+                    else Book(f.uri, f.name.orEmpty().substringBeforeLast('.'),
+                        author = prior?.author ?: "Autor desconocido")
                     parsed.copy(sourceSize = size, sourceModified = modified,
                         sourceCoverChecked = true, hadEmbeddedCover = parsed.cover != null)
                 }
@@ -1272,67 +1303,6 @@ private fun readEpub(context: Context, uri: Uri, fallbackName: String): Book {
             meta.genre, meta.description, meta.isbn, meta.saga, coverPath?.let(entries::get),
             language = meta.language, sagaOrder = meta.sagaOrder)
     } catch (_: Exception) { fallback }
-}
-
-private fun cachedEpub(context: Context, book: Book): File {
-    val folder = File(context.cacheDir, "epubs").apply { mkdirs() }
-    val hash = MessageDigest.getInstance("SHA-256").digest(book.uri.toString().toByteArray())
-        .joinToString("") { "%02x".format(it) }
-    val file = File(folder, "$hash.epub")
-    val stampFile = File(folder, "$hash.meta")
-    val stamp = "${book.sourceSize}:${book.sourceModified}"
-    if (file.exists() && file.length() > 0 &&
-        (book.sourceSize <= 0 || file.length() == book.sourceSize) &&
-        stampFile.takeIf { it.exists() }?.readText() == stamp) {
-        file.setLastModified(System.currentTimeMillis())
-        return file
-    }
-    val temp = File(folder, "$hash.partial")
-    try {
-        context.contentResolver.openInputStream(book.uri)?.use { input ->
-            temp.outputStream().use { output -> input.copyTo(output, 64 * 1024) }
-        } ?: throw IllegalStateException("No se pudo leer el EPUB de Drive")
-        if (temp.length() == 0L) throw IllegalStateException("El EPUB está vacío")
-        if (file.exists()) file.delete()
-        if (!temp.renameTo(file)) throw IllegalStateException("No se pudo guardar el EPUB temporal")
-        stampFile.writeText(stamp)
-        file.setLastModified(System.currentTimeMillis())
-        val old = folder.listFiles()?.filter { it.extension == "epub" && it != file }
-            ?.sortedBy { it.lastModified() }.orEmpty()
-        var total = folder.listFiles()?.filter { it.extension == "epub" }?.sumOf { it.length() } ?: 0L
-        for (candidate in old) {
-            if (total <= 700L * 1024 * 1024) break
-            total -= candidate.length()
-            candidate.delete()
-            File(folder, candidate.nameWithoutExtension + ".meta").delete()
-        }
-        return file
-    } finally { temp.delete() }
-}
-
-private suspend fun openEpubInReader(context: Context, book: Book): Boolean {
-    try {
-        val file = withContext(Dispatchers.IO) { cachedEpub(context, book) }
-        val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
-        context.startActivity(Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/epub+zip")
-            clipData = ClipData.newRawUri("EPUB", uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        })
-        return true
-    } catch (_: Exception) {
-        try {
-            context.startActivity(Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(book.uri, "application/epub+zip")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            })
-            return true
-        } catch (_: Exception) {
-            android.widget.Toast.makeText(context, "No hay un lector EPUB disponible",
-                android.widget.Toast.LENGTH_LONG).show()
-            return false
-        }
-    }
 }
 
 private fun coverFile(context: Context, uri: Uri): File {
@@ -1859,6 +1829,7 @@ private fun openCasaDelLibro(context: Context) {
 @Composable fun LibraryApp(vm: LibraryViewModel = viewModel()) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var selected by remember { mutableStateOf<Book?>(null) }
+    var readingUri by rememberSaveable { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableStateOf("Inicio") }
     val tabs = remember { listOf("Inicio", "Biblioteca", "Pendientes", "Secciones") }
     var addingSection by remember { mutableStateOf(false) }
@@ -1902,7 +1873,7 @@ private fun openCasaDelLibro(context: Context) {
     )
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
     val current = selected?.let { s -> vm.books.firstOrNull { it.uri == s.uri } }
-    BackHandler(enabled = selected != null || showWishList || tab != "Inicio") {
+    BackHandler(enabled = readingUri == null && (selected != null || showWishList || tab != "Inicio")) {
         when {
             selected != null -> selected = null
             showWishList -> showWishList = false
@@ -1921,7 +1892,6 @@ private fun openCasaDelLibro(context: Context) {
     }
     val swipeThreshold = with(LocalDensity.current) { 72.dp.toPx() }
     val scope = rememberCoroutineScope()
-    var openingReading by remember { mutableStateOf<Uri?>(null) }
     var showSyncReport by remember { mutableStateOf(false) }
     var homeSettings by remember { mutableStateOf(false) }
     var newsSettings by remember { mutableStateOf(false) }
@@ -2063,10 +2033,16 @@ private fun openCasaDelLibro(context: Context) {
     LaunchedEffect(tab, shown?.uri) {
         (context as? MainActivity)?.setMetricScreen(if (shown != null) "Ficha" else tab)
     }
-    if (shown != null) {
+    val readingBook = readingUri?.let { key -> vm.books.firstOrNull { it.uri.toString() == key } }
+    if (readingBook != null) {
+        ReaderScreen(readingBook, onBack = { readingUri = null }) { percent ->
+            vm.updateReadingPercent(readingBook.uri, percent)
+        }
+    } else if (shown != null) {
             BookDetail(shown, { selected = null }, { vm.toggleFavorite(shown.uri) },
                 { vm.recordOpen(shown.uri) },
-                { vm.setStatus(shown.uri, it) }, vm.message, vm.possibleDuplicates(shown),
+                { vm.setStatus(shown.uri, it) }, { readingUri = shown.uri.toString() },
+                vm.message, vm.possibleDuplicates(shown),
                 { vm.deleteDuplicate(shown) }, { vm.completeMissing(shown.uri, force = true) },
                 vm.autoInfoLoading.contains(shown.uri), vm.autoCoverLoading.contains(shown.uri),
                 vm.sections, { vm.assignSection(shown.uri, it) },
@@ -2145,13 +2121,9 @@ private fun openCasaDelLibro(context: Context) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (tab == "Inicio" && vm.readingFirst && readingBooks.isNotEmpty())
-                item(key = "reading-shelf") { ReadingShelf(readingBooks, openingReading) { book ->
-                    scope.launch {
-                        openingReading = book.uri
-                        try { if (openEpubInReader(context, book)) {
-                            vm.recordOpen(book.uri); vm.setStatus(book.uri, ReadingStatus.READING)
-                        } } finally { openingReading = null }
-                    }
+                item(key = "reading-shelf") { ReadingShelf(readingBooks, vm::readingPercent) { book ->
+                    readingUri = book.uri.toString()
+                    vm.recordOpen(book.uri)
                 } }
             item(key = "controls") {
                 Column {
@@ -2358,17 +2330,13 @@ private fun openCasaDelLibro(context: Context) {
                 }
                 }
                 if (!vm.readingFirst && readingBooks.isNotEmpty())
-                    item(key = "reading-shelf") { ReadingShelf(readingBooks, openingReading) { book ->
-                        scope.launch {
-                            openingReading = book.uri
-                            try { if (openEpubInReader(context, book)) {
-                                vm.recordOpen(book.uri); vm.setStatus(book.uri, ReadingStatus.READING)
-                            } } finally { openingReading = null }
-                        }
+                    item(key = "reading-shelf") { ReadingShelf(readingBooks, vm::readingPercent) { book ->
+                        readingUri = book.uri.toString()
+                        vm.recordOpen(book.uri)
                     } }
                 if (vm.books.isEmpty() && !vm.syncing) item(key = "empty-home") {
                     Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
-                        Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta de EPUB") }
+                        Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta de libros") }
                     }
                 }
             } else if (showWishList && tab == "Biblioteca") {
@@ -2384,7 +2352,7 @@ private fun openCasaDelLibro(context: Context) {
                     Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("📚", style = MaterialTheme.typography.displayMedium)
-                            Text("Elige tu carpeta de EPUB en Drive", fontFamily = FontFamily.Serif)
+                            Text("Elige tu carpeta de libros en Drive", fontFamily = FontFamily.Serif)
                             Spacer(Modifier.height(12.dp))
                             Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta") }
                         }
@@ -2434,14 +2402,14 @@ private fun openCasaDelLibro(context: Context) {
     }
 }
 
-@Composable private fun ReadingShelf(books: List<Book>, opening: Uri?, onOpen: (Book) -> Unit) {
+@Composable private fun ReadingShelf(books: List<Book>, progress: (Uri) -> Int, onOpen: (Book) -> Unit) {
     Column {
         Text("Continuar leyendo", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
             fontSize = 16.sp, color = Mahogany, modifier = Modifier.padding(top = 12.dp, bottom = 8.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(end = 8.dp)) {
             items(books, key = { "reading:" + it.uri }) { book ->
-                Card(Modifier.width(142.dp).clickable(enabled = opening == null) { onOpen(book) },
+                Card(Modifier.width(142.dp).clickable { onOpen(book) },
                     colors = CardDefaults.cardColors(containerColor = Paper),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                     Column(Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -2452,6 +2420,7 @@ private fun openCasaDelLibro(context: Context) {
                             fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
                         Text(displayAuthor(book), fontSize = 10.sp, maxLines = 1,
                             textAlign = TextAlign.Center)
+                        Text("${progress(book.uri)} % leído", fontSize = 10.sp, color = Mahogany)
                     }
                 }
             }
@@ -2546,7 +2515,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun BookDetail(
     book: Book, back: () -> Unit, toggleFavorite: () -> Unit,
-    onOpened: () -> Unit, setStatus: (ReadingStatus) -> Unit, message: String?,
+    onOpened: () -> Unit, setStatus: (ReadingStatus) -> Unit, openBook: () -> Unit, message: String?,
     possibleDuplicates: List<Book>, deleteBook: () -> Unit, enrich: () -> Unit,
     infoLoading: Boolean, coverSearching: Boolean,
     sections: List<String>, assignSection: (String) -> Unit,
@@ -2558,7 +2527,6 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    var openingEpub by remember(book.uri) { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var sectionMenu by remember { mutableStateOf(false) }
     var editInfo by remember { mutableStateOf(false) }
@@ -2575,17 +2543,17 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     }
     var exportingEpub by remember(book.uri) { mutableStateOf(false) }
     val exportPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/epub+zip")) { destination ->
+        ActivityResultContracts.CreateDocument("application/octet-stream")) { destination ->
         if (destination != null && !exportingEpub) scope.launch {
             exportingEpub = true
             try {
                 withContext(Dispatchers.IO) {
-                    val source = cachedEpub(context, book)
+                    val source = localReaderFile(context, book)
                     context.contentResolver.openOutputStream(destination, "w")?.use { output ->
                         source.inputStream().use { it.copyTo(output, 64 * 1024) }
                     } ?: throw IllegalStateException("No se pudo escribir el archivo")
                 }
-                android.widget.Toast.makeText(context, "EPUB guardado", android.widget.Toast.LENGTH_LONG).show()
+                android.widget.Toast.makeText(context, "Archivo guardado", android.widget.Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
                 android.widget.Toast.makeText(context, "No se pudo guardar: " + e.localizedMessage,
                     android.widget.Toast.LENGTH_LONG).show()
@@ -2602,7 +2570,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     }
     if (confirmDelete) AlertDialog(
         onDismissRequest = { confirmDelete = false },
-        title = { Text("Borrar EPUB") },
+        title = { Text("Borrar archivo") },
         text = { Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
             Text("Se borrará de Drive únicamente esta copia:")
             Text(displayTitle(book) + " · " + displayAuthor(book), fontWeight = FontWeight.Bold)
@@ -2694,23 +2662,18 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                         book.sagaOrder.takeIf { it.isNotBlank() }?.let { " · nº $it" }.orEmpty(), fontSize = 12.sp)
                     Spacer(Modifier.height(14.dp))
                 Button(onClick = {
-                    if (!openingEpub) scope.launch {
-                        openingEpub = true
-                        try {
-                            if (openEpubInReader(context, book)) {
-                                onOpened()
-                                setStatus(ReadingStatus.READING)
-                            }
-                        } finally { openingEpub = false }
-                    }
-                }, modifier = Modifier.fillMaxWidth(), enabled = !openingEpub) {
-                    Text(if (openingEpub) "Preparando EPUB…" else "📖  Abrir EPUB")
+                    onOpened(); setStatus(ReadingStatus.READING); openBook()
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Text("📖  Leer este libro")
                 }
                 OutlinedButton(onClick = {
                     val safeName = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), " ").trim().take(90)
-                    exportPicker.launch((safeName.ifBlank { "Libro" }) + ".epub")
+                    val extension = androidx.documentfile.provider.DocumentFile.fromSingleUri(context, book.uri)
+                        ?.name?.substringAfterLast('.', "epub")?.lowercase().orEmpty()
+                    exportPicker.launch((safeName.ifBlank { "Libro" }) + "." +
+                        extension.takeIf { it in setOf("epub", "pdf", "mobi", "azw", "azw3", "txt", "html", "htm", "rtf", "docx", "md") }.orEmpty().ifBlank { "epub" })
                 }, modifier = Modifier.fillMaxWidth(), enabled = !exportingEpub) {
-                    Text(if (exportingEpub) "Guardando EPUB…" else "Descargar EPUB de Drive")
+                    Text(if (exportingEpub) "Guardando archivo…" else "Descargar archivo de Drive")
                 }
                     Spacer(Modifier.height(14.dp))
                     OutlinedButton(onClick = {
@@ -2814,7 +2777,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 OutlinedButton(onClick = { searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book)) },
                     modifier = Modifier.fillMaxWidth()) { Text("Consultar en Google") }
                 OutlinedButton(onClick = { confirmDelete = true },
-                    modifier = Modifier.fillMaxWidth()) { Text("Borrar este EPUB de Drive") }
+                    modifier = Modifier.fillMaxWidth()) { Text("Borrar este archivo de Drive") }
             }
         }
     }
