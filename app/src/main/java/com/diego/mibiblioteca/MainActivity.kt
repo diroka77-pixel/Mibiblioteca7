@@ -42,6 +42,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -1906,7 +1907,8 @@ private fun openCasaDelLibro(context: Context) {
         "Pendientes" -> pendingListState
         else -> sectionsListState
     }
-    val swipeThreshold = with(LocalDensity.current) { 72.dp.toPx() }
+    val swipeThreshold = with(LocalDensity.current) { 56.dp.toPx() }
+    val swipeControlsHeight = with(LocalDensity.current) { 145.dp.toPx() }
     val scope = rememberCoroutineScope()
     var showSyncReport by remember { mutableStateOf(false) }
     var homeSettings by remember { mutableStateOf(false) }
@@ -2115,23 +2117,29 @@ private fun openCasaDelLibro(context: Context) {
             }
         }
     ) { p ->
-      Box(Modifier.padding(p).fillMaxSize()) {
+      Box(Modifier.padding(p).fillMaxSize().pointerInput(tab, swipeThreshold) {
+          awaitEachGesture {
+              val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+              val start = down.position
+              var end = start
+              while (true) {
+                  val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                      .firstOrNull { it.id == down.id } ?: break
+                  end = change.position
+                  if (!change.pressed) break
+              }
+              val horizontal = end.x - start.x
+              val vertical = end.y - start.y
+              if (start.y > swipeControlsHeight && kotlin.math.abs(horizontal) > swipeThreshold &&
+                  kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.25f) {
+                  val index = tabs.indexOf(tab)
+                  val next = index + if (horizontal < 0) 1 else -1
+                  if (next in tabs.indices) switchTab(tabs[next])
+              }
+          }
+      }) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().pointerInput(tab, swipeThreshold) {
-                var horizontalDistance = 0f
-                detectHorizontalDragGestures(
-                    onDragStart = { horizontalDistance = 0f },
-                    onHorizontalDrag = { _, amount -> horizontalDistance += amount },
-                    onDragEnd = {
-                        val index = tabs.indexOf(tab)
-                        val next = when {
-                            horizontalDistance < -swipeThreshold -> index + 1
-                            horizontalDistance > swipeThreshold -> index - 1
-                            else -> index
-                        }
-                        if (next in tabs.indices && next != index) switchTab(tabs[next])
-                    })
-            },
+            modifier = Modifier.fillMaxSize(),
             state = listState,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
