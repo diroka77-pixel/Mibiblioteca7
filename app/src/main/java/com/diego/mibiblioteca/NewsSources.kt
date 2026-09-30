@@ -90,7 +90,10 @@ internal fun fetchCasaUpcomingBooks(): List<LaunchNews> = try {
     doc.select(".product-card").mapNotNull { card ->
         val title = card.selectFirst("a.product-title") ?: return@mapNotNull null
         val author = card.selectFirst("p.autores")?.text()?.trim().orEmpty()
-        val image = card.selectFirst("a.image img")?.absUrl("src").orEmpty()
+        val imageNode = card.selectFirst("a.image img")
+        val image = imageNode?.absUrl("data-src").orEmpty().ifBlank {
+            imageNode?.absUrl("src").orEmpty()
+        }
         val link = title.absUrl("href")
         if (title.text().isBlank() || !link.startsWith("https://www.casadellibro.com/") ||
             !image.startsWith("https://imagessl")) return@mapNotNull null
@@ -98,4 +101,3 @@ internal fun fetchCasaUpcomingBooks(): List<LaunchNews> = try {
             if (author.isBlank()) "" else " · $author", link, image, checked)
     }.distinctBy { it.url }.take(5)
 } catch (_: Exception) { emptyList() }
-
