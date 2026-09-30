@@ -2,6 +2,16 @@ package com.diego.mibiblioteca
 
 import android.content.Context
 import android.content.Intent
+import android.app.Activity
+import android.graphics.Typeface
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.BackgroundColorSpan
+import android.util.TypedValue
+import android.view.ActionMode
+import android.view.Menu
+import android.view.MenuItem
+import android.widget.TextView
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -9,9 +19,13 @@ import android.os.ParcelFileDescriptor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -19,8 +33,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -37,6 +55,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 import java.util.zip.ZipFile
@@ -48,6 +68,41 @@ private sealed interface ReadingDocument {
 }
 
 private data class ReadingParagraph(val text: String, val heading: Boolean = false)
+private data class ReaderHighlight(val paragraph: Int, val start: Int, val end: Int, val quote: String)
+
+private fun readHighlights(raw: String?): List<ReaderHighlight> = try {
+    val array = JSONArray(raw ?: "[]")
+    (0 until array.length()).mapNotNull { i -> array.optJSONObject(i)?.let { j ->
+        ReaderHighlight(j.optInt("paragraph"), j.optInt("start"), j.optInt("end"), j.optString("quote"))
+    } }
+} catch (_: Exception) { emptyList() }
+
+private fun saveHighlights(context: Context, key: String, highlights: List<ReaderHighlight>) {
+    val array = JSONArray()
+    highlights.forEach { h -> array.put(JSONObject().put("paragraph", h.paragraph)
+        .put("start", h.start).put("end", h.end).put("quote", h.quote)) }
+    context.getSharedPreferences("reader", Context.MODE_PRIVATE).edit()
+        .putString("highlights_$key", array.toString()).apply()
+}
+
+private suspend fun shareReadingFile(context: Context, book: Book) {
+    val file = withContext(Dispatchers.IO) { localReaderFile(context, book) }
+    val uri = androidx.core.content.FileProvider.getUriForFile(
+        context, context.packageName + ".fileprovider", file)
+    val mime = when (file.extension.lowercase()) {
+        "epub" -> "application/epub+zip"
+        "pdf" -> "application/pdf"
+        "txt", "md" -> "text/plain"
+        "html", "htm" -> "text/html"
+        "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        else -> "application/octet-stream"
+    }
+    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+        type = mime
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }, "Compartir libro"))
+}
 
 internal fun readerProgressKey(uri: Uri): String = MessageDigest.getInstance("SHA-256")
     .digest(uri.toString().toByteArray()).joinToString("") { "%02x".format(it) }
@@ -132,7 +187,14 @@ private fun readEpubText(file: File): ReadingDocument = ZipFile(file).use { zip 
         val entry = zip.getEntry(path) ?: continue
         if (entry.size > 3_000_000) continue
         val html = zip.getInputStream(entry).bufferedReader().use { it.readText() }
-        paragraphs += paragraphsFromHtml(html)
+        val section = paragraphsFromHtml(html)
+        if (section.isNotEmpty() && section.none(ReadingParagraph::heading)) {
+            val label = Jsoup.parse(html).title().trim()
+                .takeIf { it.isNotBlank() && !it.equals("untitled", true) }
+                ?: "Capítulo ${paragraphs.count(ReadingParagraph::heading) + 1}"
+            paragraphs += ReadingParagraph(label.take(90), heading = true)
+        }
+        paragraphs += section
     }
     if (paragraphs.isEmpty()) ReadingDocument.Unsupported("No se encontró texto legible en este EPUB")
     else ReadingDocument.TextDocument(paragraphs)
@@ -210,7 +272,8 @@ private fun loadReadingDocument(context: Context, book: Book): ReadingDocument {
                         val xml = zip.getInputStream(entry).bufferedReader().readText()
                         val doc = Jsoup.parse(xml, "", Parser.xmlParser())
                         doc.select("w|p").mapNotNull { p -> p.text().trim().takeIf(String::isNotBlank)
-                            ?.let(::ReadingParagraph) }
+                            ?.let { text -> ReadingParagraph(text,
+                                p.selectFirst("w|pStyle")?.attr("w:val")?.startsWith("Heading", true) == true) } }
                     }.orEmpty()
                 }
                 "html", "htm" -> paragraphsFromHtml(file.readText())
@@ -219,7 +282,10 @@ private fun loadReadingDocument(context: Context, book: Book): ReadingDocument {
                     .replace(Regex("[{}]"), " ").split(Regex("\\n+"))
                     .mapNotNull { it.trim().takeIf(String::isNotBlank)?.let(::ReadingParagraph) }
                 else -> file.readText().split(Regex("\\n\\s*\\n|\\r\\n\\s*\\r\\n"))
-                    .mapNotNull { it.trim().takeIf(String::isNotBlank)?.let(::ReadingParagraph) }
+                    .mapNotNull { raw -> raw.trim().takeIf(String::isNotBlank)?.let { text ->
+                        ReadingParagraph(text.trimStart('#', ' '),
+                            file.extension.equals("md", true) && text.startsWith('#'))
+                    } }
             }
             if (paragraphs.isEmpty()) ReadingDocument.Unsupported("No se encontró texto legible")
             else ReadingDocument.TextDocument(paragraphs)
@@ -242,9 +308,79 @@ private fun renderPdfPage(file: File, index: Int): Bitmap =
         }
     }
 
+@Composable
+private fun SelectableParagraph(
+    paragraph: ReadingParagraph, index: Int, size: Float, foreground: Color,
+    dark: Boolean, highlights: List<ReaderHighlight>, onHighlight: (ReaderHighlight) -> Unit
+) {
+    val action by rememberUpdatedState(onHighlight)
+    AndroidView(modifier = Modifier.fillMaxWidth(), factory = { context ->
+        TextView(context).apply {
+            setTextIsSelectable(true)
+            setPadding(0, 0, 0, 0)
+            includeFontPadding = false
+            val selectable = this
+            setCustomSelectionActionModeCallback(object : ActionMode.Callback {
+                override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+                    menu.add(0, 8001, 0, "Resaltar")
+                    menu.add(0, 8002, 1, "Significado")
+                    menu.add(0, 8003, 2, "Compartir")
+                    return true
+                }
+                override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
+                override fun onDestroyActionMode(mode: ActionMode) = Unit
+                override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+                    if (item.itemId !in 8001..8003) return false
+                    val start = selectable.selectionStart.coerceAtLeast(0)
+                    val end = selectable.selectionEnd.coerceAtMost(selectable.text.length)
+                    if (end <= start) return false
+                    val quote = selectable.text.subSequence(start, end).toString().trim()
+                    if (quote.isBlank()) return false
+                    when (item.itemId) {
+                        8001 -> action(ReaderHighlight(index, start, end, quote))
+                        8002 -> {
+                            val word = quote.split(Regex("\\s+")).first().trim('¿', '¡', '.', ',', ';',
+                                ':', '!', '?', '«', '»', '"', '\'')
+                            if (word.isNotBlank()) try {
+                                context.startActivity(Intent(Intent.ACTION_VIEW,
+                                    Uri.parse("https://dle.rae.es/" +
+                                        java.net.URLEncoder.encode(word, "UTF-8"))))
+                            } catch (_: Exception) { }
+                        }
+                        8003 -> context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"; putExtra(Intent.EXTRA_TEXT, quote)
+                        }, "Compartir cita"))
+                    }
+                    mode.finish()
+                    return true
+                }
+            })
+        }
+    }, update = { view ->
+        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, size + if (paragraph.heading) 4f else 0f)
+        view.typeface = Typeface.create(Typeface.SERIF,
+            if (paragraph.heading) Typeface.BOLD else Typeface.NORMAL)
+        view.setLineSpacing(0f, 1.45f)
+        view.setTextColor(foreground.toArgb())
+        val relevant = highlights.filter { it.paragraph == index }
+        val stamp = paragraph.text to relevant
+        if (view.tag != stamp) {
+            val styled = SpannableString(paragraph.text)
+            relevant.forEach { h ->
+                if (h.start >= 0 && h.end <= styled.length && h.end > h.start)
+                    styled.setSpan(BackgroundColorSpan(if (dark) 0xFF80622D.toInt()
+                        else 0xFFFFE39A.toInt()), h.start, h.end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            view.text = styled
+            view.tag = stamp
+        }
+    })
+}
+
 @OptIn(FlowPreview::class, ExperimentalMaterial3Api::class)
 @Composable
-fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit) {
+fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
+    onHighlightsChanged: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("reader", Context.MODE_PRIVATE) }
     val key = remember(book.uri) { readerProgressKey(book.uri) }
@@ -252,6 +388,26 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit) {
     var dark by remember { mutableStateOf(prefs.getBoolean("dark", false)) }
     var page by remember(book.uri) { mutableIntStateOf(prefs.getInt("page_$key", 0)) }
     val scope = rememberCoroutineScope()
+    val swipeDistance = with(LocalDensity.current) { 64.dp.toPx() }
+    val drawer = rememberDrawerState(DrawerValue.Closed)
+    var jumpToItem by remember(book.uri) { mutableIntStateOf(-1) }
+    var highlights by remember(book.uri) {
+        mutableStateOf(readHighlights(prefs.getString("highlights_$key", "[]")))
+    }
+    var brightness by remember { mutableFloatStateOf(prefs.getFloat("brightness", -1f)) }
+    val activity = context as? Activity
+    DisposableEffect(activity) {
+        val old = activity?.window?.attributes?.screenBrightness
+        onDispose {
+            if (old != null && activity != null) activity.window.attributes = activity.window.attributes.apply {
+                screenBrightness = old
+            }
+        }
+    }
+    LaunchedEffect(brightness) {
+        if (activity != null)
+            activity.window.attributes = activity.window.attributes.apply { screenBrightness = brightness }
+    }
     val background = if (dark) Color(0xFF1D1A17) else Color(0xFFF5EEDD)
     val foreground = if (dark) Color(0xFFF3E9D7) else Color(0xFF31271F)
     val state by produceState<ReadingDocument?>(null, book.uri) {
@@ -259,11 +415,80 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit) {
         catch (e: Exception) { ReadingDocument.Unsupported(e.localizedMessage ?: "No se pudo abrir") }
     }
     val document = state
-    BackHandler(onBack = onBack)
-    Scaffold(containerColor = background, topBar = {
+    BackHandler { if (drawer.isOpen) scope.launch { drawer.close() } else onBack() }
+    ModalNavigationDrawer(drawerState = drawer, drawerContent = {
+        ModalDrawerSheet {
+            Column(Modifier.fillMaxHeight().widthIn(max = 320.dp).padding(16.dp)) {
+                Text("Índice de lectura", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.height(12.dp))
+                Text("Capítulos", fontWeight = FontWeight.Bold)
+                val chapters = if (document is ReadingDocument.TextDocument)
+                    document.paragraphs.withIndex().filter { it.value.heading }
+                else emptyList()
+                LazyColumn(Modifier.weight(1f)) {
+                    when (document) {
+                        is ReadingDocument.TextDocument -> {
+                            if (chapters.isEmpty()) item { TextButton(onClick = {
+                                jumpToItem = 0; scope.launch { drawer.close() }
+                            }) { Text("Inicio") } }
+                            items(chapters.size) { number ->
+                                val chapter = chapters[number]
+                                TextButton(onClick = {
+                                    jumpToItem = chapter.index; scope.launch { drawer.close() }
+                                }) { Text(chapter.value.text.take(70), maxLines = 2) }
+                            }
+                        }
+                        is ReadingDocument.PdfDocument -> items(document.pages) { number ->
+                            TextButton(onClick = { page = number; scope.launch { drawer.close() } }) {
+                                Text("Página ${number + 1}")
+                            }
+                        }
+                        else -> Unit
+                    }
+                    if (highlights.isNotEmpty()) {
+                        item { Text("Mis subrayados", fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 14.dp)) }
+                        items(highlights.size) { number ->
+                            val highlight = highlights[number]
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = {
+                                    jumpToItem = highlight.paragraph
+                                    scope.launch { drawer.close() }
+                                }, modifier = Modifier.weight(1f)) {
+                                    Text(highlight.quote.take(60), maxLines = 2)
+                                }
+                                TextButton(onClick = {
+                                    highlights = highlights.filterIndexed { i, _ -> i != number }
+                                    saveHighlights(context, key, highlights)
+                                    onHighlightsChanged()
+                                }) { Text("×") }
+                            }
+                        }
+                    }
+                }
+                Text(if (brightness < 0f) "Brillo del sistema" else
+                    "Brillo de lectura: ${(brightness * 100).toInt()} %", fontSize = 12.sp)
+                Slider(value = if (brightness < 0f) 0.5f else brightness, onValueChange = {
+                    brightness = it.coerceIn(0.05f, 1f)
+                    prefs.edit().putFloat("brightness", brightness).apply()
+                }, valueRange = 0.05f..1f)
+                TextButton(onClick = {
+                    brightness = -1f
+                    prefs.edit().putFloat("brightness", -1f).apply()
+                }) { Text("Usar brillo del sistema") }
+            }
+        }
+    }) {
+    Scaffold(containerColor = background, contentWindowInsets = WindowInsets.safeDrawing, topBar = {
         TopAppBar(title = { Text(book.customTitle.ifBlank { book.title }.take(38), maxLines = 1) },
             navigationIcon = { TextButton(onClick = onBack) { Text("‹ Volver") } },
             actions = {
+                TextButton(onClick = { scope.launch { drawer.open() } }) { Text("☰") }
+                TextButton(onClick = { scope.launch {
+                    try { shareReadingFile(context, book) }
+                    catch (e: Exception) { android.widget.Toast.makeText(context,
+                        "No se pudo compartir: ${e.localizedMessage}", android.widget.Toast.LENGTH_LONG).show() }
+                } }) { Text("↗") }
                 if (document is ReadingDocument.TextDocument) {
                     TextButton(onClick = { fontSize = (fontSize - 2).coerceAtLeast(12f);
                         prefs.edit().putFloat("font_size", fontSize).apply() }) { Text("A−") }
@@ -317,12 +542,26 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit) {
                     onProgress(((index + 1) * 100f / document.pages).toInt())
                 }
                 Column(Modifier.padding(padding).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
-                        .background(if (dark) Color.DarkGray else Color.LightGray),
+                    Box(Modifier.weight(1f).fillMaxWidth().background(if (dark) Color.DarkGray else Color.LightGray)
+                        .pointerInput(index, document.pages) {
+                            var drag = 0f
+                            detectHorizontalDragGestures(onDragStart = { drag = 0f },
+                                onHorizontalDrag = { _, amount -> drag += amount },
+                                onDragEnd = {
+                                    if (drag < -swipeDistance) page = (index + 1).coerceAtMost(document.pages - 1)
+                                    if (drag > swipeDistance) page = (index - 1).coerceAtLeast(0)
+                                })
+                        },
                         contentAlignment = Alignment.TopCenter) {
-                        if (image != null) Image(image!!.asImageBitmap(), "Página ${index + 1}",
-                            Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
-                        else CircularProgressIndicator()
+                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                            if (image != null) Image(image!!.asImageBitmap(), "Página ${index + 1}",
+                                Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
+                            else CircularProgressIndicator()
+                        }
+                        Box(Modifier.align(Alignment.CenterStart).width(38.dp).fillMaxHeight()
+                            .clickable { page = (index - 1).coerceAtLeast(0) })
+                        Box(Modifier.align(Alignment.CenterEnd).width(38.dp).fillMaxHeight()
+                            .clickable { page = (index + 1).coerceAtMost(document.pages - 1) })
                     }
                     Text("Página ${index + 1} de ${document.pages} · ${((index + 1) * 100f / document.pages).toInt()} %",
                         color = foreground, modifier = Modifier.padding(6.dp))
@@ -351,6 +590,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit) {
                     list.scrollToItem(prefs.getInt("item_$key", 0).coerceIn(0, paragraphs.lastIndex),
                         prefs.getInt("offset_$key", 0).coerceAtLeast(0))
                 }
+                LaunchedEffect(jumpToItem, document) {
+                    if (jumpToItem >= 0) {
+                        list.scrollToItem(jumpToItem.coerceIn(0, paragraphs.lastIndex))
+                        jumpToItem = -1
+                    }
+                }
                 LaunchedEffect(list, document) {
                     snapshotFlow { list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset }
                         .distinctUntilChanged().debounce(700).collect { (item, offset) ->
@@ -365,15 +610,37 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit) {
                         }
                 }
                 Column(Modifier.padding(padding).fillMaxSize()) {
-                    LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list,
-                        contentPadding = PaddingValues(horizontal = 22.dp, vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        itemsIndexed(paragraphs) { _, paragraph ->
-                            Text(paragraph.text, color = foreground, fontFamily = FontFamily.Serif,
-                                fontWeight = if (paragraph.heading) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = (fontSize + if (paragraph.heading) 4 else 0).sp,
-                                lineHeight = (fontSize * 1.52f).sp)
+                    Box(Modifier.weight(1f).fillMaxWidth().pointerInput(document, swipeDistance) {
+                        var drag = 0f
+                        detectHorizontalDragGestures(onDragStart = { drag = 0f },
+                            onHorizontalDrag = { _, amount -> drag += amount },
+                            onDragEnd = {
+                                val height = list.layoutInfo.viewportEndOffset - list.layoutInfo.viewportStartOffset
+                                if (drag < -swipeDistance) scope.launch { list.animateScrollBy(height * 0.88f) }
+                                if (drag > swipeDistance) scope.launch { list.animateScrollBy(-height * 0.88f) }
+                            })
+                    }) {
+                        LazyColumn(Modifier.fillMaxSize(), state = list,
+                            contentPadding = PaddingValues(horizontal = 22.dp, vertical = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            itemsIndexed(paragraphs) { index, paragraph ->
+                                SelectableParagraph(paragraph, index, fontSize, foreground, dark, highlights) { mark ->
+                                    highlights = (highlights + mark).distinct()
+                                    saveHighlights(context, key, highlights)
+                                    onHighlightsChanged()
+                                }
+                            }
                         }
+                        Box(Modifier.align(Alignment.CenterStart).width(32.dp).fillMaxHeight()
+                            .clickable {
+                                val height = list.layoutInfo.viewportEndOffset - list.layoutInfo.viewportStartOffset
+                                scope.launch { list.animateScrollBy(-height * 0.88f) }
+                            })
+                        Box(Modifier.align(Alignment.CenterEnd).width(32.dp).fillMaxHeight()
+                            .clickable {
+                                val height = list.layoutInfo.viewportEndOffset - list.layoutInfo.viewportStartOffset
+                                scope.launch { list.animateScrollBy(height * 0.88f) }
+                            })
                     }
                     Text("$percent % leído", Modifier.align(Alignment.CenterHorizontally), color = foreground)
                     Slider(value = percent.toFloat(), onValueChange = { value ->
@@ -387,5 +654,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit) {
                 }
             }
         }
+    }
     }
 }
