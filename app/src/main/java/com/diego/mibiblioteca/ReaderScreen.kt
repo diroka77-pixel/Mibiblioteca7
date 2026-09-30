@@ -23,6 +23,7 @@ import android.os.ParcelFileDescriptor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloat
@@ -635,18 +636,20 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         }, label = "Pasar página PDF") { shown ->
                             val angle by transition.animateFloat(transitionSpec = { tween(440) },
                                 label = "Pliegue PDF") { state ->
-                                if (state == shown) 0f else if (state > shown) -62f else 62f
+                                when (state) {
+                                    EnterExitState.PreEnter -> 62f
+                                    EnterExitState.Visible -> 0f
+                                    EnterExitState.PostExit -> -62f
+                                }
                             }
-                            val forward = transition.targetState > transition.currentState
-                            val entering = shown == transition.targetState
+                            val entering = transition.targetState == EnterExitState.Visible
                             val shownImage by produceState<Bitmap?>(null, document.file, shown) {
                                 value = try { withContext(Dispatchers.IO) { renderPdfPage(document.file, shown) } }
                                 catch (_: Exception) { null }
                             }
                             Box(Modifier.fillMaxSize().graphicsLayer {
                                 rotationY = angle
-                                transformOrigin = TransformOrigin(
-                                    if (forward == entering) 1f else 0f, 0.5f)
+                                transformOrigin = TransformOrigin(if (entering) 1f else 0f, 0.5f)
                                 cameraDistance = 12000f
                                 shadowElevation = if (angle == 0f) 0f else 18.dp.toPx()
                             }, contentAlignment = Alignment.TopCenter) {
@@ -732,14 +735,16 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 }, label = "Pasar página") { shown ->
                                 val angle by transition.animateFloat(transitionSpec = { tween(440) },
                                     label = "Pliegue") { state ->
-                                    if (state == shown) 0f else if (state > shown) -62f else 62f
+                                    when (state) {
+                                        EnterExitState.PreEnter -> 62f
+                                        EnterExitState.Visible -> 0f
+                                        EnterExitState.PostExit -> -62f
+                                    }
                                 }
-                                val forward = transition.targetState > transition.currentState
-                                val entering = shown == transition.targetState
+                                val entering = transition.targetState == EnterExitState.Visible
                                 Column(Modifier.fillMaxSize().graphicsLayer {
                                     rotationY = angle
-                                    transformOrigin = TransformOrigin(
-                                        if (forward == entering) 1f else 0f, 0.5f)
+                                    transformOrigin = TransformOrigin(if (entering) 1f else 0f, 0.5f)
                                     cameraDistance = 12000f
                                     shadowElevation = if (angle == 0f) 0f else 18.dp.toPx()
                                 }.background(background).padding(horizontal = 22.dp, vertical = 16.dp),
