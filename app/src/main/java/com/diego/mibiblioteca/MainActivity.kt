@@ -72,6 +72,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.xmlpull.v1.XmlPullParser
@@ -98,6 +100,7 @@ data class Book(
     val spanishPlot: String = "",
     val authorBio: String = "",
     val section: String = "",
+    val sections: List<String> = emptyList(),
     val notes: String = "",
     val goodreadsUrl: String = "",
     val wantToRead: Boolean = false,
@@ -112,6 +115,9 @@ data class Book(
     val bioSource: String = "",
     val coverSource: String = ""
 )
+
+private fun bookSections(book: Book): List<String> =
+    (book.sections + book.section).map(String::trim).filter(String::isNotBlank).distinct()
 
 data class InfoCandidate(
     val author: String, val plot: String, val bio: String,
@@ -149,105 +155,10 @@ private class BookStore(context: Context) : SQLiteOpenHelper(context, "catalog.d
     }
 }
 
-private data class LaunchSource(
-    val name: String, val url: String, val host: String, val selector: String,
-    val fallback: String
-)
-data class LaunchNews(
-    val source: String, val title: String, val url: String,
-    val imageUrl: String, val releaseDate: String
-)
-
-private val starterNews = listOf(
-    LaunchNews("Clara", "Las 25 novedades en libros más esperadas del otoño de 2026",
-        "https://www.clara.es/estilo-de-vida/novedades-libros-esperadas-otono-2026_49129",
-        "https://www.bing.com/th?id=ONUT.GHE09UlTMubiIlAklf_Jbw&pid=News", "2026-09-27"),
-    LaunchNews("Cosmopolitan", "Diez libros nuevos para leer en octubre",
-        "https://www.cosmopolitan.com/es/entretenimiento-cultura/g73876578/libros-recomendados-octubre-2026/",
-        "https://www.bing.com/th?id=ONUT.kbO_qElBMGBPxEkKw6CKIg&pid=News", "2026-09-28"),
-    LaunchNews("El Independiente", "Grandes lanzamientos literarios de octubre",
-        "https://www.msn.com/es-es/noticias/otras/de-p%C3%A9rez-reverte-y-almod%C3%B3var-a-jon-fosse-los-grandes-lanzamientos-literarios-para-octubre/ar-AA2dczPZ",
-        "https://www.bing.com/th?id=ONUT.m7bQKzY3qjbARUUJY99_lA&pid=News", "2026-09-29")
-)
-
-private fun newsQueries(includeLatest: Boolean = false): List<String> {
-    val today = java.time.LocalDate.now()
-    val next = today.plusMonths(1).format(java.time.format.DateTimeFormatter.ofPattern("MMMM yyyy",
-        java.util.Locale("es", "ES")))
-    val season = when (today.monthValue) {
-        3, 4, 5 -> "primavera"
-        6, 7, 8 -> "verano"
-        9, 10, 11 -> "otoño"
-        else -> "invierno"
-    }
-    val regular = listOf("lanzamientos libros $season ${today.year}",
-        "libros nuevos $next", "novedades literarias $season ${today.year}")
-    return if (includeLatest) regular + listOf("libros nuevos literatura",
-        "próximos lanzamientos novelas", "novedades editoriales libros") else regular
+private val newsImageCache = object : LruCache<String, Bitmap>(12 * 1024) {
+    override fun sizeOf(key: String, value: Bitmap): Int =
+        (value.byteCount / 1024).coerceAtLeast(1)
 }
-
-private fun fetchLiteraryNews(query: String): List<LaunchNews> = try {
-    val address = "https://www.bing.com/news/search?q=" +
-        java.net.URLEncoder.encode(query, "UTF-8") + "&format=rss&mkt=es-ES"
-    val connection = URL(address).openConnection() as HttpURLConnection
-    connection.connectTimeout = 7000
-    connection.readTimeout = 8000
-    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
-    connection.useCaches = false
-    connection.setRequestProperty("Cache-Control", "no-cache")
-    val doc = try { connection.inputStream.use { stream ->
-        Jsoup.parse(stream, "UTF-8", address, org.jsoup.parser.Parser.xmlParser())
-    } } finally { connection.disconnect() }
-    val today = java.time.LocalDate.now()
-    doc.select("item").mapNotNull { item ->
-        val headline = item.selectFirst("title")?.text()?.trim().orEmpty()
-        val image = item.children().firstOrNull { it.tagName().substringAfterLast(':')
-            .equals("Image", ignoreCase = true) }?.text()?.replace("http://", "https://").orEmpty()
-        val rssLink = item.selectFirst("link")?.text().orEmpty()
-        val article = try { Uri.parse(rssLink).getQueryParameter("url") ?: rssLink }
-            catch (_: Exception) { rssLink }
-        val source = item.children().firstOrNull { it.tagName().substringAfterLast(':')
-            .equals("Source", ignoreCase = true) }?.text()?.ifBlank { "Noticias" } ?: "Noticias"
-        val published = try {
-            java.time.ZonedDateTime.parse(item.selectFirst("pubDate")?.text().orEmpty(),
-                java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toLocalDate()
-        } catch (_: Exception) { null }
-        val topical = Regex("(?i)libros?|novelas?|literari|editorial|lecturas?")
-            .containsMatchIn(headline) && Regex("(?i)nuev|novedad|lanzamiento|próxim|esperad|publica|lectur")
-            .containsMatchIn(headline)
-        val timely = published != null && !published.isBefore(today.minusDays(60)) &&
-            !published.isAfter(today.plusDays(1))
-        if (topical && timely && headline.length in 20..180 &&
-            image.startsWith("https://") && article.startsWith("https://"))
-            LaunchNews(source, headline, article, image, published.toString()) else null
-    }.take(10)
-} catch (_: Exception) { emptyList() }
-
-private fun fetchCasaUpcomingBooks(): List<LaunchNews> = try {
-    val address = "https://www.casadellibro.com/proximos-lanzamientos-en-libros"
-    val connection = URL(address).openConnection() as HttpURLConnection
-    connection.connectTimeout = 7000
-    connection.readTimeout = 9000
-    connection.useCaches = false
-    connection.setRequestProperty("Cache-Control", "no-cache")
-    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
-    val doc = try { connection.inputStream.use { stream ->
-        Jsoup.parse(stream, "UTF-8", address)
-    } } finally { connection.disconnect() }
-    val checked = java.time.LocalDate.now().toString()
-    doc.select(".product-card").mapNotNull { card ->
-        val title = card.selectFirst("a.product-title") ?: return@mapNotNull null
-        val author = card.selectFirst("p.autores")?.text()?.trim().orEmpty()
-        val image = card.selectFirst("a.image img")?.absUrl("src").orEmpty()
-        val link = title.absUrl("href")
-        if (title.text().isBlank() || !link.startsWith("https://www.casadellibro.com/") ||
-            !image.startsWith("https://imagessl")) return@mapNotNull null
-        LaunchNews("Casa del Libro", title.text() +
-            if (author.isBlank()) "" else " · $author", link, image, checked)
-    }.distinctBy { it.url }.take(5)
-} catch (_: Exception) { emptyList() }
-
-private val newsImageCache = LruCache<String, Bitmap>(24)
 
 @Composable private fun LaunchImage(url: String, title: String, fit: Boolean = false) {
     val imageUrl = when {
@@ -281,6 +192,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var query by mutableStateOf("")
     var groupMode by mutableStateOf("Todos")
     var viewMode by mutableStateOf("Lista"); private set
+    var showHomeNews by mutableStateOf(true); private set
+    var readingFirst by mutableStateOf(true); private set
     var selectedSection by mutableStateOf<String?>(null)
     var sections by mutableStateOf<List<String>>(emptyList()); private set
     var wishList by mutableStateOf<List<Pair<String, String>>>(emptyList()); private set
@@ -288,6 +201,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var infoCandidate by mutableStateOf<Pair<Uri, InfoCandidate>?>(null); private set
     var statusFilter by mutableStateOf<ReadingStatus?>(null)
     var onlyFavorites by mutableStateOf(false)
+    var qualityFilter by mutableStateOf("Ninguno")
+    var bulkInfoLoading by mutableStateOf(false); private set
+    var bulkProgress by mutableIntStateOf(0); private set
+    private var bulkJob: Job? = null
+    var reviewPending by mutableStateOf<Set<Uri>>(emptySet()); private set
     var books by mutableStateOf<List<Book>>(emptyList()); private set
     var coverLoading by mutableStateOf<Uri?>(null); private set
     var infoLoading by mutableStateOf<Uri?>(null); private set
@@ -297,8 +215,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var syncing by mutableStateOf(false); private set
     var syncCount by mutableIntStateOf(0); private set
     var syncReport by mutableStateOf(""); private set
+    var syncSummary by mutableStateOf(""); private set
     var launchNews by mutableStateOf<List<LaunchNews>>(emptyList()); private set
     var newsRefreshing by mutableStateOf(false); private set
+    var hiddenNewsSources by mutableStateOf<Set<String>>(emptySet()); private set
+    var hiddenNewsUrls by mutableStateOf<Set<String>>(emptySet()); private set
+    var newsLastChecked by mutableStateOf(0L); private set
     var folderName by mutableStateOf<String?>(null); private set
     var message by mutableStateOf<String?>(null); private set
 
@@ -316,9 +238,21 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch { restoreCachedBooks(onlyIfEmpty = true) }
         viewMode = prefs.getString("view_mode", "Lista") ?: "Lista"
+        reviewPending = org.json.JSONArray(prefs.getString("review_pending", "[]")).let { arr ->
+            (0 until arr.length()).map { Uri.parse(arr.optString(it)) }.toSet()
+        }
+        showHomeNews = prefs.getBoolean("show_home_news", true)
+        readingFirst = prefs.getBoolean("reading_first", true)
         loadWishList()
         folderName = prefs.getString("folder_name", null)
         restoreLaunchNews()
+        hiddenNewsSources = org.json.JSONArray(prefs.getString("hidden_news_sources", "[]")).let { arr ->
+            (0 until arr.length()).map { arr.optString(it) }.toSet()
+        }
+        hiddenNewsUrls = org.json.JSONArray(prefs.getString("hidden_news_urls", "[]")).let { arr ->
+            (0 until arr.length()).map { arr.optString(it) }.toSet()
+        }
+        newsLastChecked = prefs.getLong("literary_news_v3_checked", 0L)
         refreshLaunchNews()
         syncReport = prefs.getString("sync_report", "Todavía no se ha sincronizado.") ?: ""
     }
@@ -335,6 +269,27 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         launchNews = cached.ifEmpty { starterNews }
     }
 
+    fun isNewsVisible(news: LaunchNews) = news.source !in hiddenNewsSources &&
+        news.url !in hiddenNewsUrls
+
+    fun toggleNewsSource(source: String) {
+        hiddenNewsSources = if (source in hiddenNewsSources) hiddenNewsSources - source
+            else hiddenNewsSources + source
+        prefs.edit().putString("hidden_news_sources",
+            org.json.JSONArray(hiddenNewsSources.toList()).toString()).apply()
+    }
+
+    fun hideNews(url: String) {
+        hiddenNewsUrls = hiddenNewsUrls + url
+        prefs.edit().putString("hidden_news_urls",
+            org.json.JSONArray(hiddenNewsUrls.toList()).toString()).apply()
+    }
+
+    fun showAllNews() {
+        hiddenNewsUrls = emptySet()
+        prefs.edit().remove("hidden_news_urls").apply()
+    }
+
     fun refreshLaunchNews(force: Boolean = false) {
         if (newsRefreshing || (!force &&
             System.currentTimeMillis() - prefs.getLong("literary_news_v3_checked", 0L) < 12L * 60 * 60 * 1000)) return
@@ -346,7 +301,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 val books = async(Dispatchers.IO) { fetchCasaUpcomingBooks() }
                 val results = queries.awaitAll().flatten() + books.await()
-                val sorted = results.distinctBy { it.url }.sortedByDescending { it.releaseDate }.take(12)
+                val sorted = results.distinctBy { cleanCatalogText(it.title).lowercase() }
+                    .sortedByDescending { it.releaseDate }.take(12)
                 if (sorted.isNotEmpty()) launchNews = sorted
                 val array = org.json.JSONArray()
                 launchNews.forEach { array.put(JSONObject().put("source", it.source)
@@ -354,6 +310,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     .put("image", it.imageUrl).put("date", it.releaseDate)) }
                 prefs.edit().putString("literary_news", array.toString())
                     .putLong("literary_news_v3_checked", System.currentTimeMillis()).apply()
+                newsLastChecked = System.currentTimeMillis()
             } catch (_: Exception) {
                 // Se muestran las noticias guardadas si alguna fuente falla.
             } finally { newsRefreshing = false }
@@ -377,6 +334,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     coverFile(getApplication(), uri).takeIf { it.exists() }?.readBytes(),
                     language = j.optString("language"), spanishPlot = saved?.optString("plot").orEmpty(),
                     authorBio = saved?.optString("bio").orEmpty(), section = j.optString("section"),
+                    sections = j.optJSONArray("sections")?.let { arr ->
+                        (0 until arr.length()).map { arr.optString(it) }.filter(String::isNotBlank)
+                    }.orEmpty(),
                     notes = j.optString("notes"), goodreadsUrl = j.optString("goodreadsUrl"),
                     wantToRead = j.optBoolean("wantToRead"),
                     customTitle = j.optString("customTitle"), customAuthor = j.optString("customAuthor"),
@@ -409,7 +369,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .put("title", b.title).put("author", b.author).put("date", b.date)
             .put("publisher", b.publisher).put("genre", b.genre).put("description", b.description)
             .put("isbn", b.isbn).put("saga", b.saga).put("language", b.language)
-            .put("section", b.section).put("notes", b.notes)
+            .put("section", b.section).put("sections", org.json.JSONArray(bookSections(b)))
+            .put("notes", b.notes)
             .put("goodreadsUrl", b.goodreadsUrl).put("wantToRead", b.wantToRead)
             .put("customTitle", b.customTitle).put("customAuthor", b.customAuthor)
             .put("sagaOrder", b.sagaOrder).put("favorite", b.favorite).put("status", b.status.name)
@@ -472,10 +433,112 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 j.put("coverBase64", Base64.encodeToString(manual.readBytes(), Base64.NO_WRAP))
             }
         }
-        return JSONObject().put("updatedAt", prefs.getLong("local_revision", 0L))
+        return JSONObject().put("backupVersion", 1)
+            .put("updatedAt", prefs.getLong("local_revision", 0L))
             .put("sections", org.json.JSONArray(sections))
             .put("wishList", org.json.JSONArray(prefs.getString("wish_list", "[]")))
             .put("books", booksJson).toString()
+    }
+
+    fun exportBackup(destination: Uri) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val payload = saveMutex.withLock { cloudSnapshot() }
+                    getApplication<Application>().contentResolver.openOutputStream(destination, "wt")
+                        ?.bufferedWriter()?.use { it.write(payload) }
+                        ?: throw IllegalStateException("No se pudo escribir el respaldo")
+                }
+                message = "Respaldo de MiBiblioteca guardado."
+            } catch (e: Exception) { message = "No se pudo exportar: ${e.localizedMessage}" }
+        }
+    }
+
+    fun importBackup(source: Uri) {
+        viewModelScope.launch {
+            try {
+                val payload = withContext(Dispatchers.IO) {
+                    getApplication<Application>().contentResolver.openInputStream(source)
+                        ?.bufferedReader()?.use { it.readText() }
+                        ?: throw IllegalStateException("No se pudo abrir el respaldo")
+                }
+                val backup = JSONObject(payload)
+                if (backup.optInt("backupVersion") != 1 || backup.optJSONArray("books") == null)
+                    throw IllegalArgumentException("El archivo no es un respaldo de MiBiblioteca")
+                val matched = applyBackup(backup)
+                if (matched < backup.getJSONArray("books").length()) {
+                    prefs.edit().putString("pending_backup", payload).apply()
+                    message = if (books.isEmpty())
+                        "Respaldo recibido. Selecciona tu carpeta de EPUB y sincroniza para recuperarlo."
+                    else "$matched fichas restauradas. Las restantes se recuperarán al sincronizar."
+                } else message = "$matched fichas restauradas."
+            } catch (e: Exception) { message = "No se pudo importar: ${e.localizedMessage}" }
+        }
+    }
+
+    private suspend fun applyBackup(backup: JSONObject): Int {
+        val entries = backup.optJSONArray("books") ?: return 0
+        val records = (0 until entries.length()).mapNotNull { entries.optJSONObject(it) }
+        val normalize: (String) -> String = { value ->
+            java.text.Normalizer.normalize(cleanCatalogText(value).lowercase(),
+                java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")
+                .replace(Regex("[^\\p{L}\\p{N}]"), "")
+        }
+        val selected = mutableSetOf<Int>()
+        var matched = 0
+        val restored = books.map { book ->
+            val index = records.indices.firstOrNull { i ->
+                if (i in selected) false else {
+                    val record = records[i]
+                    val isbn = record.optString("isbn").filter(Char::isDigit)
+                    record.optString("uri") == book.uri.toString() ||
+                        (isbn.length >= 10 && isbn == book.isbn.filter(Char::isDigit)) ||
+                        (normalize(record.optString("customTitle").ifBlank { record.optString("title") }) ==
+                            normalize(displayTitle(book)) &&
+                            normalize(record.optString("customAuthor").ifBlank { record.optString("author") }) ==
+                            normalize(displayAuthor(book)))
+                }
+            } ?: return@map book
+            selected += index; matched++
+            val record = records[index]
+            val names = record.optJSONArray("sections")?.let { arr ->
+                (0 until arr.length()).map { arr.optString(it) }.filter(String::isNotBlank)
+            }.orEmpty().ifEmpty { listOfNotNull(record.optString("section").takeIf(String::isNotBlank)) }
+            val uri = book.uri
+            prefs.edit().putString("info_" + uri, JSONObject()
+                .put("plot", record.optString("plot")).put("bio", record.optString("bio")).toString())
+                .putBoolean("manual_info_" + uri, record.optBoolean("manualInfo")).apply()
+            val image = record.optString("coverBase64")
+            if (image.isNotBlank() && image.length < 2_000_000) withContext(Dispatchers.IO) {
+                val bytes = Base64.decode(image, Base64.DEFAULT)
+                val file = coverFile(getApplication(), uri)
+                file.writeBytes(bytes)
+                File(getApplication<Application>().filesDir, "manual-" + file.name).writeBytes(bytes)
+            }
+            book.copy(section = names.firstOrNull().orEmpty(), sections = names,
+                notes = record.optString("notes"), goodreadsUrl = record.optString("goodreadsUrl"),
+                wantToRead = record.optBoolean("wantToRead"), favorite = record.optBoolean("favorite"),
+                customTitle = record.optString("customTitle"), customAuthor = record.optString("customAuthor"),
+                sagaOrder = record.optString("sagaOrder"),
+                status = ReadingStatus.entries.firstOrNull { it.name == record.optString("status") }
+                    ?: book.status,
+                spanishPlot = record.optString("plot"), authorBio = record.optString("bio"),
+                plotSource = record.optString("plotSource"), bioSource = record.optString("bioSource"),
+                cover = if (image.isNotBlank()) withContext(Dispatchers.IO) {
+                    coverFile(getApplication(), uri).readBytes()
+                } else book.cover)
+        }
+        if (matched > 0) {
+            books = restored
+            val names = backup.optJSONArray("sections")?.let { arr ->
+                (0 until arr.length()).map { arr.optString(it) }
+            }.orEmpty()
+            sections = (sections + names).filter(String::isNotBlank).distinct()
+            prefs.edit().putString("sections", org.json.JSONArray(sections).toString()).apply()
+            backup.optJSONArray("wishList")?.let { prefs.edit().putString("wish_list", it.toString()).apply() }
+            loadWishList(); saveBooks()
+        }
+        return matched
     }
 
     private fun saveCloud() {
@@ -562,7 +625,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteSection(name: String) {
         sections = sections.filterNot { it == name }
         prefs.edit().putString("sections", org.json.JSONArray(sections).toString()).apply()
-        books = books.map { if (it.section == name) it.copy(section = "") else it }
+        books = books.map { book ->
+            val remaining = bookSections(book).filterNot { it == name }
+            if (bookSections(book).contains(name)) book.copy(section = remaining.firstOrNull().orEmpty(),
+                sections = remaining) else book
+        }
         if (selectedSection == name) selectedSection = null
         saveBooks()
     }
@@ -636,15 +703,66 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun assignSection(uri: Uri, section: String) {
-        books = books.map { if (it.uri == uri) it.copy(section = section) else it }
+        books = books.map { book -> if (book.uri == uri) {
+            val current = bookSections(book)
+            val next = when {
+                section.isBlank() -> emptyList()
+                section in current -> current - section
+                else -> current + section
+            }
+            book.copy(section = next.firstOrNull().orEmpty(), sections = next)
+        } else book }
         saveBooks()
     }
 
     val filtered: List<Book> get() = books.filter { b ->
         val haystack = listOf(b.title, displayTitle(b), b.author, b.saga).joinToString(" ")
         haystack.contains(query, true) && (statusFilter == null || b.status == statusFilter) &&
-            (!onlyFavorites || b.favorite) && (selectedSection == null || b.section == selectedSection)
+            (!onlyFavorites || b.favorite) &&
+            (selectedSection == null || selectedSection in bookSections(b)) &&
+            when (qualityFilter) {
+                "Portada" -> b.cover == null
+                "Argumento" -> b.spanishPlot.isBlank()
+                "Biografía" -> b.authorBio.isBlank()
+                "Autor" -> displayAuthor(b) == "Biblioteca de Diroka77"
+                "Revisar" -> b.uri in reviewPending
+                "Todos" -> needsDetails(b) || b.uri in reviewPending
+                else -> true
+            }
     }
+
+    private fun needsDetails(book: Book) = book.cover == null || book.spanishPlot.isBlank() ||
+        book.authorBio.isBlank() || displayAuthor(book) == "Biblioteca de Diroka77"
+
+    private fun markForReview(uri: Uri) {
+        reviewPending = reviewPending + uri
+        prefs.edit().putString("review_pending",
+            org.json.JSONArray(reviewPending.map(Uri::toString)).toString()).apply()
+    }
+
+    fun confirmBookDetails(uri: Uri) {
+        reviewPending = reviewPending - uri
+        prefs.edit().putString("review_pending",
+            org.json.JSONArray(reviewPending.map(Uri::toString)).toString()).apply()
+    }
+
+    fun refreshIncomplete() {
+        if (bulkInfoLoading) return
+        val targets = filtered.filter(::needsDetails).map { it.uri }
+        if (targets.isEmpty()) { detailMessage = "No hay fichas pendientes en este filtro."; return }
+        bulkJob = viewModelScope.launch {
+            bulkInfoLoading = true; bulkProgress = 0
+            try {
+                for (uri in targets) {
+                    completeMissing(uri, force = true)
+                    while (uri in autoJobs) delay(300)
+                    bulkProgress++
+                }
+            } finally { bulkInfoLoading = false }
+        }
+    }
+
+    fun cancelIncomplete() { bulkJob?.cancel(); bulkInfoLoading = false }
 
     fun recordOpen(uri: Uri) {
         prefs.edit().putLong("opened_" + uri.toString().hashCode(), System.currentTimeMillis()).apply()
@@ -692,7 +810,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     val prior = cached[b.uri]
                     b.copy(spanishPlot = prior?.spanishPlot ?: saved?.optString("plot").orEmpty(),
                         authorBio = prior?.authorBio ?: saved?.optString("bio").orEmpty(),
-                        section = prior?.section.orEmpty(), notes = prior?.notes.orEmpty(),
+                        section = prior?.section.orEmpty(), sections = prior?.sections.orEmpty(),
+                        notes = prior?.notes.orEmpty(),
                         goodreadsUrl = prior?.goodreadsUrl.orEmpty(), wantToRead = prior?.wantToRead ?: false,
                         customTitle = prior?.customTitle.orEmpty(), customAuthor = prior?.customAuthor.orEmpty(),
                         sagaOrder = prior?.sagaOrder ?: b.sagaOrder,
@@ -709,8 +828,16 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     } ?: false
                 }
                 val missing = (previousUris - currentUris).size
+                syncSummary = "$added nuevos · $changed modificados · $missing fuera de la carpeta"
                 saveBooks()
                 syncCount = result.size
+                prefs.getString("pending_backup", null)?.let { pending ->
+                    try {
+                        val backup = JSONObject(pending)
+                        if (applyBackup(backup) >= (backup.optJSONArray("books")?.length() ?: 0))
+                            prefs.edit().remove("pending_backup").apply()
+                    } catch (_: Exception) {}
+                }
                 syncReport = "Última sincronización: " +
                     java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale("es", "ES"))
                         .format(java.util.Date()) +
@@ -749,11 +876,20 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun possibleDuplicates(book: Book): List<Book> {
-        fun key(b: Book) = (displayTitle(b) + "|" + displayAuthor(b)).lowercase()
+    private fun duplicateKey(book: Book): String {
+        val isbn = book.isbn.filter(Char::isDigit)
+        if (isbn.length == 13) return "isbn:$isbn"
+        return (displayTitle(book) + "|" + displayAuthor(book)).lowercase()
             .replace(Regex("[^\\p{L}\\p{N}]"), "")
-        return books.filter { it.uri != book.uri && key(it) == key(book) }
     }
+
+    fun duplicateGroups(): List<List<Book>> = books.groupBy(::duplicateKey).values
+        .filter { it.size > 1 && displayTitle(it.first()).length >= 3 }
+        .sortedBy { displayTitle(it.first()).lowercase() }
+
+    fun possibleDuplicates(book: Book): List<Book> = duplicateGroups()
+        .firstOrNull { group -> group.any { it.uri == book.uri } }
+        ?.filterNot { it.uri == book.uri }.orEmpty()
 
     fun deleteDuplicate(book: Book) {
         viewModelScope.launch {
@@ -822,6 +958,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                                     found.bioSource else current.bioSource)
                             if (updated != current) {
                                 books = books.map { if (it.uri == uri) updated else it }
+                                markForReview(uri)
                                 prefs.edit().putString("info_" + uri, JSONObject()
                                     .put("plot", updated.spanishPlot).put("bio", updated.authorBio).toString()).apply()
                                 changed = true
@@ -842,6 +979,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         withContext(Dispatchers.IO) { coverFile(app, uri).writeBytes(bytes) }
                         books = books.map { if (it.uri == uri) it.copy(
                             cover = bytes, coverSource = "Catálogos públicos") else it }
+                        markForReview(uri)
                         changed = true
                     }
                     autoCoverLoading = autoCoverLoading - uri
@@ -936,7 +1074,18 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleFavorite(uri: Uri) { books = books.map { if (it.uri == uri) it.copy(favorite=!it.favorite) else it }; saveBooks() }
     fun setStatus(uri: Uri, status: ReadingStatus) { books = books.map { if (it.uri == uri) it.copy(status=status) else it }; saveBooks() }
-    fun chooseViewMode(mode: String) { viewMode = mode; prefs.edit().putString("view_mode", mode).apply() }
+    fun chooseViewMode(mode: String, section: String? = selectedSection) {
+        viewMode = mode
+        prefs.edit().putString("view_mode_" + (section ?: "general"), mode).apply()
+    }
+    fun viewModeFor(section: String?): String = prefs.getString(
+        "view_mode_" + (section ?: "general"), viewMode) ?: viewMode
+    fun setHomeNews(show: Boolean) {
+        showHomeNews = show; prefs.edit().putBoolean("show_home_news", show).apply()
+    }
+    fun setReadingFirst(first: Boolean) {
+        readingFirst = first; prefs.edit().putBoolean("reading_first", first).apply()
+    }
     fun clearMessage() { message = null }
     fun clearDetailMessage() { detailMessage = null }
 }
@@ -1701,7 +1850,7 @@ private fun openCasaDelLibro(context: Context) {
         when {
             selected != null -> selected = null
             showWishList -> showWishList = false
-            else -> { tab = "Inicio"; vm.selectedSection = null }
+            else -> { tab = "Inicio"; vm.selectedSection = null; vm.qualityFilter = "Ninguno" }
         }
     }
     val listState = rememberLazyListState()
@@ -1709,18 +1858,34 @@ private fun openCasaDelLibro(context: Context) {
     val scope = rememberCoroutineScope()
     var openingReading by remember { mutableStateOf<Uri?>(null) }
     var showSyncReport by remember { mutableStateOf(false) }
+    var homeSettings by remember { mutableStateOf(false) }
+    var newsSettings by remember { mutableStateOf(false) }
     var organizeSections by remember { mutableStateOf(false) }
+    var backupMenu by remember { mutableStateOf(false) }
+    var duplicateDialog by remember { mutableStateOf(false) }
+    val backupExport = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let(vm::exportBackup)
+    }
+    val backupImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(vm::importBackup)
+    }
     val readingBooks = remember(vm.books) { vm.readingBooks() }
-    val filteredBooks = remember(vm.books, vm.query, vm.statusFilter, vm.onlyFavorites, vm.selectedSection) { vm.filtered }
+    val visibleNews = vm.launchNews.filter(vm::isNewsVisible)
+    val filteredBooks = remember(vm.books, vm.query, vm.statusFilter, vm.onlyFavorites,
+        vm.selectedSection, vm.qualityFilter) { vm.filtered }
     val visibleBooks = remember(vm.books, filteredBooks, tab) {
         if (tab == "Inicio") emptyList<Book>() else filteredBooks
     }
-    val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Inicio") "Todos" else vm.groupMode
+    val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Inicio" ||
+        tab == "Pendientes") "Todos" else vm.groupMode
     val groupedBooks = remember(visibleBooks, groupMode, vm.sections, tab) {
         val groups = when (groupMode) {
             "Autores" -> visibleBooks.groupBy { displayAuthor(it) }
             "Sagas" -> visibleBooks.groupBy { it.saga.ifBlank { "Sin saga" } }
-            "Secciones" -> visibleBooks.groupBy { it.section.ifBlank { "Sin sección" } }
+            "Secciones" -> visibleBooks.flatMap { book ->
+                bookSections(book).ifEmpty { listOf("Sin sección") }.map { name -> name to book }
+            }.groupBy({ it.first }, { it.second })
             else -> mapOf("" to visibleBooks)
         }
         val names = if (tab == "Secciones")
@@ -1772,6 +1937,25 @@ private fun openCasaDelLibro(context: Context) {
             if (vm.sections.isEmpty()) Text("Aún no hay secciones.")
         } },
         confirmButton = { TextButton(onClick = { organizeSections = false }) { Text("Cerrar") } })
+    if (duplicateDialog) AlertDialog(onDismissRequest = { duplicateDialog = false },
+        title = { Text("Posibles duplicados") },
+        text = { Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
+            vm.duplicateGroups().forEach { group ->
+                Text(displayTitle(group.first()), fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold, color = Mahogany)
+                group.forEach { copy ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(displayAuthor(copy) + " · " + readableSize(copy.sourceSize),
+                            modifier = Modifier.weight(1f), fontSize = 12.sp)
+                        TextButton(onClick = { duplicateDialog = false; selected = copy }) {
+                            Text("Revisar")
+                        }
+                    }
+                }
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            }
+        } },
+        confirmButton = { TextButton(onClick = { duplicateDialog = false }) { Text("Cerrar") } })
     if (showSyncReport) AlertDialog(onDismissRequest = { showSyncReport = false },
         title = { Text("Sincronización de Drive") },
         text = { Column {
@@ -1781,6 +1965,33 @@ private fun openCasaDelLibro(context: Context) {
             Text((context as? MainActivity)?.performanceReport().orEmpty(), fontSize = 12.sp)
         } },
         confirmButton = { TextButton(onClick = { showSyncReport = false }) { Text("Cerrar") } })
+    if (homeSettings) AlertDialog(onDismissRequest = { homeSettings = false },
+        title = { Text("Organizar Inicio") },
+        text = { Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Mostrar noticias", Modifier.weight(1f))
+                Switch(vm.showHomeNews, vm::setHomeNews)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Continuar leyendo primero", Modifier.weight(1f))
+                Switch(vm.readingFirst, vm::setReadingFirst)
+            }
+        } },
+        confirmButton = { TextButton(onClick = { homeSettings = false }) { Text("Cerrar") } })
+    if (newsSettings) AlertDialog(onDismissRequest = { newsSettings = false },
+        title = { Text("Fuentes de noticias") },
+        text = { Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+            vm.launchNews.map { it.source }.distinct().forEach { source ->
+                Row(Modifier.fillMaxWidth().clickable { vm.toggleNewsSource(source) },
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(source !in vm.hiddenNewsSources,
+                        onCheckedChange = { vm.toggleNewsSource(source) })
+                    Text(source)
+                }
+            }
+            TextButton(onClick = vm::showAllNews) { Text("Recuperar noticias ocultas") }
+        } },
+        confirmButton = { TextButton(onClick = { newsSettings = false }) { Text("Cerrar") } })
     val shown = current
     LaunchedEffect(shown?.uri) { shown?.let { vm.completeMissing(it.uri) } }
     LaunchedEffect(tab, shown?.uri) {
@@ -1796,17 +2007,20 @@ private fun openCasaDelLibro(context: Context) {
                 { vm.saveNotes(shown.uri, it) }, { plot, bio -> vm.saveManualInfo(shown.uri, plot, bio) },
                 { vm.replaceCover(shown.uri, it) },
                 { vm.setGoodreadsUrl(shown.uri, it) }, { vm.toggleWantToRead(shown.uri) },
-                vm.detailMessage,
+                vm.detailMessage, shown.uri in vm.reviewPending,
+                { vm.confirmBookDetails(shown.uri) },
                 { title, author, saga, order -> vm.editIdentity(shown.uri, title, author, saga, order) })
         } else {
     Scaffold(
         containerColor = Parchment,
         bottomBar = {
             NavigationBar(containerColor = Paper) {
-                listOf("Inicio", "Biblioteca", "Secciones").forEach { name ->
+                listOf("Inicio", "Biblioteca", "Pendientes", "Secciones").forEach { name ->
                     NavigationBarItem(selected = tab == name, onClick = {
                         tab = name; showWishList = false; vm.selectedSection = null
-                    }, icon = { Text(when (name) { "Inicio" -> "⌂"; "Biblioteca" -> "▦"; else -> "▤" }) },
+                        vm.qualityFilter = if (name == "Pendientes") "Todos" else "Ninguno"
+                    }, icon = { Text(when (name) { "Inicio" -> "⌂"; "Biblioteca" -> "▦";
+                        "Pendientes" -> "◇"; else -> "▤" }) },
                         label = { Text(name) })
                 }
             }
@@ -1823,19 +2037,17 @@ private fun openCasaDelLibro(context: Context) {
                     Text("By Diroka77", color = Color.White, fontSize = 17.sp,
                         fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
                 }
-                Row(Modifier.fillMaxWidth().height(44.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+                Row(Modifier.fillMaxWidth().height(52.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text("Carpeta", color = Paper, fontSize = 12.sp,
-                        modifier = Modifier.clickable { folderPicker.launch(null) }.padding(6.dp))
-                    Text("Goodreads", color = Paper, fontSize = 12.sp,
-                        modifier = Modifier.clickable { openGoodreads(context) }.padding(6.dp))
-                    Text("Google IA", color = Paper, fontSize = 12.sp,
-                        modifier = Modifier.clickable { openGoogleAi(context) }.padding(6.dp))
-                    Text("Casa del Libro", color = Paper, fontSize = 12.sp,
-                        modifier = Modifier.clickable { openCasaDelLibro(context) }.padding(6.dp))
+                    TextButton(onClick = { folderPicker.launch(null) }) { Text("Carpeta", color = Paper, fontSize = 12.sp) }
+                    TextButton(onClick = { openGoodreads(context) }) { Text("Goodreads", color = Paper, fontSize = 12.sp) }
+                    TextButton(onClick = { openGoogleAi(context) }) { Text("Google IA", color = Paper, fontSize = 12.sp) }
+                    TextButton(onClick = { openCasaDelLibro(context) }) { Text("Casa del Libro", color = Paper, fontSize = 12.sp) }
                 }
-                OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) tab = "Biblioteca" },
+                OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
+                    tab = "Biblioteca"; vm.qualityFilter = "Ninguno"
+                } },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
                     singleLine = true, placeholder = { Text("Buscar título, saga o autor") },
                     leadingIcon = { Text("⌕") },
@@ -1853,46 +2065,18 @@ private fun openCasaDelLibro(context: Context) {
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            if (tab == "Inicio" && vm.readingFirst && readingBooks.isNotEmpty())
+                item(key = "reading-shelf") { ReadingShelf(readingBooks, openingReading) { book ->
+                    scope.launch {
+                        openingReading = book.uri
+                        try { if (openEpubInReader(context, book)) {
+                            vm.recordOpen(book.uri); vm.setStatus(book.uri, ReadingStatus.READING)
+                        } } finally { openingReading = null }
+                    }
+                } }
             item(key = "controls") {
                 Column {
                     if (tab == "Inicio") {
-                    val reading = readingBooks
-                    if (reading.isNotEmpty()) {
-                        Spacer(Modifier.height(12.dp))
-                        Text("Continuar leyendo", fontFamily = FontFamily.Serif,
-                            fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Mahogany)
-                        Spacer(Modifier.height(8.dp))
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            contentPadding = PaddingValues(end = 8.dp)) {
-                            items(reading, key = { "reading:" + it.uri }) { book ->
-                                Card(Modifier.width(142.dp).clickable(enabled = openingReading == null) {
-                                    scope.launch {
-                                        openingReading = book.uri
-                                        try { if (openEpubInReader(context, book)) {
-                                            vm.recordOpen(book.uri)
-                                            vm.setStatus(book.uri, ReadingStatus.READING)
-                                        } }
-                                        finally { openingReading = null }
-                                    }
-                                },
-                                    colors = CardDefaults.cardColors(containerColor = Paper),
-                                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
-                                    Column(Modifier.padding(8.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Cover(book, 122.dp, 170.dp)
-                                        Spacer(Modifier.height(6.dp))
-                                        Text(displayTitle(book), fontSize = 12.sp, lineHeight = 15.sp,
-                                            maxLines = 2, textAlign = TextAlign.Center,
-                                            fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-                                        Text(displayAuthor(book), fontSize = 10.sp,
-                                            maxLines = 1, textAlign = TextAlign.Center)
-                                        Text("Toca para leer", fontSize = 10.sp, color = Mahogany)
-                                    }
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(10.dp))
-                    }
                     Spacer(Modifier.height(12.dp))
                     Text("✦  ENTRE ESTANTERÍAS  ✦", color = Brass, fontFamily = FontFamily.Serif,
                         style = MaterialTheme.typography.labelMedium)
@@ -1900,6 +2084,10 @@ private fun openCasaDelLibro(context: Context) {
                         Text("Historias por descubrir", fontFamily = FontFamily.Serif,
                             style = MaterialTheme.typography.headlineSmall, color = Ink,
                             modifier = Modifier.weight(1f))
+                        TextButton(onClick = { homeSettings = true },
+                            modifier = Modifier.semantics { contentDescription = "Organizar Inicio" }) {
+                            Text("⚙")
+                        }
                         TextButton(onClick = { showSyncReport = true },
                             modifier = Modifier.semantics { contentDescription = "Ver estado de sincronización" }) { Text("ⓘ") }
                         TextButton(onClick = { vm.sync() }, enabled = !vm.syncing,
@@ -1907,9 +2095,29 @@ private fun openCasaDelLibro(context: Context) {
                             Text("📖", fontSize = 18.sp)
                         }
                     }
+                    HorizontalDivider(color = Brass.copy(alpha = 0.4f), thickness = 1.dp)
                     }
                     if (tab == "Biblioteca") Text("Tu biblioteca",
                         fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall, color = Mahogany)
+                    if (tab == "Pendientes") {
+                        Text("Fichas por completar", fontFamily = FontFamily.Serif,
+                            style = MaterialTheme.typography.headlineSmall, color = Mahogany)
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("Todos", "Revisar", "Portada", "Argumento", "Biografía", "Autor").forEach { kind ->
+                                FilterChip(vm.qualityFilter == kind, { vm.qualityFilter = kind },
+                                    { Text(kind) })
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("${filteredBooks.size} pendientes", Modifier.weight(1f),
+                                fontSize = 12.sp, color = Mahogany)
+                            TextButton(onClick = { if (vm.bulkInfoLoading) vm.cancelIncomplete()
+                                else vm.refreshIncomplete() }) {
+                                Text(if (vm.bulkInfoLoading) "Detener · ${vm.bulkProgress}" else "Buscar datos")
+                            }
+                        }
+                    }
                     if (tab == "Secciones") Text("Tus secciones",
                         fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall, color = Mahogany)
                     if (vm.syncing) {
@@ -1917,7 +2125,30 @@ private fun openCasaDelLibro(context: Context) {
                         Text("Revisando ${vm.syncCount} libros…", modifier = Modifier.padding(vertical = 8.dp),
                             style = MaterialTheme.typography.bodySmall)
                     }
+                    if (tab == "Inicio" && vm.syncSummary.isNotBlank())
+                        Text(vm.syncSummary, color = Mahogany, fontSize = 12.sp)
                     if (tab == "Biblioteca") {
+                        vm.message?.let { feedback ->
+                            Text(feedback, color = Mahogany, fontSize = 12.sp)
+                        }
+                        Box {
+                            TextButton(onClick = { backupMenu = true },
+                                modifier = Modifier.semantics { contentDescription = "Respaldo de biblioteca" }) {
+                                Text("Respaldo ▾")
+                            }
+                            DropdownMenu(expanded = backupMenu, onDismissRequest = { backupMenu = false }) {
+                                DropdownMenuItem(text = { Text("Exportar mis datos") }, onClick = {
+                                    backupMenu = false; backupExport.launch("MiBiblioteca-respaldo.json")
+                                })
+                                DropdownMenuItem(text = { Text("Restaurar respaldo") }, onClick = {
+                                    backupMenu = false; backupImport.launch(arrayOf("application/json"))
+                                })
+                            }
+                        }
+                        if (vm.duplicateGroups().isNotEmpty())
+                            TextButton(onClick = { duplicateDialog = true }) {
+                                Text("Duplicados (${vm.duplicateGroups().size})")
+                            }
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             FilterChip(vm.statusFilter == null, { vm.statusFilter = null }, { Text("Todos") })
@@ -1969,13 +2200,15 @@ private fun openCasaDelLibro(context: Context) {
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("Lista", "Galería", "Compacta").forEach { mode ->
-                                FilterChip(vm.viewMode == mode, { vm.chooseViewMode(mode) }, { Text(mode) })
+                                FilterChip(vm.viewModeFor(vm.selectedSection) == mode,
+                                    { vm.chooseViewMode(mode) }, { Text(mode) })
                             }
                         }
                     }
                 }
             }
             if (tab == "Inicio") {
+                if (vm.showHomeNews) {
                 item(key = "launch-news") {
                     Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
@@ -1983,6 +2216,10 @@ private fun openCasaDelLibro(context: Context) {
                             Text("Actualidad literaria en España", fontFamily = FontFamily.Serif,
                                 fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Mahogany,
                                 modifier = Modifier.weight(1f))
+                            TextButton(onClick = { newsSettings = true },
+                                modifier = Modifier.semantics { contentDescription = "Elegir fuentes de noticias" }) {
+                                Text("☷")
+                            }
                             TextButton(onClick = { vm.refreshLaunchNews(true) }, enabled = !vm.newsRefreshing,
                                 modifier = Modifier.semantics { contentDescription = "Actualizar noticias" }) {
                                 if (vm.newsRefreshing) CircularProgressIndicator(Modifier.size(18.dp),
@@ -1992,9 +2229,13 @@ private fun openCasaDelLibro(context: Context) {
                         }
                         if (vm.newsRefreshing && vm.launchNews.isEmpty())
                             Text("Buscando noticias literarias…", color = Mahogany, fontSize = 12.sp)
+                        if (vm.newsLastChecked > 0L) Text("Actualizado " +
+                            java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale("es", "ES"))
+                                .format(java.util.Date(vm.newsLastChecked)), fontSize = 11.sp,
+                            color = Mahogany)
                     }
                 }
-                items(vm.launchNews, key = { "news:" + it.url }, contentType = { "news" }) { news ->
+                items(visibleNews, key = { "news:" + it.url }, contentType = { "news" }) { news ->
                     Card(Modifier.fillMaxWidth().padding(bottom = 8.dp).clickable {
                         try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url))) }
                         catch (_: Exception) {
@@ -2018,6 +2259,10 @@ private fun openCasaDelLibro(context: Context) {
                                                     java.util.Locale("es", "ES")))
                                         } catch (_: Exception) { news.releaseDate },
                                         color = Mahogany, fontSize = 11.sp)
+                                    TextButton(onClick = { vm.hideNews(news.url) },
+                                        modifier = Modifier.semantics { contentDescription = "Ocultar noticia" }) {
+                                        Text("×")
+                                    }
                                 }
                             }
                             Box(Modifier.fillMaxWidth().height(188.dp).background(Mahogany)) {
@@ -2027,6 +2272,16 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                 }
+                }
+                if (!vm.readingFirst && readingBooks.isNotEmpty())
+                    item(key = "reading-shelf") { ReadingShelf(readingBooks, openingReading) { book ->
+                        scope.launch {
+                            openingReading = book.uri
+                            try { if (openEpubInReader(context, book)) {
+                                vm.recordOpen(book.uri); vm.setStatus(book.uri, ReadingStatus.READING)
+                            } } finally { openingReading = null }
+                        }
+                    } }
                 if (vm.books.isEmpty() && !vm.syncing) item(key = "empty-home") {
                     Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
                         Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta de EPUB") }
@@ -2053,7 +2308,8 @@ private fun openCasaDelLibro(context: Context) {
                 }
             } else if (visibleBooks.isEmpty()) {
                 item(key = "no-results") {
-                    Text("No hay libros con estos filtros.", modifier = Modifier.padding(20.dp))
+                    Text(if (tab == "Pendientes") "No hay fichas pendientes en este filtro."
+                        else "No hay libros con estos filtros.", modifier = Modifier.padding(20.dp))
                 }
             } else {
                 groupedBooks.forEach { (name, group) ->
@@ -2072,7 +2328,7 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                     val ordered = group
-                    when (vm.viewMode) {
+                    when (vm.viewModeFor(vm.selectedSection)) {
                         "Galería" -> items(ordered.chunked(2), key = { "grid:" + it.first().uri }, contentType = { "gallery" }) { pair ->
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 pair.forEach { book ->
@@ -2081,8 +2337,9 @@ private fun openCasaDelLibro(context: Context) {
                                 if (pair.size == 1) Spacer(Modifier.weight(1f))
                             }
                         }
-                        else -> items(ordered, key = { it.uri.toString() }, contentType = { vm.viewMode }) { book ->
-                            if (vm.viewMode == "Compacta") BookCompactCard(book) { selected = book }
+                        else -> items(ordered, key = { it.uri.toString() },
+                            contentType = { vm.viewModeFor(vm.selectedSection) }) { book ->
+                            if (vm.viewModeFor(vm.selectedSection) == "Compacta") BookCompactCard(book) { selected = book }
                             else BookCard(book) { selected = book }
                         }
                     }
@@ -2090,6 +2347,31 @@ private fun openCasaDelLibro(context: Context) {
             }
         }
     }
+    }
+}
+
+@Composable private fun ReadingShelf(books: List<Book>, opening: Uri?, onOpen: (Book) -> Unit) {
+    Column {
+        Text("Continuar leyendo", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+            fontSize = 16.sp, color = Mahogany, modifier = Modifier.padding(top = 12.dp, bottom = 8.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(end = 8.dp)) {
+            items(books, key = { "reading:" + it.uri }) { book ->
+                Card(Modifier.width(142.dp).clickable(enabled = opening == null) { onOpen(book) },
+                    colors = CardDefaults.cardColors(containerColor = Paper),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                    Column(Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Cover(book, 122.dp, 170.dp)
+                        Spacer(Modifier.height(6.dp))
+                        Text(displayTitle(book), fontSize = 12.sp, lineHeight = 15.sp,
+                            maxLines = 2, textAlign = TextAlign.Center,
+                            fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                        Text(displayAuthor(book), fontSize = 10.sp, maxLines = 1,
+                            textAlign = TextAlign.Center)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -2187,6 +2469,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     saveNotes: (String) -> Unit, saveInfo: (String, String) -> Unit,
     replaceCover: (Uri) -> Unit,
     saveGoodreadsUrl: (String) -> Unit, toggleWant: () -> Unit, detailMessage: String?,
+    needsReview: Boolean, confirmDetails: () -> Unit,
     editIdentity: (String, String, String, String) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -2240,13 +2523,16 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
             Text("Se borrará de Drive únicamente esta copia:")
             Text(displayTitle(book) + " · " + displayAuthor(book), fontWeight = FontWeight.Bold)
             Text("Tamaño: " + readableSize(book.sourceSize))
+            if (book.isbn.isNotBlank()) Text("ISBN: " + book.isbn, fontSize = 12.sp)
             Text("Archivo: " + (duplicateNames[book.uri] ?: "Consultando nombre…"),
                 fontSize = 12.sp)
             if (possibleDuplicates.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
                 Text("Otras copias que se conservarán:", fontWeight = FontWeight.Bold)
                 possibleDuplicates.forEach { other ->
-                    Text("• " + (duplicateNames[other.uri] ?: displayTitle(other)) + " · " + readableSize(other.sourceSize), fontSize = 12.sp)
+                    Text("• " + (duplicateNames[other.uri] ?: displayTitle(other)) +
+                        " · " + readableSize(other.sourceSize) +
+                        other.isbn.takeIf(String::isNotBlank)?.let { " · ISBN $it" }.orEmpty(), fontSize = 12.sp)
                 }
             } else {
                 Spacer(Modifier.height(8.dp))
@@ -2298,6 +2584,15 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
         LazyColumn(Modifier.padding(p).fillMaxSize().padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 14.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             (detailMessage ?: message)?.let { notice -> item { Text(notice, color = Mahogany, fontSize = 12.sp) } }
+            if (needsReview) item(key = "review-details") {
+                Card(colors = CardDefaults.cardColors(containerColor = Paper)) {
+                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Datos encontrados: revisa que correspondan a tu libro.",
+                            modifier = Modifier.weight(1f), color = Mahogany, fontSize = 12.sp)
+                        TextButton(onClick = confirmDetails) { Text("Revisado") }
+                    }
+                }
+            }
             item {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Cover(book, 165.dp, 240.dp)
@@ -2357,12 +2652,13 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
             item {
                 Box {
                     OutlinedButton(onClick = { sectionMenu = true }) {
-                        Text("Sección: ${book.section.ifBlank { "Sin sección" }}  ▾")
+                        Text("Secciones: ${bookSections(book).joinToString().ifBlank { "Sin sección" }}  ▾")
                     }
                     DropdownMenu(expanded = sectionMenu, onDismissRequest = { sectionMenu = false }) {
                         (listOf("") + sections).forEach { name ->
-                            DropdownMenuItem(text = { Text(name.ifBlank { "Sin sección" }) },
-                                onClick = { assignSection(name); sectionMenu = false })
+                            DropdownMenuItem(text = { Text(if (name.isBlank()) "Quitar todas" else
+                                (if (name in bookSections(book)) "✓ " else "+ ") + name) },
+                                onClick = { assignSection(name); if (name.isBlank()) sectionMenu = false })
                         }
                     }
                 }
