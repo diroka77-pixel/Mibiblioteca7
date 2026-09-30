@@ -1624,7 +1624,7 @@ private suspend fun <T> com.google.android.gms.tasks.Task<T>.awaitResult(): T =
         addOnFailureListener { continuation.resumeWithException(it) }
     }
 
-private suspend fun ensureSpanish(text: String): String {
+internal suspend fun ensureSpanish(text: String): String {
     if (text.isBlank()) return ""
     val identifier = LanguageIdentification.getClient()
     val tag = try { identifier.identifyLanguage(text.take(1000)).awaitResult() }
