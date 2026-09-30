@@ -222,6 +222,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             saveCloud()
         }
     }
+    fun readerAnnotationsChanged() { saveCloud() }
     var coverLoading by mutableStateOf<Uri?>(null); private set
     var infoLoading by mutableStateOf<Uri?>(null); private set
     var autoInfoLoading by mutableStateOf<Set<Uri>>(emptySet()); private set
@@ -450,6 +451,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 .put("readerItem", readerPrefs.getInt("item_$progressKey", 0))
                 .put("readerOffset", readerPrefs.getInt("offset_$progressKey", 0))
                 .put("readerPage", readerPrefs.getInt("page_$progressKey", 0))
+                .put("readerHighlights", readerPrefs.getString("highlights_$progressKey", "[]"))
             j.put("plot", info?.optString("plot").orEmpty())
             j.put("bio", info?.optString("bio").orEmpty())
             val manual = File(getApplication<Application>().filesDir,
@@ -536,7 +538,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             readerPrefs.edit().putInt("percent_$progressKey", record.optInt("readerPercent"))
                 .putInt("item_$progressKey", record.optInt("readerItem"))
                 .putInt("offset_$progressKey", record.optInt("readerOffset"))
-                .putInt("page_$progressKey", record.optInt("readerPage")).apply()
+                .putInt("page_$progressKey", record.optInt("readerPage"))
+                .putString("highlights_$progressKey", record.optString("readerHighlights", "[]")).apply()
             prefs.edit().putString("info_" + uri, JSONObject()
                 .put("plot", record.optString("plot")).put("bio", record.optString("bio")).toString())
                 .putBoolean("manual_info_" + uri, record.optBoolean("manualInfo")).apply()
@@ -619,7 +622,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             readerPrefs.edit().putInt("percent_$progressKey", j.optInt("readerPercent"))
                 .putInt("item_$progressKey", j.optInt("readerItem"))
                 .putInt("offset_$progressKey", j.optInt("readerOffset"))
-                .putInt("page_$progressKey", j.optInt("readerPage")).apply()
+                .putInt("page_$progressKey", j.optInt("readerPage"))
+                .putString("highlights_$progressKey", j.optString("readerHighlights", "[]")).apply()
             prefs.edit().putString("info_" + uri, JSONObject()
                 .put("plot", j.optString("plot")).put("bio", j.optString("bio")).toString())
                 .putBoolean("manual_info_" + uri, j.optBoolean("manualInfo")).apply()
@@ -2035,9 +2039,9 @@ private fun openCasaDelLibro(context: Context) {
     }
     val readingBook = readingUri?.let { key -> vm.books.firstOrNull { it.uri.toString() == key } }
     if (readingBook != null) {
-        ReaderScreen(readingBook, onBack = { readingUri = null }) { percent ->
-            vm.updateReadingPercent(readingBook.uri, percent)
-        }
+        ReaderScreen(readingBook, onBack = { readingUri = null },
+            onProgress = { percent -> vm.updateReadingPercent(readingBook.uri, percent) },
+            onHighlightsChanged = vm::readerAnnotationsChanged)
     } else if (shown != null) {
             BookDetail(shown, { selected = null }, { vm.toggleFavorite(shown.uri) },
                 { vm.recordOpen(shown.uri) },
