@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -93,7 +94,7 @@ private data class ReadingPage(val slices: List<ReadingSlice>, val startChar: In
 private fun openingParagraph(paragraphs: List<ReadingParagraph>, index: Int): Boolean =
     !paragraphs[index].heading && (index == 0 || paragraphs[index - 1].heading)
 
-private fun paginateText(paragraphs: List<ReadingParagraph>, width: Int, height: Int,
+private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int, height: Int,
     textSizePx: Float, gapPx: Int): List<ReadingPage> {
     val pages = mutableListOf<ReadingPage>()
     val slices = mutableListOf<ReadingSlice>()
@@ -107,7 +108,9 @@ private fun paginateText(paragraphs: List<ReadingParagraph>, width: Int, height:
             slices.clear(); occupied = 0
         }
     }
+    val workerContext = kotlinx.coroutines.currentCoroutineContext()
     paragraphs.forEachIndexed { index, paragraph ->
+        workerContext.ensureActive()
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
             textSize = textSizePx + if (paragraph.heading) 4 * textSizePx / 18f else 0f
             typeface = Typeface.create(Typeface.SERIF,
@@ -618,11 +621,11 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             fontSize = 11.sp, maxLines = 2)
                                     }
                                 }
-                                TextButton(onClick = {
+                                IconButton(onClick = {
                                     highlights = highlights.filterIndexed { i, _ -> i != number }
                                     saveHighlights(context, key, highlights)
                                     onHighlightsChanged()
-                                }) { Text("×") }
+                                }) { AppIcon("Borrar", "Eliminar subrayado") }
                             }
                         }
                     }
@@ -662,11 +665,11 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     Scaffold(containerColor = background, contentWindowInsets = WindowInsets.safeDrawing, topBar = {
         if (document !is ReadingDocument.TextDocument && document !is ReadingDocument.PdfDocument)
         TopAppBar(title = { Text(book.customTitle.ifBlank { book.title }.take(38), maxLines = 1) },
-            navigationIcon = { TextButton(onClick = onBack) { Text("‹ Volver") } },
+            navigationIcon = { IconButton(onClick = onBack) { AppIcon("Volver", "Volver") } },
             actions = {
-                TextButton(onClick = { scope.launch { drawer.open() } }) { Text("☰") }
-                TextButton(onClick = { dark = !dark; prefs.edit().putBoolean("dark", dark).apply() }) {
-                    Text(if (dark) "☀" else "☾")
+                IconButton(onClick = { scope.launch { drawer.open() } }) { AppIcon("Índice", "Capítulos") }
+                IconButton(onClick = { dark = !dark; prefs.edit().putBoolean("dark", dark).apply() }) {
+                    AppIcon(if (dark) "Día" else "Noche", "Cambiar tema")
                 }
             }, colors = TopAppBarDefaults.topAppBarColors(containerColor = background,
                 titleContentColor = foreground, navigationIconContentColor = foreground,
@@ -723,12 +726,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         contentAlignment = Alignment.TopCenter) {
                         AnimatedContent(targetState = index, transitionSpec = {
                             val forward = targetState > initialState
-                            (slideInHorizontally(tween(440)) { if (forward) it / 5 else -it / 5 } +
-                                fadeIn(tween(300))).togetherWith(
-                                slideOutHorizontally(tween(440)) { if (forward) -it / 5 else it / 5 } +
-                                    fadeOut(tween(300))).using(SizeTransform(clip = true))
+                            (slideInHorizontally(tween(280)) { if (forward) it / 5 else -it / 5 } +
+                                fadeIn(tween(180))).togetherWith(
+                                slideOutHorizontally(tween(280)) { if (forward) -it / 5 else it / 5 } +
+                                    fadeOut(tween(180))).using(SizeTransform(clip = true))
                         }, label = "Pasar página PDF") { shown ->
-                            val angle by transition.animateFloat(transitionSpec = { tween(440) },
+                            val angle by transition.animateFloat(transitionSpec = { tween(280) },
                                 label = "Pliegue PDF") { state ->
                                 when (state) {
                                     EnterExitState.PreEnter -> 62f
@@ -780,8 +783,19 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         val height = with(density) { (maxHeight - 32.dp).roundToPx() }
                         val textSizePx = with(density) { fontSize.sp.toPx() }
                         val gap = with(density) { 14.dp.roundToPx() }
-                        val pages = remember(document, width, height, fontSize) {
-                            paginateText(paragraphs, width, height.coerceAtLeast(1), textSizePx, gap)
+                        val pages by produceState<List<ReadingPage>>(emptyList(), document,
+                            width, height, fontSize) {
+                            ready = false
+                            value = emptyList()
+                            value = withContext(Dispatchers.Default) {
+                                paginateText(paragraphs, width, height.coerceAtLeast(1), textSizePx, gap)
+                            }
+                        }
+                        if (pages.isEmpty()) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = foreground)
+                            }
+                            return@BoxWithConstraints
                         }
                         LaunchedEffect(pages) {
                             val legacyItem = prefs.getInt("item_$key", 0).coerceIn(0, paragraphs.lastIndex)
@@ -822,12 +836,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             AnimatedContent(targetState = currentPage,
                                 transitionSpec = {
                                     val forward = targetState > initialState
-                                    (slideInHorizontally(tween(440)) { if (forward) it / 5 else -it / 5 } +
-                                        fadeIn(tween(300))).togetherWith(
-                                        slideOutHorizontally(tween(440)) { if (forward) -it / 5 else it / 5 } +
-                                            fadeOut(tween(300))).using(SizeTransform(clip = true))
+                                    (slideInHorizontally(tween(280)) { if (forward) it / 5 else -it / 5 } +
+                                        fadeIn(tween(180))).togetherWith(
+                                        slideOutHorizontally(tween(280)) { if (forward) -it / 5 else it / 5 } +
+                                            fadeOut(tween(180))).using(SizeTransform(clip = true))
                                 }, label = "Pasar página") { shown ->
-                                val angle by transition.animateFloat(transitionSpec = { tween(440) },
+                                val angle by transition.animateFloat(transitionSpec = { tween(280) },
                                     label = "Pliegue") { state ->
                                     when (state) {
                                         EnterExitState.PreEnter -> 62f
@@ -890,17 +904,17 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     color = background.copy(alpha = 0.97f), shadowElevation = 6.dp) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = onBack) { Text("‹", fontSize = 25.sp, color = foreground) }
+                        IconButton(onClick = onBack) { AppIcon("Volver", "Volver", tint = foreground) }
                         Text(book.customTitle.ifBlank { book.title }.take(42), maxLines = 1,
                             modifier = Modifier.weight(1f), color = foreground, fontSize = 15.sp)
-                        TextButton(onClick = { scope.launch { drawer.open() } }) {
-                            Text("☰", color = foreground, fontSize = 21.sp)
+                        IconButton(onClick = { scope.launch { drawer.open() } }) {
+                            AppIcon("Índice", "Capítulos", tint = foreground)
                         }
-                        TextButton(onClick = {
+                        IconButton(onClick = {
                             dark = !dark; prefs.edit().putBoolean("dark", dark).apply()
-                        }) { Text(if (dark) "☀" else "☾", color = foreground, fontSize = 22.sp) }
-                        TextButton(onClick = { controlsVisible = false }) {
-                            Text("×", color = foreground, fontSize = 23.sp)
+                        }) { AppIcon(if (dark) "Día" else "Noche", "Cambiar tema", tint = foreground) }
+                        IconButton(onClick = { controlsVisible = false }) {
+                            AppIcon("Cerrar", "Ocultar controles", tint = foreground)
                         }
                     }
                 }
@@ -931,8 +945,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             } else {
                 Surface(Modifier.padding(padding).align(Alignment.TopEnd).padding(8.dp),
                     color = background.copy(alpha = 0.88f), shape = MaterialTheme.shapes.large) {
-                    TextButton(onClick = { controlsVisible = true }) {
-                        Text("☰", color = foreground, fontSize = 20.sp)
+                    IconButton(onClick = { controlsVisible = true }) {
+                        AppIcon("Índice", "Mostrar controles", tint = foreground)
                     }
                 }
             }
