@@ -80,13 +80,14 @@ import java.net.URL
 import java.security.MessageDigest
 import java.util.zip.ZipFile
 
-private sealed interface ReadingDocument {
+internal sealed interface ReadingDocument {
     data class TextDocument(val paragraphs: List<ReadingParagraph>) : ReadingDocument
     data class PdfDocument(val file: File, val pages: Int) : ReadingDocument
     data class Unsupported(val reason: String) : ReadingDocument
 }
 
-private data class ReadingParagraph(val text: String, val heading: Boolean = false)
+internal data class ReadingParagraph(val text: String, val heading: Boolean = false,
+    val chapterStart: Boolean = false)
 private data class ReaderHighlight(val paragraph: Int, val start: Int, val end: Int,
     val quote: String, val color: String = "amarillo", val note: String = "")
 private data class ReadingSlice(val paragraph: Int, val start: Int, val end: Int, val height: Int)
@@ -111,6 +112,7 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
     val workerContext = kotlinx.coroutines.currentCoroutineContext()
     paragraphs.forEachIndexed { index, paragraph ->
         workerContext.ensureActive()
+        if (paragraph.chapterStart) finish()
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
             textSize = textSizePx + if (paragraph.heading) 4 * textSizePx / 18f else 0f
             typeface = Typeface.create(Typeface.SERIF,
@@ -264,13 +266,18 @@ private fun paragraphsFromHtml(html: String): List<ReadingParagraph> {
     val result = nodes.mapNotNull { element ->
         val text = element.text().trim().replace(Regex("\\s+"), " ")
         text.takeIf(String::isNotBlank)?.let {
-            ReadingParagraph(it, element.tagName().startsWith("h"))
+            val heading = element.tagName().startsWith("h")
+            val chapterHeading = element.tagName() == "h1" ||
+                (element.tagName() == "h2" &&
+                    Regex("(?i)cap[ií]tulo|chapter|parte|pr[oó]logo|ep[ií]logo|introducci[oó]n")
+                        .containsMatchIn(it))
+            ReadingParagraph(it, heading, chapterStart = chapterHeading)
         }
     }
     return result.ifEmpty { listOfNotNull(body.text().trim().takeIf(String::isNotBlank)?.let(::ReadingParagraph)) }
 }
 
-private fun readEpubText(file: File): ReadingDocument = ZipFile(file).use { zip ->
+internal fun readEpubText(file: File): ReadingDocument = ZipFile(file).use { zip ->
     val container = zip.getEntry("META-INF/container.xml")?.let { zip.getInputStream(it).bufferedReader().readText() }
         ?: return@use ReadingDocument.Unsupported("El EPUB no contiene su índice principal")
     val opf = Regex("full-path\\s*=\\s*['\"]([^'\"]+)['\"]")
@@ -289,13 +296,17 @@ private fun readEpubText(file: File): ReadingDocument = ZipFile(file).use { zip 
         if (entry.size > 3_000_000) continue
         val html = zip.getInputStream(entry).bufferedReader().use { it.readText() }
         val section = paragraphsFromHtml(html)
-        if (section.isNotEmpty() && section.none(ReadingParagraph::heading)) {
+        if (section.isEmpty()) continue
+        if (section.none(ReadingParagraph::heading)) {
             val label = Jsoup.parse(html).title().trim()
                 .takeIf { it.isNotBlank() && !it.equals("untitled", true) }
                 ?: "Capítulo ${paragraphs.count(ReadingParagraph::heading) + 1}"
-            paragraphs += ReadingParagraph(label.take(90), heading = true)
+            paragraphs += ReadingParagraph(label.take(90), heading = true, chapterStart = true)
+            paragraphs += section
+        } else {
+            paragraphs += section.first().copy(chapterStart = true)
+            paragraphs += section.drop(1)
         }
-        paragraphs += section
     }
     if (paragraphs.isEmpty()) ReadingDocument.Unsupported("No se encontró texto legible en este EPUB")
     else ReadingDocument.TextDocument(paragraphs)
