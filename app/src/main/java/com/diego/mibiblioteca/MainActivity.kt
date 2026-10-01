@@ -220,6 +220,17 @@ private fun filterBooks(books: List<Book>, query: String, status: ReadingStatus?
             }
     }
 
+private fun findDuplicateGroups(books: List<Book>): List<List<Book>> {
+    val normalized = Regex("[^\\p{L}\\p{N}]")
+    val titles = books.associate { it.uri to displayTitle(it) }
+    return books.groupBy { book ->
+        val isbn = book.isbn.filter(Char::isDigit)
+        if (isbn.length == 13) "isbn:$isbn"
+        else (titles.getValue(book.uri) + "|" + displayAuthor(book)).lowercase().replace(normalized, "")
+    }.values.filter { it.size > 1 && titles.getValue(it.first().uri).length >= 3 }
+        .sortedBy { titles.getValue(it.first().uri).lowercase() }
+}
+
 class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var query by mutableStateOf("")
     var groupMode by mutableStateOf("Todos")
@@ -992,16 +1003,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun duplicateKey(book: Book): String {
-        val isbn = book.isbn.filter(Char::isDigit)
-        if (isbn.length == 13) return "isbn:$isbn"
-        return (displayTitle(book) + "|" + displayAuthor(book)).lowercase()
-            .replace(Regex("[^\\p{L}\\p{N}]"), "")
-    }
-
-    fun duplicateGroups(): List<List<Book>> = books.groupBy(::duplicateKey).values
-        .filter { it.size > 1 && displayTitle(it.first()).length >= 3 }
-        .sortedBy { displayTitle(it.first()).lowercase() }
+    fun duplicateGroups(): List<List<Book>> = findDuplicateGroups(books)
 
     fun possibleDuplicates(book: Book): List<Book> = duplicateGroups()
         .firstOrNull { group -> group.any { it.uri == book.uri } }
@@ -1283,7 +1285,8 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
                         cover = parsed.cover ?: prior?.cover)
                 }
                 if (!removed && !file.exists() && epub.cover != null) file.writeBytes(epub.cover)
-                val saved = file.takeIf { it.exists() }?.readBytes()
+                val saved = if (unchanged && prior?.cover != null) prior.cover
+                    else file.takeIf { it.exists() }?.readBytes()
                 out += if (removed) epub.copy(cover = null)
                     else if (saved != null) epub.copy(cover = saved) else epub
                 onProgress(out.size)
@@ -1867,13 +1870,13 @@ private fun openCasaDelLibro(context: Context) {
     val vector = when (kind) {
         "Inicio" -> Icons.Outlined.Home
         "Biblioteca", "Libros" -> Icons.Outlined.LibraryBooks
-        "Pendientes" -> Icons.Outlined.Schedule
+        "Pendientes", "Pendiente" -> Icons.Outlined.Schedule
         "Secciones", "Todas" -> Icons.Outlined.CollectionsBookmark
         "Carpeta" -> Icons.Outlined.Folder
         "Favoritos" -> Icons.Outlined.FavoriteBorder
         "Favorito" -> Icons.Outlined.Favorite
         "Leyendo", "Leer", "Goodreads", "Sincronizar" -> Icons.Outlined.AutoStories
-        "Leídos", "Revisado" -> Icons.Outlined.CheckCircle
+        "Leídos", "Leído", "Revisado" -> Icons.Outlined.CheckCircle
         "Autores", "Autor", "Biografía" -> Icons.Outlined.PersonOutline
         "Sagas" -> Icons.Outlined.Layers
         "Google", "Google IA" -> Icons.Outlined.AutoAwesome
@@ -2014,7 +2017,10 @@ private fun openCasaDelLibro(context: Context) {
     val visibleNews = remember(vm.launchNews, vm.hiddenNewsSources, vm.hiddenNewsUrls) {
         vm.launchNews.filter(vm::isNewsVisible)
     }
-    val duplicateGroups = remember(vm.books) { vm.duplicateGroups() }
+    val duplicateSnapshot = vm.books
+    val duplicateGroups by produceState(initialValue = emptyList<List<Book>>(), duplicateSnapshot) {
+        value = withContext(Dispatchers.Default) { findDuplicateGroups(duplicateSnapshot) }
+    }
     val booksSnapshot = vm.books
     val querySnapshot = vm.query
     val statusSnapshot = vm.statusFilter
