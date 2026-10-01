@@ -37,6 +37,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -85,6 +87,7 @@ import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.ByteArrayInputStream
 import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 
 enum class ReadingStatus(val label: String) { PENDING("Pendiente"), READING("Leyendo"), READ("Leído") }
 
@@ -114,6 +117,7 @@ data class Book(
     val sagaOrder: String = "",
     val sourceSize: Long = -1L,
     val sourceModified: Long = -1L,
+    val metadataRevision: Int = 0,
     val sourceCoverChecked: Boolean = false,
     val hadEmbeddedCover: Boolean = false,
     val plotSource: String = "",
@@ -233,6 +237,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var bulkInfoLoading by mutableStateOf(false); private set
     var bulkProgress by mutableIntStateOf(0); private set
     private var bulkJob: Job? = null
+    private var coverRefreshJob: Job? = null
+    var coverUpdateRunning by mutableStateOf(false); private set
     var reviewPending by mutableStateOf<Set<Uri>>(emptySet()); private set
     var books by mutableStateOf<List<Book>>(emptyList()); private set
     private val readerPrefs = app.getSharedPreferences("reader", Context.MODE_PRIVATE)
@@ -394,6 +400,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     favorite = j.optBoolean("favorite"),
                     status = ReadingStatus.entries.firstOrNull { it.name == j.optString("status") } ?: ReadingStatus.PENDING,
                     sourceSize = j.optLong("sourceSize", -1L), sourceModified = j.optLong("sourceModified", -1L),
+                    metadataRevision = j.optInt("metadataRevision"),
                     sourceCoverChecked = j.optBoolean("sourceCoverChecked"),
                     hadEmbeddedCover = j.optBoolean("hadEmbeddedCover"),
                     plotSource = j.optString("plotSource"), bioSource = j.optString("bioSource"),
@@ -425,7 +432,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .put("customTitle", b.customTitle).put("customAuthor", b.customAuthor)
             .put("sagaOrder", b.sagaOrder).put("favorite", b.favorite).put("status", b.status.name)
             .put("sourceSize", b.sourceSize).put("sourceModified", b.sourceModified)
-            .put("sourceCoverChecked", b.sourceCoverChecked).put("hadEmbeddedCover", b.hadEmbeddedCover)
+            .put("metadataRevision", b.metadataRevision).put("sourceCoverChecked", b.sourceCoverChecked).put("hadEmbeddedCover", b.hadEmbeddedCover)
             .put("plotSource", b.plotSource).put("bioSource", b.bioSource).put("coverSource", b.coverSource)) }
                     bookStore.replaceAll(array)
                     prefs.edit().putString("books_cache", array.toString()).apply()
@@ -703,6 +710,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun editIdentity(uri: Uri, title: String, author: String, saga: String, order: String) {
+        prefs.edit().putBoolean("manual_identity_" + uri, true).apply()
         books = books.map { if (it.uri == uri) it.copy(
             customTitle = title.trim(), customAuthor = author.trim(),
             saga = saga.trim(), sagaOrder = order.trim()) else it }
@@ -870,11 +878,16 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         section = prior?.section.orEmpty(), sections = prior?.sections.orEmpty(),
                         notes = prior?.notes.orEmpty(),
                         goodreadsUrl = prior?.goodreadsUrl.orEmpty(), wantToRead = prior?.wantToRead ?: false,
-                        customTitle = prior?.customTitle.orEmpty(), customAuthor = prior?.customAuthor.orEmpty(),
+                        customTitle = prior?.customTitle.orEmpty(),
+                        customAuthor = if (b.metadataRevision >= 50 && !unknownAuthor(b.author) &&
+                            prior?.customTitle.isNullOrBlank() &&
+                            !prefs.getBoolean("manual_identity_" + b.uri, false)) ""
+                            else prior?.customAuthor.orEmpty(),
                         sagaOrder = prior?.sagaOrder ?: b.sagaOrder,
                         favorite = prior?.favorite ?: false, status = prior?.status ?: ReadingStatus.PENDING,
                         plotSource = prior?.plotSource.orEmpty(), bioSource = prior?.bioSource.orEmpty(),
-                        coverSource = prior?.coverSource ?: if (b.cover != null) "Portada del EPUB" else "")
+                        coverSource = prior?.coverSource?.takeIf(String::isNotBlank)
+                            ?: if (b.cover != null) "Portada del EPUB" else "")
                 }
                 val previousUris = cached.keys
                 val currentUris = result.map { it.uri }.toSet()
@@ -903,10 +916,56 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 folderName = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(getApplication(), uri)?.name }
                 prefs.edit().putString("folder_name", folderName).apply()
                 message = "${result.size} libros y documentos encontrados"
+                refreshMissingCovers()
                 } catch (e: Exception) {
                 message = "No se pudo leer la carpeta de Drive: ${e.localizedMessage ?: "error de acceso"}"
                 syncReport = message.orEmpty()
             } finally { syncing = false }
+        }
+    }
+
+    private fun refreshMissingCovers() {
+        coverRefreshJob?.cancel()
+        val targets = books.filter { it.cover == null }.map { it.uri }
+        coverRefreshJob = viewModelScope.launch {
+            coverUpdateRunning = targets.isNotEmpty()
+            var dirty = false
+            var savedCount = 0
+            try {
+                for (uri in targets) {
+                    val current = books.firstOrNull { it.uri == uri } ?: continue
+                    if (current.cover != null || !autoJobs.add(uri)) continue
+                    try {
+                        val app = getApplication<Application>()
+                        val blocked = withContext(Dispatchers.IO) {
+                            File(app.filesDir, "removed-" + coverFile(app, uri).name).exists() ||
+                                File(app.filesDir, "manual-" + coverFile(app, uri).name).exists()
+                        }
+                        if (blocked) continue
+                        autoCoverLoading = autoCoverLoading + uri
+                        val bytes = withContext(Dispatchers.IO) { fetchCover(current) } ?: continue
+                        // A manual replacement during the request must win.
+                        if (books.firstOrNull { it.uri == uri }?.cover != null) continue
+                        withContext(Dispatchers.IO) { coverFile(app, uri).writeBytes(bytes) }
+                        books = books.map { if (it.uri == uri) it.copy(cover = bytes,
+                            coverSource = "Catálogos públicos") else it }
+                        dirty = true
+                        savedCount++
+                        if (savedCount % 8 == 0) { saveBooks(); dirty = false }
+                    } catch (_: kotlinx.coroutines.CancellationException) {
+                        throw kotlinx.coroutines.CancellationException()
+                    } catch (_: Exception) {
+                        // An unavailable catalogue must not interrupt the remaining books.
+                    } finally {
+                        autoCoverLoading = autoCoverLoading - uri
+                        autoJobs.remove(uri)
+                    }
+                    delay(150)
+                }
+            } finally {
+                if (dirty) saveBooks()
+                coverUpdateRunning = false
+            }
         }
     }
 
@@ -1059,7 +1118,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 if (changed) saveBooks()
                 if (force) detailMessage = if (changed)
                     "Ficha actualizada con los datos encontrados."
-                else "No se encontraron datos nuevos para este libro."
+                else null
             } finally {
                 autoCoverLoading = autoCoverLoading - uri
                 autoInfoLoading = autoInfoLoading - uri
@@ -1081,7 +1140,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 val plot = ensureSpanish(google.second.ifBlank { fallback.plot })
                 val bio = ensureSpanish(fallback.bio)
                 if (google.first.isBlank() && plot.isBlank() && bio.isBlank()) {
-                    message = "No se encontraron datos para este libro."
+                    message = null
                 } else {
                     infoCandidate = book.uri to InfoCandidate(
                         resolvedAuthor, plot, bio,
@@ -1162,40 +1221,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun clearDetailMessage() { detailMessage = null }
 }
 
-private val sourceTag = Regex("""(?i)(?:https?://)?(?:www\.)?(?:e[\s.-]*pub[\s.-]*libre|lecturalia|anna'?s[\s.-]*archive|annas[\s.-]*archive)(?:\.[a-z]{2,})?""")
-private val metadataTag = Regex("""(?i)(?:epub|pdf|mobi|azw3|descarga|ebook|libro digital|sin drm|ocr|scan|r\d+(?:\.\d+)*|v\d+(?:\.\d+)*)""")
-
-private fun cleanCatalogText(value: String): String {
-    val normalized = value.replace(Regex("""(?i)\.epub$"""), "").replace('_', ' ')
-        .replace(Regex("""\[[^]]*]""")) { match ->
-            if (sourceTag.containsMatchIn(match.value) || metadataTag.containsMatchIn(match.value)) " " else match.value
-        }
-        .replace(Regex("""\([^)]*\)""")) { match ->
-            if (sourceTag.containsMatchIn(match.value) || metadataTag.containsMatchIn(match.value)) " " else match.value
-        }
-    return normalized.split(Regex("""\s+[-–—|·]\s+"""))
-        .filterNot { sourceTag.containsMatchIn(it) || metadataTag.matches(it.trim()) }
-        .joinToString(" - ")
-        .replace(sourceTag, " ")
-        .replace(Regex("""\s+"""), " ").trim(' ', '-', '|', '·', '–', '—')
-}
-
 private fun readableSize(size: Long): String = when {
     size < 0 -> "Desconocido"
     size < 1024 * 1024 -> "${size / 1024} KB"
     else -> "${"%.1f".format(java.util.Locale.ROOT, size / 1048576.0)} MB"
 }
 
-private fun displayAuthor(book: Book): String {
-    val known = cleanCatalogText(book.customAuthor.ifBlank { book.author })
-    if (known.isNotBlank() && known != "Autor desconocido") return known
-    val parts = book.title.replace('_', ' ').split(Regex("""\s+[-–—]\s+"""))
-        .filterNot { sourceTag.containsMatchIn(it) || metadataTag.matches(it.trim()) }
-    val possible = cleanCatalogText(parts.lastOrNull().orEmpty())
-    if (parts.size >= 2 && possible.length in 4..45 &&
-        possible.split(' ').size in 2..5 && possible.none { it.isDigit() }) return possible
-    return "Biblioteca de Diroka77"
-}
+private fun displayAuthor(book: Book): String =
+    cleanCatalogText(book.customAuthor.ifBlank { book.author })
+        .takeUnless(::unknownAuthor) ?: "Biblioteca de Diroka77"
 
 private fun displayTitle(book: Book): String {
     val author = displayAuthor(book)
@@ -1203,15 +1237,12 @@ private fun displayTitle(book: Book): String {
         .replace(Regex("""(?i)\b(?:isbn(?:-1[03])?|autor|editorial|publicad[oa]|idioma|formato|páginas|paginas|sinopsis|descripci[oó]n)\s*[:=].*$"""), "")
         .trim()
     if (author != "Biblioteca de Diroka77") {
-        title = title.replace(Regex(Regex.escape(author), RegexOption.IGNORE_CASE), " ")
-            .replace(Regex("""\(\s*\)"""), " ")
-            .trim(' ', '-', '–', '—', '|', ',', ':')
+        // Remove an author only at a filename boundary; preserve real subtitles.
+        title = title.replace(Regex("^" + Regex.escape(author) + "\\s*[-–—|:]\\s*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s*[-–—|]\\s*" + Regex.escape(author) + "$", RegexOption.IGNORE_CASE), "")
     }
-    // El texto que sigue a un separador suele ser autor, colección o datos del fichero.
-    title = title.split(Regex("""\s+[-–—|·]\s+""")).firstOrNull().orEmpty()
-        .replace(Regex("""(?i)\s*\((?:\d{4}|(?:e?pub|pdf|mobi)[^)]*)\)"""), "")
-        .replace(Regex("""\s+"""), " ").trim(' ', '-', '–', '—', '|', ',', ':')
-    return title.take(100).ifBlank { cleanCatalogText(book.title).substringBefore(" - ").ifBlank { "Libro sin título" } }
+    return title.replace(Regex("""\s+"""), " ").trim(' ', '-', '–', '—', '|', ',', ':')
+        .ifBlank { "Libro sin título" }
 }
 
 private fun sagaNumber(book: Book): Double {
@@ -1236,14 +1267,20 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
                 val prior = cached[f.uri]
                 val unchanged = prior != null && size > 0 && prior.sourceSize == size &&
                     (modified <= 0L || prior.sourceModified == modified) &&
-                    prior.sourceCoverChecked && (!prior.hadEmbeddedCover || file.exists() || removed)
+                    prior.metadataRevision >= 50 && prior.sourceCoverChecked &&
+                    (!prior.hadEmbeddedCover || file.exists() || removed)
                 val epub = if (unchanged) prior!! else {
                     val parsed = if (f.name?.endsWith(".epub", true) == true)
-                        readEpub(context, f.uri, f.name ?: "Libro")
+                        readEpub(context, f.uri, f.name ?: "Libro", size, modified)
                     else Book(f.uri, f.name.orEmpty().substringBeforeLast('.'),
                         author = prior?.author ?: "Autor desconocido")
-                    parsed.copy(sourceSize = size, sourceModified = modified,
-                        sourceCoverChecked = true, hadEmbeddedCover = parsed.cover != null)
+                    if (parsed.metadataRevision < 50 && prior != null) prior.copy(
+                        sourceSize = size, sourceModified = modified)
+                    else parsed.copy(sourceSize = size, sourceModified = modified,
+                        author = parsed.author.takeUnless(::unknownAuthor)
+                            ?: prior?.author?.takeUnless(::unknownAuthor) ?: "Autor desconocido",
+                        sourceCoverChecked = true, hadEmbeddedCover = parsed.cover != null,
+                        cover = parsed.cover ?: prior?.cover)
                 }
                 if (!removed && !file.exists() && epub.cover != null) file.writeBytes(epub.cover)
                 val saved = file.takeIf { it.exists() }?.readBytes()
@@ -1257,48 +1294,82 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
     return out.sortedBy { it.title.lowercase() }
 }
 
-private fun readEpub(context: Context, uri: Uri, fallbackName: String): Book {
-    val fallback = Book(uri, fallbackName.substringBeforeLast('.', fallbackName))
+private fun readEpub(context: Context, uri: Uri, fallbackName: String,
+    sourceSize: Long = -1L, sourceModified: Long = -1L): Book {
+    val fallback = Book(uri, cleanCatalogText(fallbackName),
+        sourceSize = sourceSize, sourceModified = sourceModified)
     return try {
-        // Drive may download the EPUB for each openInputStream call. Read it once.
-        val entries = mutableMapOf<String, ByteArray>()
-        var imageBytes = 0
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            ZipInputStream(input).use { zip ->
-                var entry = zip.nextEntry
-                while (entry != null) {
-                    val path = normalizePath(entry.name)
-                    val xml = path == "META-INF/container.xml" || path.endsWith(".opf", true)
-                    val image = path.endsWith(".jpg", true) || path.endsWith(".jpeg", true) || path.endsWith(".png", true)
-                    val limit = if (xml) 2_000_000 else if (image && imageBytes < 2_000_000) 300_000 else 0
-                    if (!entry.isDirectory && limit > 0 && (entry.size < 0 || entry.size <= limit)) {
-                        val buffer = ByteArray(8192)
-                        val output = java.io.ByteArrayOutputStream()
-                        while (output.size() <= limit) {
-                            val n = zip.read(buffer, 0, minOf(buffer.size, limit + 1 - output.size()))
-                            if (n < 0) break
-                            output.write(buffer, 0, n)
-                        }
-                        if (output.size() <= limit) {
-                            entries[path] = output.toByteArray()
-                            if (image) imageBytes += output.size()
-                        }
-                    }
-                    entry = zip.nextEntry
+        // Reuse the reader cache so Drive downloads each unchanged file only once.
+        ZipFile(localReaderFile(context, fallback)).use { zip ->
+            fun entryBytes(path: String, limit: Int): ByteArray? {
+                val entry = zip.getEntry(normalizePath(path)) ?: return null
+                if (entry.size > limit) return null
+                return zip.getInputStream(entry).use { input ->
+                    input.readNBytes(limit + 1).takeIf { it.size <= limit }
                 }
             }
-        } ?: return fallback
-        val container = entries["META-INF/container.xml"]?.toString(Charsets.UTF_8).orEmpty()
-        val opfPath = Regex("full-path\\s*=\\s*[\"']([^\"']+)[\"']").find(container)?.groupValues?.get(1)
-            ?.let(::normalizePath) ?: return fallback
-        val opfBytes = entries[opfPath] ?: return fallback
-        val meta = parseOpf(opfBytes)
-        val base = opfPath.substringBeforeLast('/', "")
-        val coverPath = meta.coverHref?.let { normalizePath(if (base.isBlank()) it else "$base/$it") }
-        Book(uri, meta.title.ifBlank { fallback.title }, meta.author, meta.date, meta.publisher,
-            meta.genre, meta.description, meta.isbn, meta.saga, coverPath?.let(entries::get),
-            language = meta.language, sagaOrder = meta.sagaOrder)
+            fun resolve(base: String, href: String): String {
+                val decoded = Uri.decode(href.substringBefore('#'))
+                return normalizePath(if (base.isBlank()) decoded else "$base/$decoded")
+            }
+            val container = entryBytes("META-INF/container.xml", 2_000_000)
+                ?.toString(Charsets.UTF_8).orEmpty()
+            val containerXml = Jsoup.parse(container, "", org.jsoup.parser.Parser.xmlParser())
+            val opfPath = containerXml.getAllElements().firstOrNull {
+                it.tagName().substringAfter(':') == "rootfile"
+            }?.attr("full-path")?.takeIf(String::isNotBlank)?.let(::normalizePath)
+                ?: zip.entries().asSequence().firstOrNull { it.name.endsWith(".opf", true) }?.name
+                ?: return@use fallback
+            val opfBytes = entryBytes(opfPath, 2_000_000) ?: return@use fallback
+            val meta = parseOpf(opfBytes)
+            val base = opfPath.substringBeforeLast('/', "")
+            val candidates = (listOfNotNull(meta.coverHref) + meta.coverCandidates).distinct()
+            var cover: ByteArray? = null
+            for (href in candidates) {
+                val path = resolve(base, href)
+                val bytes = entryBytes(path, 16_000_000) ?: continue
+                if (path.endsWith(".html", true) || path.endsWith(".xhtml", true) ||
+                    path.endsWith(".htm", true) || path.endsWith(".svg", true)) {
+                    val page = Jsoup.parse(bytes.toString(Charsets.UTF_8), "", org.jsoup.parser.Parser.xmlParser())
+                    val image = page.getAllElements().firstOrNull {
+                        it.tagName().substringAfter(':') in listOf("img", "image")
+                    }
+                    val imageHref = image?.attr("src").orEmpty().ifBlank {
+                        image?.attr("href").orEmpty().ifBlank { image?.attr("xlink:href").orEmpty() }
+                    }
+                    if (imageHref.isNotBlank()) cover = entryBytes(
+                        resolve(path.substringBeforeLast('/', ""), imageHref), 16_000_000)?.let(::compactCover)
+                } else cover = compactCover(bytes)
+                if (cover != null) break
+            }
+            if (cover == null) {
+                val namedCover = zip.entries().asSequence().firstOrNull {
+                    it.name.substringAfterLast('/').matches(
+                        Regex("(?i)(?:cover|portada|front)(?:[-_0-9]*)\\.(?:jpe?g|png|webp)"))
+                }
+                cover = namedCover?.name?.let { entryBytes(it, 16_000_000) }?.let(::compactCover)
+            }
+            Book(uri, meta.title.ifBlank { fallback.title }, meta.author, meta.date, meta.publisher,
+                meta.genre, meta.description, meta.isbn, meta.saga, cover,
+                language = meta.language, sagaOrder = meta.sagaOrder, metadataRevision = 50)
+        }
     } catch (_: Exception) { fallback }
+}
+
+private fun compactCover(bytes: ByteArray): ByteArray? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    while (bounds.outWidth / sample > 1200 || bounds.outHeight / sample > 1800) sample *= 2
+    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
+        BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
+    return try {
+        java.io.ByteArrayOutputStream().use { output ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 88, output)
+            output.toByteArray()
+        }
+    } finally { bitmap.recycle() }
 }
 
 private fun coverFile(context: Context, uri: Uri): File {
@@ -1634,47 +1705,6 @@ private fun normalizePath(path: String): String {
     return parts.joinToString("/")
 }
 
-private data class EpubMeta(var title:String="",var author:String="Autor desconocido",var date:String="",var publisher:String="",var genre:String="",var description:String="Sin descripción disponible.",var isbn:String="",var saga:String="",var coverHref:String?=null,var language:String="",var sagaOrder:String="")
-
-private fun parseOpf(bytes: ByteArray): EpubMeta {
-    val m = EpubMeta(); val manifest = mutableMapOf<String,String>(); var coverId:String? = null
-    val p = XmlPullParserFactory.newInstance().newPullParser(); p.setInput(ByteArrayInputStream(bytes), "UTF-8")
-    var event = p.eventType
-    while (event != XmlPullParser.END_DOCUMENT) {
-        if (event == XmlPullParser.START_TAG) {
-            val n = p.name.lowercase()
-            fun text() = try { p.nextText().trim() } catch (_:Exception) { "" }
-            when(n) {
-                "title" -> if(m.title.isBlank()) m.title=text()
-                "creator" -> if(m.author=="Autor desconocido") m.author=text()
-                "date" -> if(m.date.isBlank()) m.date=text()
-                "language" -> if(m.language.isBlank()) m.language=text()
-                "publisher" -> if(m.publisher.isBlank()) m.publisher=text()
-                "subject" -> if(m.genre.isBlank()) m.genre=text()
-                "description" -> if(m.description=="Sin descripción disponible.") m.description=text().replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+")," ")
-                "identifier" -> { val v=text(); if(v.contains("isbn",true) || v.replace("-","").length in 10..13) m.isbn=v }
-                "meta" -> {
-                    val name=(0 until p.attributeCount).firstOrNull{p.getAttributeName(it)=="name"}?.let{p.getAttributeValue(it)}
-                    val content=(0 until p.attributeCount).firstOrNull{p.getAttributeName(it)=="content"}?.let{p.getAttributeValue(it)}
-                    val prop=(0 until p.attributeCount).firstOrNull{p.getAttributeName(it)=="property"}?.let{p.getAttributeValue(it)}
-                    if(name=="cover") coverId=content
-                    if(name?.contains("series_index",true)==true || prop?.contains("group-position",true)==true) m.sagaOrder = content ?: text()
-                    else if(name?.contains("series",true)==true || prop?.contains("belongs-to-collection",true)==true) m.saga=content ?: text()
-                }
-                "item" -> {
-                    var id=""; var href=""; var properties=""
-                    for(i in 0 until p.attributeCount) when(p.getAttributeName(i)){"id"->id=p.getAttributeValue(i);"href"->href=p.getAttributeValue(i);"properties"->properties=p.getAttributeValue(i)}
-                    if(id.isNotBlank()) manifest[id]=href
-                    if(properties.contains("cover-image")) m.coverHref=href
-                }
-            }
-        }
-        event=p.next()
-    }
-    if(m.coverHref==null) m.coverHref=coverId?.let{manifest[it]}
-    return m
-}
-
 private val Ink = Color(0xFF31271F)
 private val Mahogany = Color(0xFF49352A)
 private val Brass = Color(0xFFAD8248)
@@ -1832,11 +1862,64 @@ private fun openCasaDelLibro(context: Context) {
         android.widget.Toast.LENGTH_LONG).show()
 }
 
+@Composable internal fun AppIcon(kind: String, description: String? = null,
+    tint: Color = LocalContentColor.current, size: androidx.compose.ui.unit.Dp = 24.dp) {
+    val vector = when (kind) {
+        "Inicio" -> Icons.Outlined.Home
+        "Biblioteca", "Libros" -> Icons.Outlined.LibraryBooks
+        "Pendientes" -> Icons.Outlined.Schedule
+        "Secciones", "Todas" -> Icons.Outlined.CollectionsBookmark
+        "Carpeta" -> Icons.Outlined.Folder
+        "Favoritos" -> Icons.Outlined.FavoriteBorder
+        "Favorito" -> Icons.Outlined.Favorite
+        "Leyendo", "Leer", "Goodreads", "Sincronizar" -> Icons.Outlined.AutoStories
+        "Leídos", "Revisado" -> Icons.Outlined.CheckCircle
+        "Autores", "Autor", "Biografía" -> Icons.Outlined.PersonOutline
+        "Sagas" -> Icons.Outlined.Layers
+        "Google", "Google IA" -> Icons.Outlined.AutoAwesome
+        "Casa del Libro" -> Icons.Outlined.Storefront
+        "Buscar" -> Icons.Outlined.Search
+        "Cerrar" -> Icons.Outlined.Close
+        "Volver" -> Icons.Outlined.ArrowBack
+        "Índice", "Lista" -> Icons.Outlined.List
+        "Galería" -> Icons.Outlined.GridView
+        "Compacta" -> Icons.Outlined.ViewHeadline
+        "Noticias" -> Icons.Outlined.Newspaper
+        "Opciones" -> Icons.Outlined.MoreVert
+        "Ajustes" -> Icons.Outlined.Settings
+        "Estado" -> Icons.Outlined.Info
+        "Subir" -> Icons.Outlined.KeyboardArrowUp
+        "Bajar" -> Icons.Outlined.KeyboardArrowDown
+        "Borrar" -> Icons.Outlined.DeleteOutline
+        "Añadir" -> Icons.Outlined.Add
+        "Portada" -> Icons.Outlined.Image
+        "Editar" -> Icons.Outlined.Edit
+        "Datos", "Actualizar" -> Icons.Outlined.Refresh
+        "Compartir" -> Icons.Outlined.Share
+        "Descargar" -> Icons.Outlined.Download
+        "Guardar" -> Icons.Outlined.Save
+        "Noche" -> Icons.Outlined.DarkMode
+        "Día" -> Icons.Outlined.LightMode
+        else -> Icons.Outlined.MenuBook
+    }
+    Icon(vector, description, Modifier.size(size), tint = tint)
+}
+
+@Composable private fun ActionLabel(text: String, icon: String,
+    fontSize: androidx.compose.ui.unit.TextUnit = 13.sp) {
+    Row(verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AppIcon(icon, size = 20.dp)
+        Text(text, fontSize = fontSize)
+    }
+}
+
 @Composable private fun CatalogChip(label: String, selected: Boolean, accent: Color = Teal,
     onClick: () -> Unit) {
     FilterChip(selected = selected, onClick = onClick, label = {
-        Text(label, fontSize = 12.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
-    }, shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+        Text(label.removePrefix("★ "), fontSize = 12.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
+    }, leadingIcon = { AppIcon(label.removePrefix("★ ").substringBefore(" ("), size = 18.dp) },
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp,
             if (selected) accent.copy(alpha = 0.45f) else Mahogany.copy(alpha = 0.12f)),
         colors = FilterChipDefaults.filterChipColors(
@@ -1955,8 +2038,12 @@ private fun openCasaDelLibro(context: Context) {
         groupMode, sectionNames, tab, sortMode) {
         val booksToGroup = visibleBooks
         value = withContext(Dispatchers.Default) {
+        val titles = booksToGroup.associate { it.uri to displayTitle(it) }
+        val authors = booksToGroup.associate { it.uri to displayAuthor(it) }
+        val sagaOrders = if (groupMode == "Sagas") booksToGroup.associate { it.uri to sagaNumber(it) }
+            else emptyMap()
         val groups = when (groupMode) {
-            "Autores" -> booksToGroup.groupBy { displayAuthor(it) }
+            "Autores" -> booksToGroup.groupBy { authors.getValue(it.uri) }
             "Sagas" -> booksToGroup.groupBy { it.saga.ifBlank { "Sin saga" } }
             "Secciones" -> booksToGroup.flatMap { book ->
                 bookSections(book).ifEmpty { listOf("Sin sección") }.map { name -> name to book }
@@ -1970,11 +2057,11 @@ private fun openCasaDelLibro(context: Context) {
         names.associateWith { name ->
             val group = groups[name].orEmpty()
             if (groupMode == "Sagas") group.sortedWith(
-                compareBy<Book> { sagaNumber(it) }.thenBy(String.CASE_INSENSITIVE_ORDER) { displayTitle(it) })
+                compareBy<Book> { sagaOrders.getValue(it.uri) }.thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
             else when (sortMode) {
-                "Autor" -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { displayAuthor(it) })
+                "Autor" -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { authors.getValue(it.uri) })
                 "Recientes" -> group.sortedByDescending { it.sourceModified }
-                else -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { displayTitle(it) })
+                else -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
             }
         }
         }
@@ -2009,9 +2096,9 @@ private fun openCasaDelLibro(context: Context) {
             vm.sections.forEach { section ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(section, Modifier.weight(1f))
-                    TextButton(onClick = { vm.moveSection(section, -1) }) { Text("↑") }
-                    TextButton(onClick = { vm.moveSection(section, 1) }) { Text("↓") }
-                    TextButton(onClick = { sectionToDelete = section }) { Text("×") }
+                    IconButton(onClick = { vm.moveSection(section, -1) }) { AppIcon("Subir", "Subir sección") }
+                    IconButton(onClick = { vm.moveSection(section, 1) }) { AppIcon("Bajar", "Bajar sección") }
+                    IconButton(onClick = { sectionToDelete = section }) { AppIcon("Borrar", "Eliminar sección") }
                 }
             }
             if (vm.sections.isEmpty()) Text("Aún no hay secciones.")
@@ -2085,7 +2172,8 @@ private fun openCasaDelLibro(context: Context) {
             BookDetail(shown, { selected = null }, { vm.toggleFavorite(shown.uri) },
                 { vm.recordOpen(shown.uri) },
                 { vm.setStatus(shown.uri, it) }, { readingUri = shown.uri.toString() },
-                vm.message, vm.possibleDuplicates(shown),
+                vm.message, duplicateGroups.firstOrNull { group -> group.any { it.uri == shown.uri } }
+                    ?.filterNot { it.uri == shown.uri }.orEmpty(),
                 { vm.deleteDuplicate(shown) }, { vm.completeMissing(shown.uri, force = true) },
                 vm.autoInfoLoading.contains(shown.uri), vm.autoCoverLoading.contains(shown.uri),
                 vm.sections, { vm.assignSection(shown.uri, it) },
@@ -2103,8 +2191,7 @@ private fun openCasaDelLibro(context: Context) {
                 tabs.forEach { name ->
                     NavigationBarItem(selected = tab == name, onClick = {
                         switchTab(name)
-                    }, icon = { Text(when (name) { "Inicio" -> "⌂"; "Biblioteca" -> "▦";
-                        "Pendientes" -> "◷"; else -> "▤" }, fontSize = 22.sp) },
+                    }, icon = { AppIcon(name, size = 24.dp) },
                         label = { Text(name) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = Teal, selectedTextColor = Teal,
@@ -2135,8 +2222,8 @@ private fun openCasaDelLibro(context: Context) {
                 } },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     singleLine = true, placeholder = { Text("Buscar título, saga o autor") },
-                    leadingIcon = { Text("⌕") },
-                    trailingIcon = { if (vm.query.isNotEmpty()) TextButton(onClick = { vm.query = "" }) { Text("×") } },
+                    leadingIcon = { AppIcon("Buscar") },
+                    trailingIcon = { if (vm.query.isNotEmpty()) IconButton(onClick = { vm.query = "" }) { AppIcon("Cerrar", "Borrar búsqueda") } },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = Paper, unfocusedContainerColor = Paper,
                         focusedTextColor = Ink, unfocusedTextColor = Ink),
@@ -2195,15 +2282,15 @@ private fun openCasaDelLibro(context: Context) {
                         Text("Historias por descubrir", fontFamily = FontFamily.Serif,
                             style = MaterialTheme.typography.headlineSmall, color = Ink,
                             modifier = Modifier.weight(1f))
-                        TextButton(onClick = { homeSettings = true },
+                        IconButton(onClick = { homeSettings = true },
                             modifier = Modifier.semantics { contentDescription = "Organizar Inicio" }) {
-                            Text("⚙")
+                            AppIcon("Ajustes", "Ajustes de inicio")
                         }
-                        TextButton(onClick = { showSyncReport = true },
-                            modifier = Modifier.semantics { contentDescription = "Ver estado de sincronización" }) { Text("ⓘ") }
-                        TextButton(onClick = { vm.sync() }, enabled = !vm.syncing,
+                        IconButton(onClick = { showSyncReport = true },
+                            modifier = Modifier.semantics { contentDescription = "Ver estado de sincronización" }) { AppIcon("Estado", "Estado de sincronización") }
+                        IconButton(onClick = { vm.sync() }, enabled = !vm.syncing,
                             modifier = Modifier.semantics { contentDescription = "Sincronizar biblioteca" }) {
-                            Text("📖", fontSize = 18.sp)
+                            AppIcon("Sincronizar", "Actualizar biblioteca")
                         }
                     }
                     HorizontalDivider(color = Brass.copy(alpha = 0.4f), thickness = 1.dp)
@@ -2236,6 +2323,10 @@ private fun openCasaDelLibro(context: Context) {
                         Text("Revisando ${vm.syncCount} libros…", modifier = Modifier.padding(vertical = 8.dp),
                             style = MaterialTheme.typography.bodySmall)
                     }
+                    if (vm.coverUpdateRunning && (tab == "Inicio" || tab == "Biblioteca")) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth(), color = Teal)
+                        Text("Buscando las portadas que faltan…", fontSize = 12.sp, color = Mahogany)
+                    }
                     if (tab == "Inicio" && vm.syncSummary.isNotBlank())
                         Text(vm.syncSummary, color = Mahogany, fontSize = 12.sp)
                     if (tab == "Biblioteca") {
@@ -2246,8 +2337,8 @@ private fun openCasaDelLibro(context: Context) {
                                 if (vm.bulkInfoLoading) vm.cancelIncomplete()
                                 else vm.refreshIncomplete()
                             }) {
-                                Text(if (vm.bulkInfoLoading) "Detener · ${vm.bulkProgress}"
-                                    else "↻ Datos y portadas", fontSize = 12.sp)
+                                ActionLabel(if (vm.bulkInfoLoading) "Detener · ${vm.bulkProgress}"
+                                    else "Datos y portadas", "Datos", 12.sp)
                             }
                         }
                         if (vm.bulkInfoLoading) {
@@ -2290,7 +2381,7 @@ private fun openCasaDelLibro(context: Context) {
                             }
                             Box {
                                 TextButton(onClick = { sortMenu = true }) {
-                                    Text("Ordenar: $sortMode ↕", color = Teal, fontSize = 12.sp)
+                                    ActionLabel("Ordenar: $sortMode", "Sagas", 12.sp)
                                 }
                                 DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                                     listOf("Título", "Autor", "Recientes").forEach { option ->
@@ -2318,9 +2409,9 @@ private fun openCasaDelLibro(context: Context) {
                             }
                         }
                         Row {
-                            OutlinedButton(onClick = { addingSection = true }) { Text("+ Nueva sección") }
+                            OutlinedButton(onClick = { addingSection = true }) { ActionLabel("Nueva sección", "Añadir") }
                             Spacer(Modifier.width(8.dp))
-                            OutlinedButton(onClick = { organizeSections = true }) { Text("Ordenar secciones") }
+                            OutlinedButton(onClick = { organizeSections = true }) { ActionLabel("Ordenar secciones", "Secciones") }
                         }
                     }
                     if (tab != "Inicio" && !showWishList) {
@@ -2328,9 +2419,9 @@ private fun openCasaDelLibro(context: Context) {
                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("Lista", "Galería", "Compacta").forEach { mode ->
                                 CatalogChip(when (mode) {
-                                    "Galería" -> "▦ Galería"
-                                    "Compacta" -> "≡ Compacta"
-                                    else -> "☷ Lista"
+                                    "Galería" -> "Galería"
+                                    "Compacta" -> "Compacta"
+                                    else -> "Lista"
                                 }, vm.viewModeFor(vm.selectedSection) == mode, Teal) {
                                     vm.chooseViewMode(mode)
                                 }
@@ -2342,7 +2433,7 @@ private fun openCasaDelLibro(context: Context) {
                             Box {
                                 TextButton(onClick = { backupMenu = true },
                                     modifier = Modifier.semantics { contentDescription = "Opciones de biblioteca" }) {
-                                    Text("Más opciones ⋯", fontSize = 12.sp, color = Teal)
+                                    ActionLabel("Más opciones", "Opciones")
                                 }
                                 DropdownMenu(expanded = backupMenu, onDismissRequest = { backupMenu = false }) {
                                     DropdownMenuItem(text = { Text("Exportar mis datos") }, onClick = {
@@ -2369,15 +2460,15 @@ private fun openCasaDelLibro(context: Context) {
                             Text("Actualidad literaria en España", fontFamily = FontFamily.Serif,
                                 fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Mahogany,
                                 modifier = Modifier.weight(1f))
-                            TextButton(onClick = { newsSettings = true },
+                            IconButton(onClick = { newsSettings = true },
                                 modifier = Modifier.semantics { contentDescription = "Elegir fuentes de noticias" }) {
-                                Text("☷")
+                                AppIcon("Ajustes", "Fuentes de noticias")
                             }
-                            TextButton(onClick = { vm.refreshLaunchNews(true) }, enabled = !vm.newsRefreshing,
+                            IconButton(onClick = { vm.refreshLaunchNews(true) }, enabled = !vm.newsRefreshing,
                                 modifier = Modifier.semantics { contentDescription = "Actualizar noticias" }) {
                                 if (vm.newsRefreshing) CircularProgressIndicator(Modifier.size(18.dp),
                                     strokeWidth = 2.dp, color = Brass)
-                                else Text("📰", fontSize = 21.sp)
+                                else AppIcon("Noticias", "Actualizar noticias")
                             }
                         }
                         if (vm.newsRefreshing && vm.launchNews.isEmpty())
@@ -2431,9 +2522,9 @@ private fun openCasaDelLibro(context: Context) {
                                                 java.util.Locale("es", "ES")))
                                     } catch (_: Exception) { news.releaseDate },
                                     color = Mahogany.copy(alpha = 0.7f), fontSize = 11.sp)
-                                TextButton(onClick = { vm.hideNews(news.url) },
+                                IconButton(onClick = { vm.hideNews(news.url) },
                                     modifier = Modifier.semantics { contentDescription = "Ocultar noticia" }) {
-                                    Text("×", color = Mahogany)
+                                    AppIcon("Cerrar", "Ocultar noticia", tint = Mahogany)
                                 }
                             }
                             if (picture != null) {
@@ -2462,14 +2553,14 @@ private fun openCasaDelLibro(context: Context) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedButton(onClick = { openGoodreadsUrl(context, url) },
                             modifier = Modifier.weight(1f)) { Text(title.ifBlank { "Libro de Goodreads" }) }
-                        TextButton(onClick = { vm.removeGoodreadsWish(url) }) { Text("×") }
+                        IconButton(onClick = { vm.removeGoodreadsWish(url) }) { AppIcon("Cerrar", "Quitar de pendientes") }
                     }
                 }
             } else if (vm.books.isEmpty() && !vm.syncing) {
                 item(key = "empty") {
                     Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("📚", style = MaterialTheme.typography.displayMedium)
+                            AppIcon("Libros", size = 48.dp)
                             Text("Elige tu carpeta de libros en Drive", fontFamily = FontFamily.Serif)
                             Spacer(Modifier.height(12.dp))
                             Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta") }
@@ -2499,7 +2590,7 @@ private fun openCasaDelLibro(context: Context) {
                     }
                     val ordered = group
                     when (vm.viewModeFor(vm.selectedSection)) {
-                        "Galería" -> items(ordered.chunked(2), key = { "grid:" + it.first().uri }, contentType = { "gallery" }) { pair ->
+                        "Galería" -> items(ordered.chunked(2), key = { "grid:" + name + ":" + it.first().uri }, contentType = { "gallery" }) { pair ->
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 pair.forEach { book ->
                                     BookGalleryCard(book, Modifier.weight(1f),
@@ -2508,7 +2599,7 @@ private fun openCasaDelLibro(context: Context) {
                                 if (pair.size == 1) Spacer(Modifier.weight(1f))
                             }
                         }
-                        else -> items(ordered, key = { it.uri.toString() },
+                        else -> items(ordered, key = { name + ":" + it.uri },
                             contentType = { vm.viewModeFor(vm.selectedSection) }) { book ->
                             if (vm.viewModeFor(vm.selectedSection) == "Compacta") BookCompactCard(book) { selected = book }
                             else BookCard(book) { selected = book }
@@ -2517,43 +2608,57 @@ private fun openCasaDelLibro(context: Context) {
                 }
             }
         }
-        if (tab == "Biblioteca" && !showWishList &&
-            listState.layoutInfo.totalItemsCount > listState.layoutInfo.visibleItemsInfo.size) {
-            val maxIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(1)
-            val progress = if (!listState.canScrollForward) 1f else
-                (listState.firstVisibleItemIndex.toFloat() / maxIndex).coerceIn(0f, 1f)
-            BoxWithConstraints(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(24.dp)
-                .semantics { contentDescription = "Desplazamiento rápido de la biblioteca" }
-                .pointerInput(listState, maxIndex) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        fun seek(y: Float) {
-                            val fraction = (y / size.height.coerceAtLeast(1)).coerceIn(0f, 1f)
-                            scope.launch {
-                                listState.scrollToItem((fraction * maxIndex).toInt())
-                            }
-                        }
-                        seek(down.position.y)
-                        while (true) {
-                            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
-                                ?: break
-                            if (!change.pressed) break
-                            seek(change.position.y)
-                            change.consume()
-                        }
-                    }
-                }) {
-                Box(Modifier.align(Alignment.CenterEnd).width(2.dp).fillMaxHeight()
-                    .background(Brass.copy(alpha = 0.15f)))
-                Box(Modifier.align(Alignment.TopEnd)
-                    .offset(y = (maxHeight - 48.dp) * progress)
-                    .width(5.dp).height(48.dp)
-                    .background(Brass.copy(alpha = 0.55f),
-                        androidx.compose.foundation.shape.RoundedCornerShape(3.dp)))
-            }
+        if (tab == "Biblioteca" && !showWishList) {
+            LibraryScrollHandle(listState, Modifier.align(Alignment.CenterEnd))
         }
       }
     }
+    }
+}
+
+@Composable private fun LibraryScrollHandle(
+    listState: androidx.compose.foundation.lazy.LazyListState, modifier: Modifier = Modifier
+) {
+    val scope = rememberCoroutineScope()
+    val canShow by remember(listState) { derivedStateOf {
+        listState.layoutInfo.totalItemsCount > listState.layoutInfo.visibleItemsInfo.size
+    } }
+    if (!canShow) return
+    val maxIndex by remember(listState) { derivedStateOf {
+        (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(1)
+    } }
+    val progress by remember(listState) { derivedStateOf {
+        if (!listState.canScrollForward) 1f else
+            (listState.firstVisibleItemIndex.toFloat() /
+                (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(1)).coerceIn(0f, 1f)
+    } }
+    BoxWithConstraints(modifier.fillMaxHeight().width(24.dp)
+        .semantics { contentDescription = "Desplazamiento rápido de la biblioteca" }
+        .pointerInput(listState, maxIndex) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                var seekJob: Job? = null
+                fun seek(y: Float) {
+                    val fraction = (y / size.height.coerceAtLeast(1)).coerceIn(0f, 1f)
+                    seekJob?.cancel()
+                    seekJob = scope.launch { listState.scrollToItem((fraction * maxIndex).toInt()) }
+                }
+                seek(down.position.y)
+                while (true) {
+                    val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                    if (!change.pressed) break
+                    seek(change.position.y)
+                    change.consume()
+                }
+            }
+        }) {
+        Box(Modifier.align(Alignment.CenterEnd).width(2.dp).fillMaxHeight()
+            .background(Brass.copy(alpha = 0.15f)))
+        val trackHeight = with(LocalDensity.current) { (maxHeight - 48.dp).toPx() }
+        Box(Modifier.align(Alignment.TopEnd)
+            .offset { androidx.compose.ui.unit.IntOffset(0, (trackHeight * progress).toInt()) }
+            .width(5.dp).height(48.dp).background(Brass.copy(alpha = 0.55f),
+                androidx.compose.foundation.shape.RoundedCornerShape(3.dp)))
     }
 }
 
@@ -2562,12 +2667,12 @@ private fun openCasaDelLibro(context: Context) {
     onGoodreads: () -> Unit, onGoogle: () -> Unit, onCasa: () -> Unit
 ) {
     val shortcuts = listOf(
-        Triple("Libros", "▦", Color(0xFF673D62)) to onLibrary,
-        Triple("Carpeta", "▱", Color(0xFF4689C2)) to onFolder,
-        Triple("Favoritos", "☆", Color(0xFFC58D45)) to onFavorites,
-        Triple("Goodreads", "G", Color(0xFF186D66)) to onGoodreads,
-        Triple("Google IA", "◎", Color(0xFFB96056)) to onGoogle,
-        Triple("Casa del Libro", "▤", Color(0xFF435C82)) to onCasa
+        Triple("Libros", "Libros", Color(0xFF673D62)) to onLibrary,
+        Triple("Carpeta", "Carpeta", Color(0xFF4689C2)) to onFolder,
+        Triple("Favoritos", "Favoritos", Color(0xFFC58D45)) to onFavorites,
+        Triple("Goodreads", "Goodreads", Color(0xFF186D66)) to onGoodreads,
+        Triple("Google IA", "Google IA", Color(0xFFB96056)) to onGoogle,
+        Triple("Casa del Libro", "Casa del Libro", Color(0xFF435C82)) to onCasa
     )
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
         .padding(top = 14.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2577,8 +2682,7 @@ private fun openCasaDelLibro(context: Context) {
                 Box(Modifier.size(66.dp).background(item.third,
                     androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
                     contentAlignment = Alignment.Center) {
-                    Text(item.second, fontSize = 27.sp, color = Color.White,
-                        fontWeight = FontWeight.Light)
+                    AppIcon(item.second, tint = Color.White, size = 28.dp)
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(item.first, fontSize = 10.sp, maxLines = 2,
@@ -2617,7 +2721,7 @@ private fun openCasaDelLibro(context: Context) {
     }
 }
 
-@Composable private fun BookCard(book:Book,onClick:()->Unit){Card(Modifier.fillMaxWidth().clickable(onClick=onClick), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Paper), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Cover(book,92.dp,132.dp);Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Row(verticalAlignment=Alignment.CenterVertically){Text(displayTitle(book),fontWeight=FontWeight.Bold,fontFamily=FontFamily.Serif,fontSize=14.sp,lineHeight=18.sp,modifier=Modifier.weight(1f));if(book.favorite)Text("★")};Text(displayAuthor(book),fontSize=12.sp)}}}}
+@Composable private fun BookCard(book:Book,onClick:()->Unit){Card(Modifier.fillMaxWidth().clickable(onClick=onClick), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Paper), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Cover(book,92.dp,132.dp);Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Row(verticalAlignment=Alignment.CenterVertically){Text(displayTitle(book),fontWeight=FontWeight.Bold,fontFamily=FontFamily.Serif,fontSize=14.sp,lineHeight=18.sp,modifier=Modifier.weight(1f));if(book.favorite)AppIcon("Favorito", tint = Brass, size = 18.dp)};Text(displayAuthor(book),fontSize=12.sp)}}}}
 
 @Composable private fun BookCompactCard(book: Book, onClick: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -2674,7 +2778,7 @@ private fun decodeCover(book: Book): Bitmap? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     var sample = 1
-    while (bounds.outWidth / sample > 900 || bounds.outHeight / sample > 1200) sample *= 2
+    while (bounds.outWidth / sample > 600 || bounds.outHeight / sample > 900) sample *= 2
     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
         BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
     synchronized(coverBitmapCache) { coverBitmapCache.put(key, bitmap) }
@@ -2687,9 +2791,9 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
         synchronized(coverBitmapCache) { coverBitmapCache.get(coverKey(book)) }
     }
     val bmp by produceState<Bitmap?>(cached, book.uri, book.cover) {
-        if (value == null && book.cover != null) {
+        value = cached
+        if (cached == null && book.cover != null)
             value = withContext(Dispatchers.Default) { decodeCover(book) }
-        }
     }
     Surface(Modifier.width(w).height(h), shape = MaterialTheme.shapes.medium,
         color = Color(0xFFF1EDE6), tonalElevation = 0.dp) {
@@ -2825,8 +2929,8 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     Scaffold(containerColor = Parchment, topBar = {
         TopAppBar(
             title = { Text("Mi Biblioteca", fontFamily = FontFamily.Serif, color = Paper) },
-            navigationIcon = { TextButton(onClick = back) { Text("‹ Volver", color = Paper) } },
-            actions = { TextButton(onClick = toggleFavorite) { Text(if (book.favorite) "★" else "☆", color = Paper) } },
+            navigationIcon = { IconButton(onClick = back) { AppIcon("Volver", "Volver", tint = Paper) } },
+            actions = { IconButton(onClick = toggleFavorite) { AppIcon(if (book.favorite) "Favorito" else "Favoritos", "Favorito", tint = Paper) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Mahogany)
         )
     }) { p ->
@@ -2861,7 +2965,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 Button(onClick = {
                     onOpened(); setStatus(ReadingStatus.READING); openBook()
                 }, modifier = Modifier.fillMaxWidth()) {
-                    Text("📖  Leer este libro")
+                    ActionLabel("Leer este libro", "Leer")
                 }
                 OutlinedButton(onClick = {
                     val safeName = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), " ").trim().take(90)
@@ -2870,7 +2974,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                     exportPicker.launch((safeName.ifBlank { "Libro" }) + "." +
                         extension.takeIf { it in setOf("epub", "pdf", "mobi", "azw", "azw3", "txt", "html", "htm", "rtf", "docx", "md") }.orEmpty().ifBlank { "epub" })
                 }, modifier = Modifier.fillMaxWidth(), enabled = !exportingEpub) {
-                    Text(if (exportingEpub) "Guardando archivo…" else "Descargar archivo de Drive")
+                    ActionLabel(if (exportingEpub) "Guardando archivo…" else "Descargar archivo de Drive", "Descargar")
                 }
                     Spacer(Modifier.height(14.dp))
                     OutlinedButton(onClick = {
@@ -2878,17 +2982,17 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                         sagaDraft = book.saga; orderDraft = book.sagaOrder
                         editIdentityDialog = true
                     }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                        Text("Editar título y autor", fontSize = 13.sp)
+                        ActionLabel("Editar título y autor", "Editar")
                     }
                     Spacer(Modifier.height(14.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         OutlinedButton(onClick = { searchCoverImages(context, book) },
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                            Text("Buscar portada", fontSize = 12.sp, maxLines = 1)
+                            ActionLabel("Buscar portada", "Buscar", 12.sp)
                         }
                         OutlinedButton(onClick = { coverPicker.launch("image/*") },
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                            Text("Cambiar portada", fontSize = 12.sp, maxLines = 1)
+                            ActionLabel("Cambiar portada", "Portada", 12.sp)
                         }
                     }
                 }
@@ -2914,7 +3018,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 Text("Estado", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Mahogany)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ReadingStatus.entries.forEach { status ->
-                        FilterChip(book.status == status, { setStatus(status) }, { Text(status.label) })
+                        CatalogChip(status.label, book.status == status) { setStatus(status) }
                     }
                 }
             }
@@ -2949,13 +3053,13 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(onClick = enrich, enabled = !infoLoading,
                         modifier = Modifier.weight(1f)) {
-                        Text(if (infoLoading) "Buscando…" else "Reintentar búsqueda")
+                        ActionLabel(if (infoLoading) "Buscando…" else "Reintentar búsqueda", "Buscar", 12.sp)
                     }
                     OutlinedButton(onClick = {
                         plotDraft = book.spanishPlot.ifBlank { plot }
                         bioDraft = book.authorBio
                         editInfo = true
-                    }, modifier = Modifier.weight(1f)) { Text("Editar texto") }
+                    }, modifier = Modifier.weight(1f)) { ActionLabel("Editar texto", "Editar") }
                 }
             }
             item {
@@ -2964,17 +3068,17 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Escribe tus notas sobre este libro") }, minLines = 3)
                     OutlinedButton(onClick = { saveNotes(notesDraft) }) {
-                        Text("Guardar observaciones")
+                        ActionLabel("Guardar observaciones", "Guardar")
                     }
                 }
             }
             item {
                 OutlinedButton(onClick = { openGoodreads(context, book) },
-                    modifier = Modifier.fillMaxWidth()) { Text("Abrir este libro en Goodreads") }
+                    modifier = Modifier.fillMaxWidth()) { ActionLabel("Abrir este libro en Goodreads", "Goodreads") }
                 OutlinedButton(onClick = { searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book)) },
-                    modifier = Modifier.fillMaxWidth()) { Text("Consultar en Google") }
+                    modifier = Modifier.fillMaxWidth()) { ActionLabel("Consultar en Google", "Google") }
                 OutlinedButton(onClick = { confirmDelete = true },
-                    modifier = Modifier.fillMaxWidth()) { Text("Borrar este archivo de Drive") }
+                    modifier = Modifier.fillMaxWidth()) { ActionLabel("Borrar este archivo de Drive", "Borrar") }
             }
         }
     }
