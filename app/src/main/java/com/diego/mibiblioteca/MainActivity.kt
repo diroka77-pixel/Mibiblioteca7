@@ -2112,6 +2112,8 @@ private fun openCasaDelLibro(context: Context) {
         else -> sectionsListState
     }
     val swipeThreshold = with(LocalDensity.current) { 56.dp.toPx() }
+    val drawerEdge = with(LocalDensity.current) { 28.dp.toPx() }
+    val readingShelfGestureHeight = with(LocalDensity.current) { 440.dp.toPx() }
     val swipeControlsHeight = with(LocalDensity.current) { 145.dp.toPx() }
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -2310,7 +2312,7 @@ private fun openCasaDelLibro(context: Context) {
                 { vm.confirmBookDetails(shown.uri) },
                 { title, author, saga, order -> vm.editIdentity(shown.uri, title, author, saga, order) })
         } else {
-    ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = true,
+    ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = drawerState.isOpen,
         drawerContent = {
             ModalDrawerSheet(drawerContainerColor = Paper,
                 modifier = Modifier.width(300.dp)) {
@@ -2487,6 +2489,7 @@ private fun openCasaDelLibro(context: Context) {
         }
     ) { p ->
       val currentTab by rememberUpdatedState(tab)
+      val hasReadingShelf by rememberUpdatedState(vm.readingFirst && readingBooks.isNotEmpty())
       val currentSwitch by rememberUpdatedState<(String) -> Unit>({ switchTab(it) })
       Box(Modifier.padding(p).fillMaxSize().pointerInput(swipeThreshold) {
           awaitEachGesture {
@@ -2501,7 +2504,13 @@ private fun openCasaDelLibro(context: Context) {
               }
               val horizontal = end.x - start.x
               val vertical = end.y - start.y
-              if (start.y > swipeControlsHeight && start.x > swipeThreshold && kotlin.math.abs(horizontal) > swipeThreshold &&
+              if (start.x <= drawerEdge &&
+                  horizontal > swipeThreshold && kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.4f) {
+                  scope.launch { drawerState.open() }
+              } else if (start.y > swipeControlsHeight && start.x > swipeThreshold &&
+                  !(currentTab == "Inicio" && hasReadingShelf &&
+                      start.y < readingShelfGestureHeight) &&
+                  kotlin.math.abs(horizontal) > swipeThreshold &&
                   kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.25f) {
                   val index = tabs.indexOf(currentTab)
                   val next = index + if (horizontal < 0) 1 else -1
@@ -2509,19 +2518,19 @@ private fun openCasaDelLibro(context: Context) {
               }
           }
       }) {
+        Column(Modifier.fillMaxSize()) {
+        QuickAccess(
+            onLibrary = { switchTab("Biblioteca") },
+            onFavorites = { switchTab("Biblioteca"); vm.onlyFavorites = true },
+            onGoodreads = { openGoodreads(context) },
+            onGoogle = { openGoogleAi(context) })
+        Box(Modifier.fillMaxWidth().weight(1f)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             state = listState,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (tab == "Inicio") item(key = "quick-access") {
-                QuickAccess(
-                    onLibrary = { switchTab("Biblioteca") },
-                    onFavorites = { switchTab("Biblioteca"); vm.onlyFavorites = true },
-                    onGoodreads = { openGoodreads(context) },
-                    onGoogle = { openGoogleAi(context) })
-            }
             if (tab == "Inicio" && vm.readingFirst && readingBooks.isNotEmpty())
                 item(key = "reading-shelf") { ReadingShelf(readingBooks, vm::readingPercent) { book ->
                     readingUri = book.uri.toString()
@@ -2753,6 +2762,8 @@ private fun openCasaDelLibro(context: Context) {
         if (tab == "Biblioteca" && !showWishList) {
             LibraryScrollHandle(listState, Modifier.align(Alignment.CenterEnd))
         }
+        }
+        }
       }
     }
     }
@@ -2815,18 +2826,18 @@ private fun openCasaDelLibro(context: Context) {
         Triple("Goodreads", "Goodreads", Color(0xFF186D66)) to onGoodreads,
         Triple("Google IA", "Google IA", Color(0xFFB96056)) to onGoogle
     )
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-        .padding(top = 14.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly) {
         shortcuts.forEach { (item, action) ->
-            Column(Modifier.width(70.dp).clickable(onClick = action),
+            Column(Modifier.weight(1f).clickable(onClick = action),
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.size(66.dp).background(item.third,
+                Box(Modifier.size(56.dp).background(item.third,
                     androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
                     contentAlignment = Alignment.Center) {
-                    AppIcon(item.second, tint = Color.White, size = 28.dp)
+                    AppIcon(item.second, tint = Color.White, size = 25.dp)
                 }
-                Spacer(Modifier.height(6.dp))
-                Text(item.first, fontSize = 10.sp, maxLines = 2,
+                Spacer(Modifier.height(4.dp))
+                Text(item.first, fontSize = 11.sp, maxLines = 1,
                     color = Mahogany, textAlign = TextAlign.Center)
             }
         }
@@ -2862,18 +2873,40 @@ private fun openCasaDelLibro(context: Context) {
     }
 }
 
-@Composable private fun BookCard(book:Book,onClick:()->Unit){Card(Modifier.fillMaxWidth().clickable(onClick=onClick), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Paper), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Cover(book,92.dp,132.dp);Spacer(Modifier.width(14.dp));Column(Modifier.weight(1f)){Row(verticalAlignment=Alignment.CenterVertically){Text(displayTitle(book),fontWeight=FontWeight.Bold,fontFamily=FontFamily.Serif,fontSize=14.sp,lineHeight=18.sp,modifier=Modifier.weight(1f));if(book.favorite)AppIcon("Favorito", tint = Brass, size = 18.dp)};Text(displayAuthor(book),fontSize=12.sp)}}}}
+@Composable private fun BookCard(book: Book, onClick: () -> Unit) {
+    val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
+    val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
+    Card(Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Paper),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Cover(book, 92.dp, 132.dp)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif,
+                        fontSize = 14.sp, lineHeight = 18.sp, modifier = Modifier.weight(1f))
+                    if (book.favorite) AppIcon("Favorito", tint = Brass, size = 18.dp)
+                }
+                Text(author, fontSize = 12.sp)
+            }
+        }
+    }
+}
 
 @Composable private fun BookCompactCard(book: Book, onClick: () -> Unit) {
+    val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
+    val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = Paper)) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Cover(book, 50.dp, 72.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(displayTitle(book), fontSize = 13.sp, lineHeight = 17.sp,
+                Text(title, fontSize = 13.sp, lineHeight = 17.sp,
                     fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-                Text(displayAuthor(book), fontSize = 11.sp)
+                Text(author, fontSize = 11.sp)
             }
         }
     }
@@ -2881,6 +2914,8 @@ private fun openCasaDelLibro(context: Context) {
 
 @Composable private fun BookGalleryCard(book: Book, modifier: Modifier = Modifier,
     progress: Int, onClick: () -> Unit) {
+    val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
+    val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
     BoxWithConstraints(modifier.clickable(onClick = onClick).padding(bottom = 8.dp)) {
         val coverWidth = maxWidth
         Column(Modifier.fillMaxWidth()) {
@@ -2889,10 +2924,10 @@ private fun openCasaDelLibro(context: Context) {
                 Cover(book, coverWidth, coverWidth * 1.42f)
             }
             Spacer(Modifier.height(7.dp))
-            Text(displayTitle(book), fontSize = 13.sp, lineHeight = 17.sp,
+            Text(title, fontSize = 13.sp, lineHeight = 17.sp,
                 fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
                 maxLines = 2, color = Ink)
-            Text(displayAuthor(book), fontSize = 11.sp, maxLines = 1,
+            Text(author, fontSize = 11.sp, maxLines = 1,
                 color = Mahogany.copy(alpha = 0.75f))
             if (book.status == ReadingStatus.READING) {
                 Spacer(Modifier.height(5.dp))
