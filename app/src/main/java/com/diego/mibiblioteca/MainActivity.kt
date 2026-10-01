@@ -2110,6 +2110,7 @@ private fun openCasaDelLibro(context: Context) {
     val swipeThreshold = with(LocalDensity.current) { 56.dp.toPx() }
     val swipeControlsHeight = with(LocalDensity.current) { 145.dp.toPx() }
     val scope = rememberCoroutineScope()
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
     var showSyncReport by remember { mutableStateOf(false) }
     var homeSettings by remember { mutableStateOf(false) }
     var newsSettings by remember { mutableStateOf(false) }
@@ -2304,28 +2305,129 @@ private fun openCasaDelLibro(context: Context) {
                 { vm.confirmBookDetails(shown.uri) },
                 { title, author, saga, order -> vm.editIdentity(shown.uri, title, author, saga, order) })
         } else {
-    Scaffold(
-        containerColor = Parchment,
-        bottomBar = {
-            NavigationBar(containerColor = Paper, tonalElevation = 0.dp) {
-                tabs.forEach { name ->
-                    NavigationBarItem(selected = tab == name, onClick = {
-                        switchTab(name)
-                    }, icon = { AppIcon(name, size = 24.dp) },
-                        label = { Text(name) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Teal, selectedTextColor = Teal,
-                            indicatorColor = Teal.copy(alpha = 0.10f),
-                            unselectedIconColor = Mahogany, unselectedTextColor = Mahogany))
+    ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = true,
+        drawerContent = {
+            ModalDrawerSheet(drawerContainerColor = Paper,
+                modifier = Modifier.width(300.dp)) {
+                Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 18.dp)) {
+                    Text("Mi Biblioteca", color = Mahogany, fontSize = 21.sp,
+                        fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
+                    Text("By Diroka77", color = Teal, fontSize = 12.sp)
+                    Spacer(Modifier.height(20.dp))
+                    tabs.forEach { name ->
+                        NavigationDrawerItem(label = { Text(name) }, selected = tab == name,
+                            icon = { AppIcon(name, size = 22.dp) }, onClick = {
+                                switchTab(name); scope.launch { drawerState.close() }
+                            }, colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = Teal.copy(alpha = 0.14f),
+                                selectedTextColor = Teal, selectedIconColor = Teal))
+                    }
+                    HorizontalDivider(Modifier.padding(vertical = 14.dp))
+                    Text("Explorar", color = Mahogany, fontWeight = FontWeight.SemiBold)
+                    NavigationDrawerItem(label = { Text("Favoritos") }, selected = vm.onlyFavorites && tab == "Biblioteca",
+                        icon = { AppIcon("Favoritos") }, onClick = {
+                            switchTab("Biblioteca"); vm.onlyFavorites = true
+                            scope.launch { drawerState.close() }
+                        })
+                    NavigationDrawerItem(label = { Text("Quiero leer") }, selected = showWishList,
+                        icon = { AppIcon("Pendientes") }, onClick = {
+                            switchTab("Biblioteca"); showWishList = true
+                            scope.launch { drawerState.close() }
+                        })
+                    if (showWishList) LibraryTextButton(onClick = { addWishDialog = true }) { Text("Añadir Goodreads") }
+                    if (tab == "Biblioteca" && !showWishList) {
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        Text("Mostrar", color = Mahogany, fontWeight = FontWeight.SemiBold)
+                        Row(Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("Todos", "Leyendo", "Leídos").forEach { kind ->
+                                val status = when (kind) {
+                                    "Leyendo" -> ReadingStatus.READING
+                                    "Leídos" -> ReadingStatus.READ
+                                    else -> null
+                                }
+                                CatalogChip(kind, vm.statusFilter == status && !vm.onlyFavorites) {
+                                    vm.statusFilter = status; vm.onlyFavorites = false
+                                }
+                            }
+                        }
+                        Text("Agrupar por", color = Mahogany, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 14.dp))
+                        listOf("Todos", "Autores", "Sagas", "Secciones").forEach { mode ->
+                            NavigationDrawerItem(label = { Text(mode) }, selected = vm.groupMode == mode,
+                                onClick = { vm.groupMode = mode; scope.launch { drawerState.close() } })
+                        }
+                    }
+                    if (tab == "Pendientes") {
+                        Text("Ficha pendiente", color = Mahogany, fontWeight = FontWeight.SemiBold)
+                        listOf("Todos", "Revisar", "Portada", "Argumento", "Biografía", "Autor").forEach { kind ->
+                            NavigationDrawerItem(label = { Text(kind) }, selected = vm.qualityFilter == kind,
+                                onClick = { vm.qualityFilter = kind; scope.launch { drawerState.close() } })
+                        }
+                    }
+                    if (tab == "Secciones") {
+                        Text("Mis secciones", color = Mahogany, fontWeight = FontWeight.SemiBold)
+                        (listOf("Todas") + vm.sections).forEach { name ->
+                            NavigationDrawerItem(label = { Text(name) },
+                                selected = vm.selectedSection == name || name == "Todas" && vm.selectedSection == null,
+                                onClick = {
+                                    vm.selectedSection = name.takeUnless { it == "Todas" }
+                                    scope.launch { drawerState.close() }
+                                })
+                        }
+                    }
+                    if (tab != "Inicio" && !showWishList) {
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        Text("Vista", color = Mahogany, fontWeight = FontWeight.SemiBold)
+                        Row(Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("Lista", "Galería", "Compacta").forEach { mode ->
+                                CatalogChip(mode, vm.viewModeFor(vm.selectedSection) == mode) {
+                                    vm.chooseViewMode(mode); scope.launch { drawerState.close() }
+                                }
+                            }
+                        }
+                    }
+                    HorizontalDivider(Modifier.padding(vertical = 14.dp))
+                    NavigationDrawerItem(label = { Text("Elegir carpeta") }, selected = false,
+                        icon = { AppIcon("Carpeta") }, onClick = {
+                            scope.launch { drawerState.close() }; folderPicker.launch(null)
+                        })
+                    NavigationDrawerItem(label = { Text("Sincronizar biblioteca") }, selected = false,
+                        icon = { AppIcon("Sincronizar") }, onClick = {
+                            scope.launch { drawerState.close() }; vm.sync()
+                        })
+                    NavigationDrawerItem(label = { Text("Datos y portadas") }, selected = false,
+                        icon = { AppIcon("Datos") }, onClick = {
+                            scope.launch { drawerState.close() }; vm.refreshIncomplete()
+                        })
+                    NavigationDrawerItem(label = { Text("Goodreads") }, selected = false,
+                        icon = { AppIcon("Goodreads") }, onClick = { openGoodreads(context) })
+                    NavigationDrawerItem(label = { Text("Google IA") }, selected = false,
+                        icon = { AppIcon("Google IA") }, onClick = { openGoogleAi(context) })
+                    NavigationDrawerItem(label = { Text("Casa del Libro") }, selected = false,
+                        icon = { AppIcon("Casa del Libro") }, onClick = { openCasaDelLibro(context) })
+                    HorizontalDivider(Modifier.padding(vertical = 14.dp))
+                    NavigationDrawerItem(label = { Text("Opciones de biblioteca") }, selected = false,
+                        icon = { AppIcon("Opciones") }, onClick = {
+                            scope.launch { drawerState.close() }; backupMenu = true
+                        })
                 }
             }
-        },
+        }) {
+    Scaffold(
+        containerColor = Parchment,
         topBar = {
             Column(Modifier.fillMaxWidth().background(Mahogany).statusBarsPadding()) {
                 Row(Modifier.fillMaxWidth().height(60.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text("Mi Biblioteca", color = Color.White, fontSize = 17.sp,
+                    IconButton(onClick = { scope.launch { drawerState.open() } },
+                        modifier = Modifier.semantics { contentDescription = "Abrir menú" }) {
+                        Icon(Icons.Outlined.Menu, "Abrir menú", tint = Color.White)
+                    }
+                    Text("Mi Biblioteca", color = Color.White, fontSize = 14.sp,
                         fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.width(10.dp))
                     Box(Modifier.size(40.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
@@ -2334,8 +2436,9 @@ private fun openCasaDelLibro(context: Context) {
                             "Estantería de libros", modifier = Modifier.size(30.dp))
                     }
                     Spacer(Modifier.width(10.dp))
-                    Text("By Diroka77", color = Color.White, fontSize = 17.sp,
+                    Text("By Diroka77", color = Color.White, fontSize = 14.sp,
                         fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.width(40.dp))
                 }
                 OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
                     tab = "Biblioteca"; vm.qualityFilter = "Ninguno"
@@ -2366,7 +2469,7 @@ private fun openCasaDelLibro(context: Context) {
               }
               val horizontal = end.x - start.x
               val vertical = end.y - start.y
-              if (start.y > swipeControlsHeight && kotlin.math.abs(horizontal) > swipeThreshold &&
+              if (start.y > swipeControlsHeight && start.x > swipeThreshold && kotlin.math.abs(horizontal) > swipeThreshold &&
                   kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.25f) {
                   val index = tabs.indexOf(currentTab)
                   val next = index + if (horizontal < 0) 1 else -1
@@ -2380,7 +2483,7 @@ private fun openCasaDelLibro(context: Context) {
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (tab == "Inicio" || tab == "Biblioteca") item(key = "quick-access") {
+            if (tab == "Inicio") item(key = "quick-access") {
                 QuickAccess(
                     onLibrary = { switchTab("Biblioteca") },
                     onFolder = { folderPicker.launch(null) },
@@ -2423,12 +2526,6 @@ private fun openCasaDelLibro(context: Context) {
                     if (tab == "Pendientes") {
                         Text("Fichas por completar", fontFamily = FontFamily.Serif,
                             style = MaterialTheme.typography.headlineSmall, color = Mahogany)
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("Todos", "Revisar", "Portada", "Argumento", "Biografía", "Autor").forEach { kind ->
-                                CatalogChip(kind, vm.qualityFilter == kind, Teal) { vm.qualityFilter = kind }
-                            }
-                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("${filteredBooks.size} pendientes", Modifier.weight(1f),
                                 fontSize = 12.sp, color = Mahogany)
@@ -2453,57 +2550,10 @@ private fun openCasaDelLibro(context: Context) {
                         Text(vm.syncSummary, color = Mahogany, fontSize = 12.sp)
                     if (tab == "Biblioteca") {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("${vm.books.size} libros en tu biblioteca",
-                                modifier = Modifier.weight(1f), fontSize = 12.sp, color = Mahogany)
-                            LibraryActionButton(onClick = {
-                                if (vm.bulkInfoLoading) vm.cancelIncomplete()
-                                else vm.refreshIncomplete()
-                            }) {
-                                ActionLabel(if (vm.bulkInfoLoading) "Detener · ${vm.bulkProgress}"
-                                    else "Datos y portadas", "Datos", 12.sp)
-                            }
-                        }
-                        if (vm.bulkInfoLoading) {
-                            Text("Buscando fichas ${vm.bulkProgress}",
-                                fontSize = 12.sp, color = Mahogany)
-                            LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
-                        }
-                        vm.message?.let { feedback ->
-                            Text(feedback, color = Mahogany, fontSize = 12.sp)
-                        }
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            CatalogChip("Todos", vm.statusFilter == null, Teal) { vm.statusFilter = null }
-                            CatalogChip("★ Favoritos", vm.onlyFavorites, Color(0xFFAA6200)) { vm.onlyFavorites = !vm.onlyFavorites }
-                            CatalogChip("Leyendo", vm.statusFilter == ReadingStatus.READING, Teal) {
-                                vm.statusFilter = if (vm.statusFilter == ReadingStatus.READING) null else ReadingStatus.READING
-                            }
-                            CatalogChip("Leídos", vm.statusFilter == ReadingStatus.READ, Color(0xFF4564A4)) {
-                                vm.statusFilter = if (vm.statusFilter == ReadingStatus.READ) null else ReadingStatus.READ
-                            }
-                        }
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("Todos", "Autores", "Sagas", "Secciones").forEach { mode ->
-                                CatalogChip(mode, vm.groupMode == mode, when (mode) {
-                                    "Autores" -> Color(0xFF7852A0)
-                                    "Sagas" -> Color(0xFFB45D39)
-                                    "Secciones" -> Color(0xFF397E56)
-                                    else -> Teal
-                                }) { vm.groupMode = mode }
-                            }
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("${filteredBooks.size} libros", modifier = Modifier.weight(1f),
-                                fontFamily = FontFamily.Serif, style = MaterialTheme.typography.titleMedium)
-                            if (vm.statusFilter != null || vm.onlyFavorites || vm.selectedSection != null) {
-                                LibraryTextButton(onClick = {
-                                    vm.statusFilter = null; vm.onlyFavorites = false; vm.selectedSection = null
-                                }) { Text("Limpiar filtros") }
-                            }
+                            Text("${filteredBooks.size} libros", Modifier.weight(1f), color = Mahogany)
                             Box {
                                 LibraryTextButton(onClick = { sortMenu = true }) {
-                                    ActionLabel("Ordenar: $sortMode", "Sagas", 12.sp)
+                                    ActionLabel("Orden: $sortMode", "Sagas", 12.sp)
                                 }
                                 DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                                     listOf("Título", "Autor", "Recientes").forEach { option ->
@@ -2514,61 +2564,29 @@ private fun openCasaDelLibro(context: Context) {
                                 }
                             }
                         }
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            CatalogChip("Quiero leer (${vm.wishList.size})", showWishList, Color(0xFF7852A0)) {
-                                showWishList = !showWishList
-                            }
-                            if (showWishList) LibraryTextButton(onClick = { addWishDialog = true }) { Text("+ Goodreads") }
-                        }
+                        if (vm.bulkInfoLoading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
+                        vm.message?.let { Text(it, color = Mahogany, fontSize = 12.sp) }
                     }
                     if (tab == "Secciones") {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            CatalogChip("Todas", vm.selectedSection == null, Color(0xFF397E56)) { vm.selectedSection = null }
-                            vm.sections.forEach { name ->
-                                CatalogChip(name, vm.selectedSection == name, Color(0xFF397E56)) { vm.selectedSection = name }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            LibraryActionButton(onClick = { addingSection = true }) {
+                                ActionLabel("Nueva sección", "Añadir")
                             }
-                        }
-                        Row {
-                            LibraryActionButton(onClick = { addingSection = true }) { ActionLabel("Nueva sección", "Añadir") }
                             Spacer(Modifier.width(8.dp))
-                            LibraryActionButton(onClick = { organizeSections = true }) { ActionLabel("Ordenar secciones", "Secciones") }
+                            LibraryTextButton(onClick = { organizeSections = true }) { Text("Organizar") }
                         }
                     }
-                    if (tab != "Inicio" && !showWishList) {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("Lista", "Galería", "Compacta").forEach { mode ->
-                                CatalogChip(when (mode) {
-                                    "Galería" -> "Galería"
-                                    "Compacta" -> "Compacta"
-                                    else -> "Lista"
-                                }, vm.viewModeFor(vm.selectedSection) == mode, Teal) {
-                                    vm.chooseViewMode(mode)
-                                }
-                            }
-                        }
-                    }
-                    if (tab == "Biblioteca") {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Box {
-                                LibraryTextButton(onClick = { backupMenu = true },
-                                    modifier = Modifier.semantics { contentDescription = "Opciones de biblioteca" }) {
-                                    ActionLabel("Más opciones", "Opciones")
-                                }
-                                DropdownMenu(expanded = backupMenu, onDismissRequest = { backupMenu = false }) {
-                                    DropdownMenuItem(text = { Text("Exportar mis datos") }, onClick = {
-                                        backupMenu = false; backupExport.launch("MiBiblioteca-respaldo.json")
-                                    })
-                                    DropdownMenuItem(text = { Text("Restaurar respaldo") }, onClick = {
-                                        backupMenu = false; backupImport.launch(arrayOf("application/json"))
-                                    })
-                                    if (duplicateGroups.isNotEmpty()) DropdownMenuItem(
-                                        text = { Text("Duplicados (${duplicateGroups.size})") },
-                                        onClick = { backupMenu = false; duplicateDialog = true })
-                                }
-                            }
+                    Box {
+                        DropdownMenu(expanded = backupMenu, onDismissRequest = { backupMenu = false }) {
+                            DropdownMenuItem(text = { Text("Exportar mis datos") }, onClick = {
+                                backupMenu = false; backupExport.launch("MiBiblioteca-respaldo.json")
+                            })
+                            DropdownMenuItem(text = { Text("Restaurar respaldo") }, onClick = {
+                                backupMenu = false; backupImport.launch(arrayOf("application/json"))
+                            })
+                            if (duplicateGroups.isNotEmpty()) DropdownMenuItem(
+                                text = { Text("Duplicados (${duplicateGroups.size})") },
+                                onClick = { backupMenu = false; duplicateDialog = true })
                         }
                     }
                 }
@@ -2734,6 +2752,7 @@ private fun openCasaDelLibro(context: Context) {
             LibraryScrollHandle(listState, Modifier.align(Alignment.CenterEnd))
         }
       }
+    }
     }
     }
 }
