@@ -2021,7 +2021,7 @@ private fun openCasaDelLibro(context: Context) {
             if (selected) Color.White.copy(alpha = 0.8f) else accent.copy(alpha = 0.8f)),
         colors = FilterChipDefaults.filterChipColors(
             containerColor = accent, labelColor = Color.White,
-            leadingIconColor = Color.White, selectedLeadingIconColor = Color.White,
+            iconColor = Color.White, selectedLeadingIconColor = Color.White,
             selectedContainerColor = accent, selectedLabelColor = Color.White))
 }
 
