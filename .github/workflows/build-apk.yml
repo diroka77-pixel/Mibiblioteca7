@@ -21,19 +21,39 @@ jobs:
         run: |
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)
           "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
-      - name: Compilar APK de prueba
-        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
-      - name: Validar compilación optimizada
-        run: gradle :app:assembleRelease --no-daemon
+      - name: Restaurar firma permanente
+        env:
+          KEYSTORE_B64: ${{ secrets.MIBIBLIOTECA_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.MIBIBLIOTECA_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Configura MIBIBLIOTECA_KEYSTORE_B64 y MIBIBLIOTECA_KEYSTORE_PASSWORD. No se publicará una APK con una firma temporal."
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/mibiblioteca.p12"
+          keytool -list -keystore "$RUNNER_TEMP/mibiblioteca.p12" -storepass:env KEYSTORE_PASSWORD -alias mibiblioteca >/dev/null
+      - name: Probar y compilar APK firmada
+        env:
+          MIBIBLIOTECA_KEYSTORE_PATH: ${{ runner.temp }}/mibiblioteca.p12
+          MIBIBLIOTECA_KEYSTORE_PASSWORD: ${{ secrets.MIBIBLIOTECA_KEYSTORE_PASSWORD }}
+        run: gradle :app:testDebugUnitTest :app:assembleRelease --no-daemon
+      - name: Verificar firma y alineación de la APK
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: MiBiblioteca-v0.51-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: MiBiblioteca-v0.52-firmada
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
       - name: Publicar APK descargable
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk MiBiblioteca-v0.51.apk
-          gh release view v0.51 >/dev/null 2>&1 || gh release create v0.51 --title "MiBiblioteca v0.51" --notes "Búsqueda ampliada de portadas en catálogos, librerías, editoriales y Goodreads."
-          gh release upload v0.51 MiBiblioteca-v0.51.apk --clobber
+          cp app/build/outputs/apk/release/app-release.apk MiBiblioteca-v0.52.apk
+          gh release view v0.52 >/dev/null 2>&1 || gh release create v0.52 --title "MiBiblioteca v0.52" --notes "Firma permanente para futuras actualizaciones y APK optimizada."
+          gh release upload v0.52 MiBiblioteca-v0.52.apk --clobber
+      - name: Eliminar clave temporal del runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
