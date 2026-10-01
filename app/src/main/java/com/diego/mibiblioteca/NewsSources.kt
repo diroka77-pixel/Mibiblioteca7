@@ -10,6 +10,40 @@ data class LaunchNews(
     val imageUrl: String, val releaseDate: String
 )
 
+internal val featuredNewsSources = linkedMapOf(
+    "Fnac" to "https://www.fnac.es/s129487/Proximos-lanzamientos-en-libros",
+    "Librotea" to "https://librotea.eldiario.es/estanterias",
+    "Lecturalia" to "https://www.lecturalia.com/libros/pu/novedades-editoriales",
+    "Agapea" to "https://www.agapea.com/proximos-lanzamientos-libros/",
+    "Planeta de Libros" to "https://www.planetadelibros.com/blog/noticias"
+)
+
+internal fun fetchFeaturedNews(source: String, address: String): List<LaunchNews> = try {
+    val connection = URL(address).openConnection() as HttpURLConnection
+    connection.connectTimeout = 6500
+    connection.readTimeout = 8000
+    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+    val doc = try { connection.inputStream.use { Jsoup.parse(it, "UTF-8", address) } }
+        finally { connection.disconnect() }
+    val host = Uri.parse(address).host.orEmpty().removePrefix("www.")
+    val today = java.time.LocalDate.now().toString()
+    doc.select("a[href]").mapNotNull { link ->
+        val destination = link.absUrl("href")
+        val destinationHost = Uri.parse(destination).host.orEmpty().removePrefix("www.")
+        if (!destination.startsWith("https://") || destination == address ||
+            destinationHost != host || destination.contains("#")) return@mapNotNull null
+        val picture = link.selectFirst("img") ?: link.parent()?.selectFirst("img")
+            ?: return@mapNotNull null
+        val image = listOf("data-src", "data-original", "src")
+            .firstNotNullOfOrNull { key -> picture.absUrl(key).takeIf { it.startsWith("https://") } }
+            ?: return@mapNotNull null
+        val title = link.text().trim().ifBlank { picture.attr("alt").trim() }
+        if (title.length !in 9..150 || title.contains("cookie", true) ||
+            title.contains("iniciar sesión", true)) return@mapNotNull null
+        LaunchNews(source, title, destination, image, today)
+    }.distinctBy { it.url }.take(2)
+} catch (_: Exception) { emptyList() }
+
 internal val starterNews = listOf(
     LaunchNews("Clara", "Las 25 novedades en libros más esperadas del otoño de 2026",
         "https://www.clara.es/estilo-de-vida/novedades-libros-esperadas-otono-2026_49129",

@@ -369,7 +369,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     async(Dispatchers.IO) { fetchLiteraryNews(query) }
                 }
                 val books = async(Dispatchers.IO) { fetchCasaUpcomingBooks() }
-                val results = queries.awaitAll().flatten() + books.await()
+                val publishers = featuredNewsSources.map { (source, address) ->
+                    async(Dispatchers.IO) { fetchFeaturedNews(source, address).take(1) }
+                }
+                val results = queries.awaitAll().flatten() + books.await() +
+                    publishers.awaitAll().flatten()
                 val sorted = results.distinctBy { cleanCatalogText(it.title).lowercase() }
                     .sortedByDescending { it.releaseDate }.take(12)
                 if (sorted.isNotEmpty()) launchNews = sorted
@@ -2111,6 +2115,7 @@ private fun openCasaDelLibro(context: Context) {
     val swipeControlsHeight = with(LocalDensity.current) { 145.dp.toPx() }
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var showSyncReport by remember { mutableStateOf(false) }
     var homeSettings by remember { mutableStateOf(false) }
     var newsSettings by remember { mutableStateOf(false) }
@@ -2267,7 +2272,7 @@ private fun openCasaDelLibro(context: Context) {
     if (newsSettings) AlertDialog(onDismissRequest = { newsSettings = false },
         title = { Text("Fuentes de noticias") },
         text = { Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
-            vm.launchNews.map { it.source }.distinct().forEach { source ->
+            (vm.launchNews.map { it.source } + featuredNewsSources.keys).distinct().forEach { source ->
                 Row(Modifier.fillMaxWidth().clickable { vm.toggleNewsSource(source) },
                     verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(source !in vm.hiddenNewsSources,
@@ -2311,6 +2316,48 @@ private fun openCasaDelLibro(context: Context) {
                 modifier = Modifier.width(300.dp)) {
                 Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 18.dp)) {
+                    if (settingsOpen) {
+                        NavigationDrawerItem(label = { Text("Volver al menú") }, selected = false,
+                            icon = { Icon(Icons.Outlined.ArrowBack, null) },
+                            onClick = { settingsOpen = false })
+                        Text("Ajustes", color = Mahogany, fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 16.dp))
+                        Text("Biblioteca y Drive", color = Teal, fontWeight = FontWeight.Bold)
+                        NavigationDrawerItem(label = { Text("Carpeta de libros") }, selected = false,
+                            icon = { AppIcon("Carpeta") }, onClick = {
+                                scope.launch { drawerState.close() }; folderPicker.launch(null)
+                            })
+                        NavigationDrawerItem(label = { Text(if (vm.syncing) "Sincronizando…" else "Sincronizar biblioteca") },
+                            selected = false, icon = { AppIcon("Sincronizar") },
+                            onClick = { if (!vm.syncing) vm.sync() })
+                        NavigationDrawerItem(label = { Text("Estado de sincronización en Drive") },
+                            selected = false, icon = { AppIcon("Estado") }, onClick = {
+                                scope.launch { drawerState.close() }; showSyncReport = true
+                            })
+                        NavigationDrawerItem(label = { Text("Buscar datos y portadas") }, selected = false,
+                            icon = { AppIcon("Datos") }, onClick = {
+                                if (vm.bulkInfoLoading) vm.cancelIncomplete() else vm.refreshIncomplete()
+                            })
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        Text("Inicio y noticias", color = Teal, fontWeight = FontWeight.Bold)
+                        NavigationDrawerItem(label = { Text("Organizar Inicio") }, selected = false,
+                            icon = { AppIcon("Ajustes") }, onClick = {
+                                scope.launch { drawerState.close() }; homeSettings = true
+                            })
+                        NavigationDrawerItem(label = { Text("Fuentes de noticias") }, selected = false,
+                            icon = { AppIcon("Noticias") }, onClick = {
+                                scope.launch { drawerState.close() }; newsSettings = true
+                            })
+                        NavigationDrawerItem(label = { Text("Actualizar noticias") }, selected = false,
+                            icon = { AppIcon("Noticias") }, onClick = {
+                                if (!vm.newsRefreshing) vm.refreshLaunchNews(true)
+                            })
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        NavigationDrawerItem(label = { Text("Opciones de biblioteca") }, selected = false,
+                            icon = { AppIcon("Opciones") }, onClick = {
+                                scope.launch { drawerState.close() }; backupMenu = true
+                            })
+                    } else {
                     Text("Mi Biblioteca", color = Mahogany, fontSize = 21.sp,
                         fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
                     Text("By Diroka77", color = Teal, fontSize = 12.sp)
@@ -2390,29 +2437,14 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 14.dp))
-                    NavigationDrawerItem(label = { Text("Elegir carpeta") }, selected = false,
-                        icon = { AppIcon("Carpeta") }, onClick = {
-                            scope.launch { drawerState.close() }; folderPicker.launch(null)
-                        })
-                    NavigationDrawerItem(label = { Text("Sincronizar biblioteca") }, selected = false,
-                        icon = { AppIcon("Sincronizar") }, onClick = {
-                            scope.launch { drawerState.close() }; vm.sync()
-                        })
-                    NavigationDrawerItem(label = { Text("Datos y portadas") }, selected = false,
-                        icon = { AppIcon("Datos") }, onClick = {
-                            scope.launch { drawerState.close() }; vm.refreshIncomplete()
-                        })
                     NavigationDrawerItem(label = { Text("Goodreads") }, selected = false,
                         icon = { AppIcon("Goodreads") }, onClick = { openGoodreads(context) })
                     NavigationDrawerItem(label = { Text("Google IA") }, selected = false,
                         icon = { AppIcon("Google IA") }, onClick = { openGoogleAi(context) })
-                    NavigationDrawerItem(label = { Text("Casa del Libro") }, selected = false,
-                        icon = { AppIcon("Casa del Libro") }, onClick = { openCasaDelLibro(context) })
                     HorizontalDivider(Modifier.padding(vertical = 14.dp))
-                    NavigationDrawerItem(label = { Text("Opciones de biblioteca") }, selected = false,
-                        icon = { AppIcon("Opciones") }, onClick = {
-                            scope.launch { drawerState.close() }; backupMenu = true
-                        })
+                    NavigationDrawerItem(label = { Text("Ajustes") }, selected = false,
+                        icon = { AppIcon("Ajustes") }, onClick = { settingsOpen = true })
+                    }
                 }
             }
         }) {
@@ -2486,11 +2518,9 @@ private fun openCasaDelLibro(context: Context) {
             if (tab == "Inicio") item(key = "quick-access") {
                 QuickAccess(
                     onLibrary = { switchTab("Biblioteca") },
-                    onFolder = { folderPicker.launch(null) },
                     onFavorites = { switchTab("Biblioteca"); vm.onlyFavorites = true },
                     onGoodreads = { openGoodreads(context) },
-                    onGoogle = { openGoogleAi(context) },
-                    onCasa = { openCasaDelLibro(context) })
+                    onGoogle = { openGoogleAi(context) })
             }
             if (tab == "Inicio" && vm.readingFirst && readingBooks.isNotEmpty())
                 item(key = "reading-shelf") { ReadingShelf(readingBooks, vm::readingPercent) { book ->
@@ -2507,16 +2537,6 @@ private fun openCasaDelLibro(context: Context) {
                         Text("Historias por descubrir", fontFamily = FontFamily.Serif,
                             style = MaterialTheme.typography.headlineSmall, color = Ink,
                             modifier = Modifier.weight(1f))
-                        IconButton(onClick = { homeSettings = true },
-                            modifier = Modifier.semantics { contentDescription = "Organizar Inicio" }) {
-                            AppIcon("Ajustes", "Ajustes de inicio")
-                        }
-                        IconButton(onClick = { showSyncReport = true },
-                            modifier = Modifier.semantics { contentDescription = "Ver estado de sincronización" }) { AppIcon("Estado", "Estado de sincronización") }
-                        IconButton(onClick = { vm.sync() }, enabled = !vm.syncing,
-                            modifier = Modifier.semantics { contentDescription = "Sincronizar biblioteca" }) {
-                            AppIcon("Sincronizar", "Actualizar biblioteca")
-                        }
                     }
                     HorizontalDivider(color = Brass.copy(alpha = 0.4f), thickness = 1.dp)
                     }
@@ -2526,14 +2546,7 @@ private fun openCasaDelLibro(context: Context) {
                     if (tab == "Pendientes") {
                         Text("Fichas por completar", fontFamily = FontFamily.Serif,
                             style = MaterialTheme.typography.headlineSmall, color = Mahogany)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("${filteredBooks.size} pendientes", Modifier.weight(1f),
-                                fontSize = 12.sp, color = Mahogany)
-                            LibraryTextButton(onClick = { if (vm.bulkInfoLoading) vm.cancelIncomplete()
-                                else vm.refreshIncomplete() }) {
-                                Text(if (vm.bulkInfoLoading) "Detener · ${vm.bulkProgress}" else "Buscar datos y portadas")
-                            }
-                        }
+                        Text("${filteredBooks.size} pendientes", fontSize = 12.sp, color = Mahogany)
                     }
                     if (tab == "Secciones") Text("Tus secciones",
                         fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall, color = Mahogany)
@@ -2546,8 +2559,6 @@ private fun openCasaDelLibro(context: Context) {
                         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Teal)
                         Text("Buscando portadas ${vm.coverUpdateDone}/${vm.coverUpdateTotal}…", fontSize = 12.sp, color = Mahogany)
                     }
-                    if (tab == "Inicio" && vm.syncSummary.isNotBlank())
-                        Text(vm.syncSummary, color = Mahogany, fontSize = 12.sp)
                     if (tab == "Biblioteca") {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text("${filteredBooks.size} libros", Modifier.weight(1f), color = Mahogany)
@@ -2600,16 +2611,6 @@ private fun openCasaDelLibro(context: Context) {
                             Text("Actualidad literaria en España", fontFamily = FontFamily.Serif,
                                 fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Mahogany,
                                 modifier = Modifier.weight(1f))
-                            IconButton(onClick = { newsSettings = true },
-                                modifier = Modifier.semantics { contentDescription = "Elegir fuentes de noticias" }) {
-                                AppIcon("Ajustes", "Fuentes de noticias")
-                            }
-                            IconButton(onClick = { vm.refreshLaunchNews(true) }, enabled = !vm.newsRefreshing,
-                                modifier = Modifier.semantics { contentDescription = "Actualizar noticias" }) {
-                                if (vm.newsRefreshing) CircularProgressIndicator(Modifier.size(18.dp),
-                                    strokeWidth = 2.dp, color = Brass)
-                                else AppIcon("Noticias", "Actualizar noticias")
-                            }
                         }
                         if (vm.newsRefreshing && vm.launchNews.isEmpty())
                             Text("Buscando noticias literarias…", color = Mahogany, fontSize = 12.sp)
@@ -2656,6 +2657,7 @@ private fun openCasaDelLibro(context: Context) {
                                     fontWeight = FontWeight.SemiBold, maxLines = 1,
                                     modifier = Modifier.weight(1f))
                                 Text(if (news.source == "Casa del Libro") "Próximamente" else
+                                    if (news.source in featuredNewsSources) "Novedad" else
                                     try {
                                         java.time.LocalDate.parse(news.releaseDate).format(
                                             java.time.format.DateTimeFormatter.ofPattern("d MMM",
@@ -2804,16 +2806,14 @@ private fun openCasaDelLibro(context: Context) {
 }
 
 @Composable private fun QuickAccess(
-    onLibrary: () -> Unit, onFolder: () -> Unit, onFavorites: () -> Unit,
-    onGoodreads: () -> Unit, onGoogle: () -> Unit, onCasa: () -> Unit
+    onLibrary: () -> Unit, onFavorites: () -> Unit,
+    onGoodreads: () -> Unit, onGoogle: () -> Unit
 ) {
     val shortcuts = listOf(
         Triple("Libros", "Libros", Color(0xFF673D62)) to onLibrary,
-        Triple("Carpeta", "Carpeta", Color(0xFF4689C2)) to onFolder,
         Triple("Favoritos", "Favoritos", Color(0xFFC58D45)) to onFavorites,
         Triple("Goodreads", "Goodreads", Color(0xFF186D66)) to onGoodreads,
-        Triple("Google IA", "Google IA", Color(0xFFB96056)) to onGoogle,
-        Triple("Casa del Libro", "Casa del Libro", Color(0xFF435C82)) to onCasa
+        Triple("Google IA", "Google IA", Color(0xFFB96056)) to onGoogle
     )
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
         .padding(top = 14.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
