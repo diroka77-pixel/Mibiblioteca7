@@ -31,8 +31,18 @@ jobs:
             exit 1
           fi
           umask 077
-          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/mibiblioteca.p12"
-          keytool -list -keystore "$RUNNER_TEMP/mibiblioteca.p12" -storepass:env KEYSTORE_PASSWORD -alias mibiblioteca >/dev/null
+          if ! printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/mibiblioteca.p12"; then
+            echo "::error::El valor MIBIBLIOTECA_KEYSTORE_B64 no es Base64 válido. Copia el contenido completo del archivo correspondiente."
+            exit 1
+          fi
+          if [ "$(sha256sum "$RUNNER_TEMP/mibiblioteca.p12" | cut -d " " -f 1)" != "00d487f8ec6d0faaceec5515541929a2a403ecb6cf68cc1b045e756584c1f137" ]; then
+            echo "::error::La clave copiada en MIBIBLIOTECA_KEYSTORE_B64 no coincide con el archivo original. Reemplaza el secreto con el contenido completo del archivo."
+            exit 1
+          fi
+          if ! keytool -list -keystore "$RUNNER_TEMP/mibiblioteca.p12" -storepass:env KEYSTORE_PASSWORD -alias mibiblioteca >/dev/null 2>&1; then
+            echo "::error::MIBIBLIOTECA_KEYSTORE_PASSWORD no coincide con la clave. Reemplaza el secreto con el contenido completo del archivo correspondiente."
+            exit 1
+          fi
       - name: Probar y compilar APK firmada
         env:
           MIBIBLIOTECA_KEYSTORE_PATH: ${{ runner.temp }}/mibiblioteca.p12
