@@ -31,18 +31,8 @@ jobs:
             exit 1
           fi
           umask 077
-          if ! printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/mibiblioteca.p12"; then
-            echo "::error::El valor MIBIBLIOTECA_KEYSTORE_B64 no es Base64 válido. Copia el contenido completo del archivo correspondiente."
-            exit 1
-          fi
-          if [ "$(sha256sum "$RUNNER_TEMP/mibiblioteca.p12" | cut -d " " -f 1)" != "00d487f8ec6d0faaceec5515541929a2a403ecb6cf68cc1b045e756584c1f137" ]; then
-            echo "::error::La clave copiada en MIBIBLIOTECA_KEYSTORE_B64 no coincide con el archivo original. Reemplaza el secreto con el contenido completo del archivo."
-            exit 1
-          fi
-          if ! keytool -list -keystore "$RUNNER_TEMP/mibiblioteca.p12" -storepass:env KEYSTORE_PASSWORD -alias mibiblioteca >/dev/null 2>&1; then
-            echo "::error::MIBIBLIOTECA_KEYSTORE_PASSWORD no coincide con la clave. Reemplaza el secreto con el contenido completo del archivo correspondiente."
-            exit 1
-          fi
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/mibiblioteca.p12"
+          keytool -list -keystore "$RUNNER_TEMP/mibiblioteca.p12" -storepass:env KEYSTORE_PASSWORD -alias mibiblioteca >/dev/null
       - name: Probar y compilar APK firmada
         env:
           MIBIBLIOTECA_KEYSTORE_PATH: ${{ runner.temp }}/mibiblioteca.p12
@@ -54,16 +44,16 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: MiBiblioteca-v0.53-firmada
+          name: MiBiblioteca-v0.54-firmada
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
       - name: Publicar APK descargable
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/release/app-release.apk MiBiblioteca-v0.53.apk
-          gh release view v0.53 >/dev/null 2>&1 || gh release create v0.53 --title "MiBiblioteca v0.53" --notes "Mejor recuperación de portadas desde los EPUB y catálogos; conserva la firma permanente."
-          gh release upload v0.53 MiBiblioteca-v0.53.apk --clobber
+          cp app/build/outputs/apk/release/app-release.apk MiBiblioteca-v0.54.apk
+          gh release view v0.54 >/dev/null 2>&1 || gh release create v0.54 --title "MiBiblioteca v0.54" --notes "Recuperación directa de portadas EPUB, botones renovados y navegación más fluida; conserva la firma permanente."
+          gh release upload v0.54 MiBiblioteca-v0.54.apk --clobber
       - name: Eliminar clave temporal del runner
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"

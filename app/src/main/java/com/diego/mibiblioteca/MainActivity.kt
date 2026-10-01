@@ -996,20 +996,28 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             coverLoading = book.uri
             try {
-                val bytes = withContext(Dispatchers.IO) { fetchCover(book) }
+                val embedded = withContext(Dispatchers.IO) {
+                    val name = DocumentFile.fromSingleUri(getApplication(), book.uri)?.name.orEmpty()
+                    if (name.endsWith(".epub", ignoreCase = true))
+                        readEpub(getApplication(), book.uri, name, book.sourceSize, book.sourceModified).cover
+                    else null
+                }
+                val bytes = embedded ?: withContext(Dispatchers.IO) { fetchCover(book) }
                 if (bytes == null) {
-                    message = "No se encontró portada en Open Library."
+                    detailMessage = "No se encontró una portada en el EPUB ni en los catálogos consultados."
                 } else {
                     withContext(Dispatchers.IO) {
                         val file = coverFile(getApplication(), book.uri)
                         file.writeBytes(bytes)
                         File(getApplication<Application>().filesDir, "removed-" + file.name).delete()
                     }
-                    books = books.map { if (it.uri == book.uri) it.copy(cover = bytes, coverSource = "Catálogos públicos") else it }
-                    message = "Portada guardada en este dispositivo."
+                    books = books.map { if (it.uri == book.uri) it.copy(cover = bytes,
+                        coverSource = if (embedded != null) "Portada del EPUB" else "Catálogos públicos") else it }
+                    saveBooks()
+                    detailMessage = "Portada incorporada a la ficha."
                 }
             } catch (e: Exception) {
-                message = "No se pudo descargar la portada: ${e.localizedMessage ?: "comprueba la conexión"}"
+                detailMessage = "No se pudo recuperar la portada: ${e.localizedMessage ?: "comprueba la conexión"}"
             } finally { coverLoading = null }
         }
     }
@@ -1283,7 +1291,7 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
                 val removed = removalMarker.exists()
                 val unchanged = prior != null && size > 0 && prior.sourceSize == size &&
                     (modified <= 0L || prior.sourceModified == modified) &&
-                    prior.metadataRevision >= 50 && (prior.cover != null || prior.metadataRevision >= 53) &&
+                    prior.metadataRevision >= 50 && (prior.cover != null || prior.metadataRevision >= 54) &&
                     prior.sourceCoverChecked &&
                     (!prior.hadEmbeddedCover || file.exists() || removed)
                 val epub = if (unchanged) prior!! else {
@@ -1339,8 +1347,9 @@ private fun readEpub(context: Context, uri: Uri, fallbackName: String,
                 it.tagName().substringAfter(':') == "rootfile"
             }?.attr("full-path")?.takeIf(String::isNotBlank)?.let(::normalizePath)
                 ?: zip.entries().asSequence().firstOrNull { it.name.endsWith(".opf", true) }?.name
-                ?: return@use fallback
-            val opfBytes = entryBytes(opfPath, 2_000_000) ?: return@use fallback
+                ?: return@use fallback.copy(cover = imageCoverFromZip(zip), metadataRevision = 54)
+            val opfBytes = entryBytes(opfPath, 2_000_000)
+                ?: return@use fallback.copy(cover = imageCoverFromZip(zip), metadataRevision = 54)
             val meta = parseOpf(opfBytes)
             val base = opfPath.substringBeforeLast('/', "")
             val candidates = (listOfNotNull(meta.coverHref) + meta.coverCandidates).distinct()
@@ -1379,16 +1388,10 @@ private fun readEpub(context: Context, uri: Uri, fallbackName: String,
                     if (cover != null) break
                 }
             }
-            if (cover == null) {
-                val namedCover = zip.entries().asSequence().firstOrNull {
-                    it.name.substringAfterLast('/').matches(
-                        Regex("(?i)(?:cover|portada|front)(?:[-_0-9]*)\\.(?:jpe?g|png|webp)"))
-                }
-                cover = namedCover?.name?.let { entryBytes(it, 16_000_000) }?.let(::compactPortraitCover)
-            }
+            if (cover == null) cover = imageCoverFromZip(zip)
             Book(uri, meta.title.ifBlank { fallback.title }, meta.author, meta.date, meta.publisher,
                 meta.genre, meta.description, meta.isbn, meta.saga, cover,
-                language = meta.language, sagaOrder = meta.sagaOrder, metadataRevision = 53)
+                language = meta.language, sagaOrder = meta.sagaOrder, metadataRevision = 54)
         }
     } catch (_: Exception) { fallback }
 }
@@ -1412,9 +1415,29 @@ private fun compactCover(bytes: ByteArray): ByteArray? {
 private fun compactPortraitCover(bytes: ByteArray): ByteArray? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    if (bounds.outWidth < 250 || bounds.outHeight < 350 ||
-        bounds.outWidth.toFloat() / bounds.outHeight !in 0.42f..0.9f) return null
+    if (bounds.outWidth < 120 || bounds.outHeight < 160 ||
+        bounds.outWidth.toFloat() / bounds.outHeight !in 0.4f..0.95f) return null
     return compactCover(bytes)
+}
+
+private fun imageCoverFromZip(zip: ZipFile): ByteArray? {
+    val candidates = zip.entries().asSequence().filter { entry ->
+        !entry.isDirectory && entry.name.substringAfterLast('.', "").lowercase() in
+            setOf("jpg", "jpeg", "png", "webp") &&
+            !Regex("(?i)logo|icon|banner|chapter|capitulo|decor|backcover|contraportada")
+                .containsMatchIn(entry.name)
+    }.toList()
+    val coverName = Regex("(?i)cover|portada|front|couverture|couv|jacket|tapa")
+    val ranked = candidates.withIndex().sortedWith(compareByDescending<IndexedValue<java.util.zip.ZipEntry>> {
+        coverName.containsMatchIn(it.value.name)
+    }.thenBy { it.index }).take(40)
+    for ((_, entry) in ranked) {
+        if (entry.size > 16_000_000) continue
+        val bytes = zip.getInputStream(entry).use { it.readNBytes(16_000_001) }
+        if (bytes.size > 16_000_000) continue
+        compactPortraitCover(bytes)?.let { return it }
+    }
+    return null
 }
 
 private fun coverFile(context: Context, uri: Uri): File {
@@ -1995,10 +2018,28 @@ private fun openCasaDelLibro(context: Context) {
     }, leadingIcon = { AppIcon(label.removePrefix("★ ").substringBefore(" ("), size = 18.dp) },
         shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp,
-            if (selected) accent.copy(alpha = 0.45f) else Mahogany.copy(alpha = 0.12f)),
+            if (selected) Color.White.copy(alpha = 0.8f) else accent.copy(alpha = 0.8f)),
         colors = FilterChipDefaults.filterChipColors(
-            containerColor = Paper, labelColor = Mahogany,
-            selectedContainerColor = accent.copy(alpha = 0.14f), selectedLabelColor = accent))
+            containerColor = accent, labelColor = Color.White,
+            leadingIconColor = Color.White, selectedLeadingIconColor = Color.White,
+            selectedContainerColor = accent, selectedLabelColor = Color.White))
+}
+
+@Composable private fun LibraryActionButton(
+    onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
+    color: Color = Teal, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit
+) {
+    Button(onClick = onClick, modifier = modifier, enabled = enabled,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White),
+        content = content)
+}
+
+@Composable private fun LibraryTextButton(
+    onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
+    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit
+) {
+    LibraryActionButton(onClick = onClick, modifier = modifier, enabled = enabled, content = content)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -2025,15 +2066,15 @@ private fun openCasaDelLibro(context: Context) {
         onDismissRequest = { addingSection = false },
         title = { Text("Nueva sección") },
         text = { OutlinedTextField(sectionName, { sectionName = it }, label = { Text("Nombre") }) },
-        confirmButton = { TextButton(onClick = { vm.addSection(sectionName); sectionName = ""; addingSection = false }) { Text("Crear") } },
-        dismissButton = { TextButton(onClick = { addingSection = false }) { Text("Cancelar") } }
+        confirmButton = { LibraryTextButton(onClick = { vm.addSection(sectionName); sectionName = ""; addingSection = false }) { Text("Crear") } },
+        dismissButton = { LibraryTextButton(onClick = { addingSection = false }) { Text("Cancelar") } }
     )
     sectionToDelete?.let { name -> AlertDialog(
         onDismissRequest = { sectionToDelete = null },
         title = { Text("Eliminar sección") },
         text = { Text("Se eliminará la sección «$name». Los libros permanecerán en la biblioteca.") },
-        confirmButton = { TextButton(onClick = { vm.deleteSection(name); sectionToDelete = null }) { Text("Eliminar") } },
-        dismissButton = { TextButton(onClick = { sectionToDelete = null }) { Text("Cancelar") } }
+        confirmButton = { LibraryTextButton(onClick = { vm.deleteSection(name); sectionToDelete = null }) { Text("Eliminar") } },
+        dismissButton = { LibraryTextButton(onClick = { sectionToDelete = null }) { Text("Cancelar") } }
     ) }
     if (addWishDialog) AlertDialog(
         onDismissRequest = { addWishDialog = false },
@@ -2042,10 +2083,10 @@ private fun openCasaDelLibro(context: Context) {
             OutlinedTextField(wishTitle, { wishTitle = it }, label = { Text("Título") })
             OutlinedTextField(wishUrl, { wishUrl = it }, label = { Text("Enlace compartido de Goodreads") })
         } },
-        confirmButton = { TextButton(onClick = {
+        confirmButton = { LibraryTextButton(onClick = {
             vm.addGoodreadsWish(wishTitle, wishUrl); addWishDialog = false; wishTitle = ""; wishUrl = ""
         }) { Text("Añadir") } },
-        dismissButton = { TextButton(onClick = { addWishDialog = false }) { Text("Cancelar") } }
+        dismissButton = { LibraryTextButton(onClick = { addWishDialog = false }) { Text("Cancelar") } }
     )
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
     val current = selected?.let { s -> vm.books.firstOrNull { it.uri == s.uri } }
@@ -2159,13 +2200,13 @@ private fun openCasaDelLibro(context: Context) {
                 OutlinedTextField(bioDraft, { bioDraft = it }, minLines = 3,
                     label = { Text("Sobre el autor") })
             } },
-            confirmButton = { TextButton(onClick = {
+            confirmButton = { LibraryTextButton(onClick = {
                 vm.acceptCandidate(uri, found.copy(author = authorDraft.trim(),
                     plot = plotDraft.trim(), bio = bioDraft.trim(),
                     plotSource = if (plotDraft.trim() == found.plot) found.plotSource else "Revisado por ti",
                     bioSource = if (bioDraft.trim() == found.bio) found.bioSource else "Revisado por ti"))
             }) { Text("Guardar datos") } },
-            dismissButton = { TextButton(onClick = vm::dismissCandidate) { Text("Cancelar") } })
+            dismissButton = { LibraryTextButton(onClick = vm::dismissCandidate) { Text("Cancelar") } })
     }
     if (organizeSections) AlertDialog(onDismissRequest = { organizeSections = false },
         title = { Text("Organizar secciones") },
@@ -2180,7 +2221,7 @@ private fun openCasaDelLibro(context: Context) {
             }
             if (vm.sections.isEmpty()) Text("Aún no hay secciones.")
         } },
-        confirmButton = { TextButton(onClick = { organizeSections = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { organizeSections = false }) { Text("Cerrar") } })
     if (duplicateDialog) AlertDialog(onDismissRequest = { duplicateDialog = false },
         title = { Text("Posibles duplicados") },
         text = { Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
@@ -2191,7 +2232,7 @@ private fun openCasaDelLibro(context: Context) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(displayAuthor(copy) + " · " + readableSize(copy.sourceSize),
                             modifier = Modifier.weight(1f), fontSize = 12.sp)
-                        TextButton(onClick = { duplicateDialog = false; selected = copy }) {
+                        LibraryTextButton(onClick = { duplicateDialog = false; selected = copy }) {
                             Text("Revisar")
                         }
                     }
@@ -2199,7 +2240,7 @@ private fun openCasaDelLibro(context: Context) {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
             }
         } },
-        confirmButton = { TextButton(onClick = { duplicateDialog = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { duplicateDialog = false }) { Text("Cerrar") } })
     if (showSyncReport) AlertDialog(onDismissRequest = { showSyncReport = false },
         title = { Text("Sincronización de Drive") },
         text = { Column {
@@ -2208,7 +2249,7 @@ private fun openCasaDelLibro(context: Context) {
             Text("Fluidez de esta sesión", fontWeight = FontWeight.Bold)
             Text((context as? MainActivity)?.performanceReport().orEmpty(), fontSize = 12.sp)
         } },
-        confirmButton = { TextButton(onClick = { showSyncReport = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { showSyncReport = false }) { Text("Cerrar") } })
     if (homeSettings) AlertDialog(onDismissRequest = { homeSettings = false },
         title = { Text("Organizar Inicio") },
         text = { Column {
@@ -2221,7 +2262,7 @@ private fun openCasaDelLibro(context: Context) {
                 Switch(vm.readingFirst, vm::updateReadingFirst)
             }
         } },
-        confirmButton = { TextButton(onClick = { homeSettings = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { homeSettings = false }) { Text("Cerrar") } })
     if (newsSettings) AlertDialog(onDismissRequest = { newsSettings = false },
         title = { Text("Fuentes de noticias") },
         text = { Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
@@ -2233,9 +2274,9 @@ private fun openCasaDelLibro(context: Context) {
                     Text(source)
                 }
             }
-            TextButton(onClick = vm::showAllNews) { Text("Recuperar noticias ocultas") }
+            LibraryTextButton(onClick = vm::showAllNews) { Text("Recuperar noticias ocultas") }
         } },
-        confirmButton = { TextButton(onClick = { newsSettings = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { newsSettings = false }) { Text("Cerrar") } })
     val shown = current
     LaunchedEffect(tab, shown?.uri) {
         (context as? MainActivity)?.setMetricScreen(if (shown != null) "Ficha" else tab)
@@ -2252,7 +2293,9 @@ private fun openCasaDelLibro(context: Context) {
                 vm.message, duplicateGroups.firstOrNull { group -> group.any { it.uri == shown.uri } }
                     ?.filterNot { it.uri == shown.uri }.orEmpty(),
                 { vm.deleteDuplicate(shown) }, { vm.completeMissing(shown.uri, force = true) },
-                vm.autoInfoLoading.contains(shown.uri), vm.autoCoverLoading.contains(shown.uri),
+                { vm.downloadCover(shown) },
+                vm.autoInfoLoading.contains(shown.uri),
+                vm.autoCoverLoading.contains(shown.uri) || vm.coverLoading == shown.uri,
                 vm.sections, { vm.assignSection(shown.uri, it) },
                 { vm.saveNotes(shown.uri, it) }, { plot, bio -> vm.saveManualInfo(shown.uri, plot, bio) },
                 { vm.replaceCover(shown.uri, it) },
@@ -2308,7 +2351,9 @@ private fun openCasaDelLibro(context: Context) {
             }
         }
     ) { p ->
-      Box(Modifier.padding(p).fillMaxSize().pointerInput(tab, swipeThreshold) {
+      val currentTab by rememberUpdatedState(tab)
+      val currentSwitch by rememberUpdatedState<(String) -> Unit>({ switchTab(it) })
+      Box(Modifier.padding(p).fillMaxSize().pointerInput(swipeThreshold) {
           awaitEachGesture {
               val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
               val start = down.position
@@ -2323,9 +2368,9 @@ private fun openCasaDelLibro(context: Context) {
               val vertical = end.y - start.y
               if (start.y > swipeControlsHeight && kotlin.math.abs(horizontal) > swipeThreshold &&
                   kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.25f) {
-                  val index = tabs.indexOf(tab)
+                  val index = tabs.indexOf(currentTab)
                   val next = index + if (horizontal < 0) 1 else -1
-                  if (next in tabs.indices) switchTab(tabs[next])
+                  if (next in tabs.indices) currentSwitch(tabs[next])
               }
           }
       }) {
@@ -2387,7 +2432,7 @@ private fun openCasaDelLibro(context: Context) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("${filteredBooks.size} pendientes", Modifier.weight(1f),
                                 fontSize = 12.sp, color = Mahogany)
-                            TextButton(onClick = { if (vm.bulkInfoLoading) vm.cancelIncomplete()
+                            LibraryTextButton(onClick = { if (vm.bulkInfoLoading) vm.cancelIncomplete()
                                 else vm.refreshIncomplete() }) {
                                 Text(if (vm.bulkInfoLoading) "Detener · ${vm.bulkProgress}" else "Buscar datos y portadas")
                             }
@@ -2410,7 +2455,7 @@ private fun openCasaDelLibro(context: Context) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text("${vm.books.size} libros en tu biblioteca",
                                 modifier = Modifier.weight(1f), fontSize = 12.sp, color = Mahogany)
-                            OutlinedButton(onClick = {
+                            LibraryActionButton(onClick = {
                                 if (vm.bulkInfoLoading) vm.cancelIncomplete()
                                 else vm.refreshIncomplete()
                             }) {
@@ -2452,12 +2497,12 @@ private fun openCasaDelLibro(context: Context) {
                             Text("${filteredBooks.size} libros", modifier = Modifier.weight(1f),
                                 fontFamily = FontFamily.Serif, style = MaterialTheme.typography.titleMedium)
                             if (vm.statusFilter != null || vm.onlyFavorites || vm.selectedSection != null) {
-                                TextButton(onClick = {
+                                LibraryTextButton(onClick = {
                                     vm.statusFilter = null; vm.onlyFavorites = false; vm.selectedSection = null
                                 }) { Text("Limpiar filtros") }
                             }
                             Box {
-                                TextButton(onClick = { sortMenu = true }) {
+                                LibraryTextButton(onClick = { sortMenu = true }) {
                                     ActionLabel("Ordenar: $sortMode", "Sagas", 12.sp)
                                 }
                                 DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
@@ -2474,7 +2519,7 @@ private fun openCasaDelLibro(context: Context) {
                             CatalogChip("Quiero leer (${vm.wishList.size})", showWishList, Color(0xFF7852A0)) {
                                 showWishList = !showWishList
                             }
-                            if (showWishList) TextButton(onClick = { addWishDialog = true }) { Text("+ Goodreads") }
+                            if (showWishList) LibraryTextButton(onClick = { addWishDialog = true }) { Text("+ Goodreads") }
                         }
                     }
                     if (tab == "Secciones") {
@@ -2486,9 +2531,9 @@ private fun openCasaDelLibro(context: Context) {
                             }
                         }
                         Row {
-                            OutlinedButton(onClick = { addingSection = true }) { ActionLabel("Nueva sección", "Añadir") }
+                            LibraryActionButton(onClick = { addingSection = true }) { ActionLabel("Nueva sección", "Añadir") }
                             Spacer(Modifier.width(8.dp))
-                            OutlinedButton(onClick = { organizeSections = true }) { ActionLabel("Ordenar secciones", "Secciones") }
+                            LibraryActionButton(onClick = { organizeSections = true }) { ActionLabel("Ordenar secciones", "Secciones") }
                         }
                     }
                     if (tab != "Inicio" && !showWishList) {
@@ -2508,7 +2553,7 @@ private fun openCasaDelLibro(context: Context) {
                     if (tab == "Biblioteca") {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Box {
-                                TextButton(onClick = { backupMenu = true },
+                                LibraryTextButton(onClick = { backupMenu = true },
                                     modifier = Modifier.semantics { contentDescription = "Opciones de biblioteca" }) {
                                     ActionLabel("Más opciones", "Opciones")
                                 }
@@ -2628,7 +2673,7 @@ private fun openCasaDelLibro(context: Context) {
             } else if (showWishList && tab == "Biblioteca") {
                 items(vm.wishList, key = { "wish:" + it.second }) { (title, url) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedButton(onClick = { openGoodreadsUrl(context, url) },
+                        LibraryActionButton(onClick = { openGoodreadsUrl(context, url) },
                             modifier = Modifier.weight(1f)) { Text(title.ifBlank { "Libro de Goodreads" }) }
                         IconButton(onClick = { vm.removeGoodreadsWish(url) }) { AppIcon("Cerrar", "Quitar de pendientes") }
                     }
@@ -2895,7 +2940,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     book: Book, back: () -> Unit, toggleFavorite: () -> Unit,
     onOpened: () -> Unit, setStatus: (ReadingStatus) -> Unit, openBook: () -> Unit, message: String?,
     possibleDuplicates: List<Book>, deleteBook: () -> Unit, enrich: () -> Unit,
-    infoLoading: Boolean, coverSearching: Boolean,
+    recoverCover: () -> Unit, infoLoading: Boolean, coverSearching: Boolean,
     sections: List<String>, assignSection: (String) -> Unit,
     saveNotes: (String) -> Unit, saveInfo: (String, String) -> Unit,
     replaceCover: (Uri) -> Unit,
@@ -2969,8 +3014,8 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 Text("No se detectaron otras copias con el mismo título y autor.", fontSize = 12.sp)
             }
         } },
-        confirmButton = { TextButton(onClick = { confirmDelete = false; deleteBook() }) { Text("Borrar archivo") } },
-        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancelar") } }
+        confirmButton = { LibraryTextButton(onClick = { confirmDelete = false; deleteBook() }) { Text("Borrar archivo") } },
+        dismissButton = { LibraryTextButton(onClick = { confirmDelete = false }) { Text("Cancelar") } }
     )
     if (editIdentityDialog) AlertDialog(
         onDismissRequest = { editIdentityDialog = false },
@@ -2981,11 +3026,11 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
             OutlinedTextField(sagaDraft, { sagaDraft = it }, label = { Text("Saga") })
             OutlinedTextField(orderDraft, { orderDraft = it }, label = { Text("Número en la saga") })
         } },
-        confirmButton = { TextButton(onClick = {
+        confirmButton = { LibraryTextButton(onClick = {
             editIdentity(titleDraft, authorDraft, sagaDraft, orderDraft)
             editIdentityDialog = false
         }) { Text("Guardar") } },
-        dismissButton = { TextButton(onClick = { editIdentityDialog = false }) { Text("Cancelar") } }
+        dismissButton = { LibraryTextButton(onClick = { editIdentityDialog = false }) { Text("Cancelar") } }
     )
     if (editInfo) AlertDialog(
         onDismissRequest = { editInfo = false },
@@ -2996,8 +3041,8 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
             OutlinedTextField(bioDraft, { bioDraft = it }, label = { Text("Biografía del autor") },
                 minLines = 4, modifier = Modifier.fillMaxWidth())
         } },
-        confirmButton = { TextButton(onClick = { saveInfo(plotDraft, bioDraft); editInfo = false }) { Text("Guardar") } },
-        dismissButton = { TextButton(onClick = { editInfo = false }) { Text("Cancelar") } }
+        confirmButton = { LibraryTextButton(onClick = { saveInfo(plotDraft, bioDraft); editInfo = false }) { Text("Guardar") } },
+        dismissButton = { LibraryTextButton(onClick = { editInfo = false }) { Text("Cancelar") } }
     )
     val plot = book.spanishPlot.ifBlank {
         book.description.takeIf { book.language.lowercase().startsWith("es") ||
@@ -3019,7 +3064,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                     Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("Datos encontrados: revisa que correspondan a tu libro.",
                             modifier = Modifier.weight(1f), color = Mahogany, fontSize = 12.sp)
-                        TextButton(onClick = confirmDetails) { Text("Revisado") }
+                        LibraryTextButton(onClick = confirmDetails) { Text("Revisado") }
                     }
                 }
             }
@@ -3044,7 +3089,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 }, modifier = Modifier.fillMaxWidth()) {
                     ActionLabel("Leer este libro", "Leer")
                 }
-                OutlinedButton(onClick = {
+                LibraryActionButton(onClick = {
                     val safeName = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), " ").trim().take(90)
                     val extension = androidx.documentfile.provider.DocumentFile.fromSingleUri(context, book.uri)
                         ?.name?.substringAfterLast('.', "epub")?.lowercase().orEmpty()
@@ -3054,7 +3099,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                     ActionLabel(if (exportingEpub) "Guardando archivo…" else "Descargar archivo de Drive", "Descargar")
                 }
                     Spacer(Modifier.height(14.dp))
-                    OutlinedButton(onClick = {
+                    LibraryActionButton(onClick = {
                         titleDraft = displayTitle(book); authorDraft = displayAuthor(book)
                         sagaDraft = book.saga; orderDraft = book.sagaOrder
                         editIdentityDialog = true
@@ -3063,20 +3108,23 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                     }
                     Spacer(Modifier.height(14.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        OutlinedButton(onClick = { searchCoverImages(context, book) },
+                        LibraryActionButton(onClick = recoverCover, enabled = !coverSearching,
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                            ActionLabel("Buscar portada", "Buscar", 12.sp)
+                            ActionLabel(if (coverSearching) "Recuperando…" else "Recuperar portada", "Buscar", 12.sp)
                         }
-                        OutlinedButton(onClick = { coverPicker.launch("image/*") },
+                        LibraryActionButton(onClick = { coverPicker.launch("image/*") },
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
                             ActionLabel("Cambiar portada", "Portada", 12.sp)
                         }
+                    }
+                    LibraryTextButton(onClick = { searchCoverImages(context, book) }) {
+                        ActionLabel("Ver imágenes en Google", "Buscar", 12.sp)
                     }
                 }
             }
             item {
                 Box {
-                    OutlinedButton(onClick = { sectionMenu = true }) {
+                    LibraryActionButton(onClick = { sectionMenu = true }) {
                         Text("Secciones: ${bookSections(book).joinToString().ifBlank { "Sin sección" }}  ▾")
                     }
                     DropdownMenu(expanded = sectionMenu, onDismissRequest = { sectionMenu = false }) {
@@ -3087,7 +3135,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                         }
                     }
                 }
-                OutlinedButton(onClick = toggleWant) {
+                LibraryActionButton(onClick = toggleWant) {
                     Text(if (book.wantToRead) "✓ Quiero leer" else "+ Quiero leer más adelante")
                 }
             }
@@ -3128,11 +3176,11 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
             }
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = enrich, enabled = !infoLoading,
+                    LibraryActionButton(onClick = enrich, enabled = !infoLoading,
                         modifier = Modifier.weight(1f)) {
                         ActionLabel(if (infoLoading) "Buscando…" else "Reintentar búsqueda", "Buscar", 12.sp)
                     }
-                    OutlinedButton(onClick = {
+                    LibraryActionButton(onClick = {
                         plotDraft = book.spanishPlot.ifBlank { plot }
                         bioDraft = book.authorBio
                         editInfo = true
@@ -3144,17 +3192,17 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                     OutlinedTextField(notesDraft, { notesDraft = it },
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Escribe tus notas sobre este libro") }, minLines = 3)
-                    OutlinedButton(onClick = { saveNotes(notesDraft) }) {
+                    LibraryActionButton(onClick = { saveNotes(notesDraft) }) {
                         ActionLabel("Guardar observaciones", "Guardar")
                     }
                 }
             }
             item {
-                OutlinedButton(onClick = { openGoodreads(context, book) },
+                LibraryActionButton(onClick = { openGoodreads(context, book) },
                     modifier = Modifier.fillMaxWidth()) { ActionLabel("Abrir este libro en Goodreads", "Goodreads") }
-                OutlinedButton(onClick = { searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book)) },
+                LibraryActionButton(onClick = { searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book)) },
                     modifier = Modifier.fillMaxWidth()) { ActionLabel("Consultar en Google", "Google") }
-                OutlinedButton(onClick = { confirmDelete = true },
+                LibraryActionButton(onClick = { confirmDelete = true },
                     modifier = Modifier.fillMaxWidth()) { ActionLabel("Borrar este archivo de Drive", "Borrar") }
             }
         }
