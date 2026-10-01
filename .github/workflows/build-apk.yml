@@ -22,18 +22,18 @@ jobs:
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)
           "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
       - name: Compilar APK de prueba
-        run: gradle :app:assembleDebug --no-daemon
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
       - name: Validar compilación optimizada
         run: gradle :app:assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: MiBiblioteca-v0.49-debug
+          name: MiBiblioteca-v0.50-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Publicar APK descargable
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk MiBiblioteca-v0.49.apk
-          gh release view v0.49 >/dev/null 2>&1 || gh release create v0.49 --title "MiBiblioteca v0.49" --notes "Interfaz renovada con galería de portadas, accesos rápidos y lectura destacada."
-          gh release upload v0.49 MiBiblioteca-v0.49.apk --clobber
+          cp app/build/outputs/apk/debug/app-debug.apk MiBiblioteca-v0.50.apk
+          gh release view v0.50 >/dev/null 2>&1 || gh release create v0.50 --title "MiBiblioteca v0.50" --notes "Iconos Material uniformes, desplazamiento optimizado, metadatos EPUB corregidos y portadas al actualizar."
+          gh release upload v0.50 MiBiblioteca-v0.50.apk --clobber
