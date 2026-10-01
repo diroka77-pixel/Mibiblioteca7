@@ -250,6 +250,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private var bulkJob: Job? = null
     private var coverRefreshJob: Job? = null
     var coverUpdateRunning by mutableStateOf(false); private set
+    var coverUpdateDone by mutableIntStateOf(0); private set
+    var coverUpdateTotal by mutableIntStateOf(0); private set
     var reviewPending by mutableStateOf<Set<Uri>>(emptySet()); private set
     var books by mutableStateOf<List<Book>>(emptyList()); private set
     private val readerPrefs = app.getSharedPreferences("reader", Context.MODE_PRIVATE)
@@ -940,24 +942,30 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val targets = books.filter { it.cover == null }.map { it.uri }
         coverRefreshJob = viewModelScope.launch {
             coverUpdateRunning = targets.isNotEmpty()
+            coverUpdateDone = 0; coverUpdateTotal = targets.size
             var dirty = false
             var savedCount = 0
             try {
-                for (uri in targets) {
+                val pending = java.util.ArrayDeque(targets)
+                kotlinx.coroutines.coroutineScope {
+                  repeat(2) { launch {
+                   while (pending.isNotEmpty()) {
+                    val uri = pending.removeFirst()
                     val current = books.firstOrNull { it.uri == uri } ?: continue
                     if (current.cover != null || !autoJobs.add(uri)) continue
                     try {
                         val app = getApplication<Application>()
-                        val blocked = withContext(Dispatchers.IO) {
-                            File(app.filesDir, "removed-" + coverFile(app, uri).name).exists() ||
-                                File(app.filesDir, "manual-" + coverFile(app, uri).name).exists()
+                        withContext(Dispatchers.IO) {
+                            File(app.filesDir, "removed-" + coverFile(app, uri).name).delete()
                         }
-                        if (blocked) continue
                         autoCoverLoading = autoCoverLoading + uri
                         val bytes = withContext(Dispatchers.IO) { fetchCover(current) } ?: continue
                         // A manual replacement during the request must win.
                         if (books.firstOrNull { it.uri == uri }?.cover != null) continue
-                        withContext(Dispatchers.IO) { coverFile(app, uri).writeBytes(bytes) }
+                        withContext(Dispatchers.IO) {
+                            File(app.filesDir, "removed-" + coverFile(app, uri).name).delete()
+                            coverFile(app, uri).writeBytes(bytes)
+                        }
                         books = books.map { if (it.uri == uri) it.copy(cover = bytes,
                             coverSource = "Catálogos públicos") else it }
                         dirty = true
@@ -970,8 +978,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     } finally {
                         autoCoverLoading = autoCoverLoading - uri
                         autoJobs.remove(uri)
+                        coverUpdateDone++
                     }
                     delay(150)
+                   }
+                  } }
                 }
             } finally {
                 if (dirty) saveBooks()
@@ -1032,8 +1043,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val app = getApplication<Application>()
         val now = System.currentTimeMillis()
         val cooldown = 3L * 24 * 60 * 60 * 1000
-        val coverBlocked = File(app.filesDir, "removed-" + coverFile(app, uri).name).exists() ||
-            File(app.filesDir, "manual-" + coverFile(app, uri).name).exists()
+        val coverBlocked = !force && !retry &&
+            File(app.filesDir, "removed-" + coverFile(app, uri).name).exists()
         val needCover = initial.cover == null && !coverBlocked &&
             (force || retry || now - prefs.getLong("auto_cover_v28_" + uri, 0L) > cooldown)
         val needInfo = (force || initial.spanishPlot.isBlank() || initial.authorBio.isBlank() ||
@@ -1106,10 +1117,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     val bytes = try { withContext(Dispatchers.IO) { fetchCover(books.firstOrNull { it.uri == uri } ?: initial) } }
                         catch (_: Exception) { null }
                     val current = books.firstOrNull { it.uri == uri }
-                    if (bytes != null && current?.cover == null &&
-                        !File(app.filesDir, "removed-" + coverFile(app, uri).name).exists() &&
-                        !File(app.filesDir, "manual-" + coverFile(app, uri).name).exists()) {
-                        withContext(Dispatchers.IO) { coverFile(app, uri).writeBytes(bytes) }
+                    if (bytes != null && current?.cover == null) {
+                        withContext(Dispatchers.IO) {
+                            File(app.filesDir, "removed-" + coverFile(app, uri).name).delete()
+                            coverFile(app, uri).writeBytes(bytes)
+                        }
                         books = books.map { if (it.uri == uri) it.copy(
                             cover = bytes, coverSource = "Catálogos públicos") else it }
                         markForReview(uri)
@@ -1265,11 +1277,14 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
                 val size = f.length()
                 val modified = f.lastModified()
                 val file = coverFile(context, f.uri)
-                val removed = File(context.filesDir, "removed-" + file.name).exists()
                 val prior = cached[f.uri]
+                val removalMarker = File(context.filesDir, "removed-" + file.name)
+                if (prior?.cover == null) removalMarker.delete()
+                val removed = removalMarker.exists()
                 val unchanged = prior != null && size > 0 && prior.sourceSize == size &&
                     (modified <= 0L || prior.sourceModified == modified) &&
-                    prior.metadataRevision >= 50 && prior.sourceCoverChecked &&
+                    prior.metadataRevision >= 50 && (prior.cover != null || prior.metadataRevision >= 51) &&
+                    prior.sourceCoverChecked &&
                     (!prior.hadEmbeddedCover || file.exists() || removed)
                 val epub = if (unchanged) prior!! else {
                     val parsed = if (f.name?.endsWith(".epub", true) == true)
@@ -1354,7 +1369,7 @@ private fun readEpub(context: Context, uri: Uri, fallbackName: String,
             }
             Book(uri, meta.title.ifBlank { fallback.title }, meta.author, meta.date, meta.publisher,
                 meta.genre, meta.description, meta.isbn, meta.saga, cover,
-                language = meta.language, sagaOrder = meta.sagaOrder, metadataRevision = 50)
+                language = meta.language, sagaOrder = meta.sagaOrder, metadataRevision = 51)
         }
     } catch (_: Exception) { fallback }
 }
@@ -1383,37 +1398,66 @@ private fun coverFile(context: Context, uri: Uri): File {
 
 private fun downloadImage(url: String): ByteArray? {
     val connection = URL(url.replace("http://", "https://")).openConnection() as HttpURLConnection
-    connection.connectTimeout = 8000
-    connection.readTimeout = 12000
+    connection.connectTimeout = 6000
+    connection.readTimeout = 8000
+    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca/0.51)")
+    connection.setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
     return try {
-        if (connection.responseCode != 200 || connection.contentLengthLong > 2_000_000) return null
+        if (connection.responseCode != 200 || connection.contentLengthLong > 16_000_000) return null
         connection.inputStream.use { input ->
-            val bytes = input.readNBytes(2_000_001)
-            bytes.takeIf { it.size <= 2_000_000 &&
-                BitmapFactory.decodeByteArray(it, 0, it.size) != null }
+            val bytes = input.readNBytes(16_000_001)
+            if (bytes.size > 16_000_000) return null
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth < 80 || bounds.outHeight < 120 ||
+                bounds.outWidth.toFloat() / bounds.outHeight !in 0.3f..1.25f) return null
+            compactCover(bytes)
         }
-    } finally { connection.disconnect() }
+    } catch (_: Exception) { null }
+    finally { connection.disconnect() }
 }
 
-private fun catalogMatch(candidateTitle: String, candidateAuthors: List<String>, book: Book): Boolean {
-    val normalize: (String) -> String = { value ->
-        java.text.Normalizer.normalize(cleanCatalogText(value).lowercase(), java.text.Normalizer.Form.NFD)
-            .replace(Regex("\\p{M}+"), "")
-            .replace(Regex("[^\\p{L}\\p{N}]"), "")
+private fun catalogMatch(candidateTitle: String, candidateAuthors: List<String>, book: Book): Boolean =
+    coverTitleMatches(displayTitle(book), candidateTitle) &&
+        (unknownAuthor(displayAuthor(book)) || candidateAuthors.any {
+            coverAuthorMatches(displayAuthor(book), it)
+        })
+
+private fun publicCoverPage(url: String): String = Jsoup.connect(url)
+    .userAgent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36")
+    .timeout(8000).maxBodySize(2_000_000).get().outerHtml()
+
+private fun fetchPublicCover(book: Book): ByteArray? {
+    val title = displayTitle(book).substringBefore(" (").substringBefore(" [")
+    val author = displayAuthor(book).takeUnless(::unknownAuthor).orEmpty()
+    val isbn = book.isbn.filter { it.isDigit() || it.uppercaseChar() == 'X' }
+    val seen = mutableSetOf<String>()
+    fun tryPage(url: String): ByteArray? {
+        if (!isPublicBookPage(url) || !seen.add(url)) return null
+        return try {
+            publicCoverImages(publicCoverPage(url), url, title, author, isbn).firstNotNullOfOrNull(::downloadImage)
+        } catch (_: Exception) { null }
     }
-    val wanted = normalize(displayTitle(book))
-    val title = normalize(candidateTitle)
-    if (wanted.length < 3 || title.length < 3 ||
-        !(title.contains(wanted) || wanted.contains(title))) return false
-    val author = displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty()
-    if (author.isNotBlank() && candidateAuthors.isNotEmpty()) {
-        val wantedAuthor = normalize(author)
-        if (candidateAuthors.none { name ->
-                val candidate = normalize(name)
-                candidate.contains(wantedAuthor) || wantedAuthor.contains(candidate)
-            }) return false
+    if (book.goodreadsUrl.isNotBlank()) tryPage(book.goodreadsUrl)?.let { return it }
+    val query = java.net.URLEncoder.encode("\"$title\" $author portada " +
+        "(site:casadellibro.com OR site:planetadelibros.com OR site:penguinlibros.com OR " +
+        "site:goodreads.com OR site:fnac.es OR site:kobo.com OR site:anagrama-ed.es OR site:alianzaeditorial.es)", "UTF-8")
+    val engines = listOf("https://www.google.com/search?hl=es&num=8&q=$query",
+        "https://www.bing.com/search?format=rss&q=$query",
+        "https://html.duckduckgo.com/html/?q=$query")
+    for (engine in engines) {
+        val links = try { coverSearchLinks(publicCoverPage(engine), engine) }
+            catch (_: Exception) { emptyList() }
+        for (link in links.take(5)) tryPage(link)?.let { return it }
     }
-    return true
+    // Goodreads' own search is independent of the search engines.
+    try {
+        val url = "https://www.goodreads.com/search?q=" +
+            java.net.URLEncoder.encode("$title $author", "UTF-8")
+        for (link in coverSearchLinks(publicCoverPage(url), url).take(3))
+            tryPage(link)?.let { return it }
+    } catch (_: Exception) {}
+    return null
 }
 
 private fun fetchCover(book: Book): ByteArray? {
@@ -1449,7 +1493,7 @@ private fun fetchCover(book: Book): ByteArray? {
         for (q in queries) {
             val url = "https://www.googleapis.com/books/v1/volumes?q=" +
                 java.net.URLEncoder.encode(q, "UTF-8") + "&maxResults=10"
-            val items = getJson(url).optJSONArray("items")
+            val items = try { getJson(url).optJSONArray("items") } catch (_: Exception) { continue }
             for (i in 0 until (items?.length() ?: 0)) {
                 val info = items?.optJSONObject(i)?.optJSONObject("volumeInfo") ?: continue
                 val authors = info.optJSONArray("authors")
@@ -1464,7 +1508,7 @@ private fun fetchCover(book: Book): ByteArray? {
             }
         }
     } catch (_: Exception) {}
-    return null
+    return fetchPublicCover(book)
 }
 
 private fun getJson(url: String): JSONObject {
@@ -2331,7 +2375,7 @@ private fun openCasaDelLibro(context: Context) {
                     }
                     if (vm.coverUpdateRunning && (tab == "Inicio" || tab == "Biblioteca")) {
                         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Teal)
-                        Text("Buscando las portadas que faltan…", fontSize = 12.sp, color = Mahogany)
+                        Text("Buscando portadas ${vm.coverUpdateDone}/${vm.coverUpdateTotal}…", fontSize = 12.sp, color = Mahogany)
                     }
                     if (tab == "Inicio" && vm.syncSummary.isNotBlank())
                         Text(vm.syncSummary, color = Mahogany, fontSize = 12.sp)
