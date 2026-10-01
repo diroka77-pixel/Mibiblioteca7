@@ -1283,7 +1283,7 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
                 val removed = removalMarker.exists()
                 val unchanged = prior != null && size > 0 && prior.sourceSize == size &&
                     (modified <= 0L || prior.sourceModified == modified) &&
-                    prior.metadataRevision >= 50 && (prior.cover != null || prior.metadataRevision >= 51) &&
+                    prior.metadataRevision >= 50 && (prior.cover != null || prior.metadataRevision >= 53) &&
                     prior.sourceCoverChecked &&
                     (!prior.hadEmbeddedCover || file.exists() || removed)
                 val epub = if (unchanged) prior!! else {
@@ -1320,14 +1320,16 @@ private fun readEpub(context: Context, uri: Uri, fallbackName: String,
         // Reuse the reader cache so Drive downloads each unchanged file only once.
         ZipFile(localReaderFile(context, fallback)).use { zip ->
             fun entryBytes(path: String, limit: Int): ByteArray? {
-                val entry = zip.getEntry(normalizePath(path)) ?: return null
+                val normalized = normalizePath(path)
+                val entry = zip.getEntry(normalized) ?: zip.entries().asSequence()
+                    .firstOrNull { it.name.equals(normalized, ignoreCase = true) } ?: return null
                 if (entry.size > limit) return null
                 return zip.getInputStream(entry).use { input ->
                     input.readNBytes(limit + 1).takeIf { it.size <= limit }
                 }
             }
             fun resolve(base: String, href: String): String {
-                val decoded = Uri.decode(href.substringBefore('#'))
+                val decoded = Uri.decode(href.substringBefore('#').substringBefore('?'))
                 return normalizePath(if (base.isBlank()) decoded else "$base/$decoded")
             }
             val container = entryBytes("META-INF/container.xml", 2_000_000)
@@ -1350,26 +1352,43 @@ private fun readEpub(context: Context, uri: Uri, fallbackName: String,
                     path.endsWith(".htm", true) || path.endsWith(".svg", true)) {
                     val page = Jsoup.parse(bytes.toString(Charsets.UTF_8), "", org.jsoup.parser.Parser.xmlParser())
                     val image = page.getAllElements().firstOrNull {
-                        it.tagName().substringAfter(':') in listOf("img", "image")
+                        it.tagName().substringAfter(':').lowercase() in listOf("img", "image", "object")
                     }
                     val imageHref = image?.attr("src").orEmpty().ifBlank {
-                        image?.attr("href").orEmpty().ifBlank { image?.attr("xlink:href").orEmpty() }
+                        image?.attr("href").orEmpty().ifBlank {
+                            image?.attr("xlink:href").orEmpty().ifBlank { image?.attr("data").orEmpty() }
+                        }
                     }
-                    if (imageHref.isNotBlank()) cover = entryBytes(
-                        resolve(path.substringBeforeLast('/', ""), imageHref), 16_000_000)?.let(::compactCover)
+                    val openingPage = href in meta.coverCandidates && href != meta.coverHref &&
+                        !href.contains(Regex("(?i)cover|portada|front|couverture|couv|jacket|tapa"))
+                    if (imageHref.isNotBlank() && (!openingPage || page.text().length < 180)) {
+                        val imageBytes = entryBytes(
+                            resolve(path.substringBeforeLast('/', ""), imageHref), 16_000_000)
+                        cover = imageBytes?.let { if (openingPage) compactPortraitCover(it) else compactCover(it) }
+                    }
                 } else cover = compactCover(bytes)
                 if (cover != null) break
+            }
+            if (cover == null) {
+                // Many EPUBs have no cover declaration: the first large portrait image is
+                // normally the cover. Ignore small icons, logos and chapter artwork.
+                for (href in meta.imageCandidates.take(5)) {
+                    if (href.contains(Regex("(?i)logo|icon|banner|chapter|capitulo|decor"))) continue
+                    val bytes = entryBytes(resolve(base, href), 16_000_000) ?: continue
+                    cover = compactPortraitCover(bytes)
+                    if (cover != null) break
+                }
             }
             if (cover == null) {
                 val namedCover = zip.entries().asSequence().firstOrNull {
                     it.name.substringAfterLast('/').matches(
                         Regex("(?i)(?:cover|portada|front)(?:[-_0-9]*)\\.(?:jpe?g|png|webp)"))
                 }
-                cover = namedCover?.name?.let { entryBytes(it, 16_000_000) }?.let(::compactCover)
+                cover = namedCover?.name?.let { entryBytes(it, 16_000_000) }?.let(::compactPortraitCover)
             }
             Book(uri, meta.title.ifBlank { fallback.title }, meta.author, meta.date, meta.publisher,
                 meta.genre, meta.description, meta.isbn, meta.saga, cover,
-                language = meta.language, sagaOrder = meta.sagaOrder, metadataRevision = 51)
+                language = meta.language, sagaOrder = meta.sagaOrder, metadataRevision = 53)
         }
     } catch (_: Exception) { fallback }
 }
@@ -1388,6 +1407,14 @@ private fun compactCover(bytes: ByteArray): ByteArray? {
             output.toByteArray()
         }
     } finally { bitmap.recycle() }
+}
+
+private fun compactPortraitCover(bytes: ByteArray): ByteArray? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth < 250 || bounds.outHeight < 350 ||
+        bounds.outWidth.toFloat() / bounds.outHeight !in 0.42f..0.9f) return null
+    return compactCover(bytes)
 }
 
 private fun coverFile(context: Context, uri: Uri): File {

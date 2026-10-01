@@ -63,4 +63,15 @@ class EpubMetadataTest {
         assertEquals(listOf("Text/cover.xhtml"), metadata.coverCandidates)
         assertEquals("Título auténtico", cleanCatalogText("Título auténtico - Lecturalia - r1.2.epub"))
     }
+
+    @Test fun unmarkedOpeningPageAndImagesRemainCoverCandidates() {
+        val metadata = parse("""<package><metadata><title>Una novela</title></metadata>
+            <manifest>
+              <item id="opening" href="Text/001.xhtml" media-type="application/xhtml+xml"/>
+              <item id="image1" href="Images/001.jpg" media-type="image/jpeg"/>
+              <item id="image2" href="Images/002.jpg" media-type="image/jpeg"/>
+            </manifest><spine><itemref idref="opening"/></spine></package>""")
+        assertEquals(listOf("Text/001.xhtml"), metadata.coverCandidates)
+        assertEquals(listOf("Images/001.jpg", "Images/002.jpg"), metadata.imageCandidates)
+    }
 }

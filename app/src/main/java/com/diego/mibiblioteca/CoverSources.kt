@@ -106,20 +106,22 @@ internal fun publicCoverImages(html: String, baseUrl: String, wantedTitle: Strin
     val pageTitles = listOf(doc.selectFirst("h1")?.text().orEmpty(),
         doc.selectFirst("meta[property=og:title]")?.attr("content").orEmpty(), doc.title())
     val authorText = doc.select("[itemprop=author], .authorName, a[href*=/autor/], a[href*=/author/], " +
-        ".ContributorLink, .contributor, .f-productDetails-Author, meta[name=author]")
+        ".ContributorLink, .contributor, .f-productDetails-Author, meta[name=author], " +
+        "[class*=uthor-name], [data-testid*=author]")
         .joinToString(" ") { it.text().ifBlank { it.attr("content") } }
     val identityText = authorText + " " + doc.title() + " " +
         doc.selectFirst("meta[property=og:title]")?.attr("content").orEmpty()
     if (pageTitles.any { coverTitleMatches(wantedTitle, it) } &&
         (unknownAuthor(wantedAuthor) || coverAuthorMatches(wantedAuthor, identityText))) {
-        doc.select("meta[property=og:image], meta[name=twitter:image], meta[property=twitter:image]")
-            .forEach { result += it.attr("content") }
+        doc.select("meta[property=og:image], meta[name=twitter:image], meta[property=twitter:image], " +
+            "meta[name=twitter:image:src], link[rel=image_src]")
+            .forEach { result += it.attr("content").ifBlank { it.attr("href") } }
         doc.select("img[itemprop=image], img[data-testid=bookCover], .BookCover img, .bookCover img").forEach {
-            result += it.attr("src").ifBlank { it.attr("data-src") }
+            result += coverImageUrl(it)
         }
         doc.select("img[alt]").filter { coverTitleMatches(wantedTitle, it.attr("alt")) &&
             !it.attr("alt").contains("contraportada", true) && !it.attr("alt").contains("back cover", true) }.take(3).forEach {
-            result += it.attr("data-src").ifBlank { it.attr("src") }
+            result += coverImageUrl(it)
         }
     }
     return result.mapNotNull { url -> try {
@@ -128,4 +130,13 @@ internal fun publicCoverImages(html: String, baseUrl: String, wantedTitle: Strin
                 !it.contains("/logos/", true) && !it.contains("/logo.", true)
         }
     } catch (_: Exception) { null } }.distinct()
+}
+
+private fun coverImageUrl(image: org.jsoup.nodes.Element): String {
+    for (attribute in listOf("data-original", "data-lazy-src", "data-src", "src")) {
+        val value = image.attr(attribute)
+        if (value.isNotBlank() && !value.startsWith("data:")) return value
+    }
+    val srcset = image.attr("data-srcset").ifBlank { image.attr("srcset") }
+    return srcset.split(',').lastOrNull()?.trim()?.substringBefore(' ').orEmpty()
 }

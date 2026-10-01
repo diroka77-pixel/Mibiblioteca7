@@ -30,7 +30,8 @@ internal data class EpubMeta(var title: String = "", var author: String = "Autor
     var date: String = "", var publisher: String = "", var genre: String = "",
     var description: String = "Sin descripción disponible.", var isbn: String = "",
     var saga: String = "", var coverHref: String? = null, var language: String = "",
-    var sagaOrder: String = "", var coverCandidates: List<String> = emptyList())
+    var sagaOrder: String = "", var coverCandidates: List<String> = emptyList(),
+    var imageCandidates: List<String> = emptyList())
 
 internal fun parseOpf(bytes: ByteArray): EpubMeta {
     val doc = Jsoup.parse(ByteArrayInputStream(bytes), null, "", org.jsoup.parser.Parser.xmlParser())
@@ -61,9 +62,16 @@ internal fun parseOpf(bytes: ByteArray): EpubMeta {
     val guides = doc.getAllElements().filter { it.localName() == "reference" && it.attr("type") == "cover" }
     val fallbackImages = manifest.filter {
         it.attr("media-type").startsWith("image/") &&
-            (it.id().contains("cover", true) || it.attr("href").contains("portada", true) ||
-                it.attr("href").substringAfterLast('/').startsWith("cover", true))
+            Regex("(?i)cover|portada|front|couverture|couv|jacket|tapa").containsMatchIn(
+                it.id() + " " + it.attr("href"))
     }
+    val openingPages = doc.getAllElements().filter { it.localName() == "itemref" }
+        .take(3).mapNotNull { ref ->
+            manifest.firstOrNull { it.id() == ref.attr("idref") }
+                ?.takeIf { it.attr("media-type").contains("html") }?.attr("href")
+        }
+    val otherImages = manifest.filter { it.attr("media-type").startsWith("image/") }
+        .map { it.attr("href") }.filter(String::isNotBlank)
     val identifiers = fields.filter { it.localName() == "identifier" }
     val isbn = identifiers.map { it.text().replace(Regex("(?i)^urn:isbn:"), "").replace("-", "").trim() }
         .firstOrNull { it.matches(Regex("(?:[0-9]{13}|[0-9]{9}[0-9Xx])")) }.orEmpty()
@@ -77,6 +85,7 @@ internal fun parseOpf(bytes: ByteArray): EpubMeta {
         isbn = isbn, saga = series("calibre:series", "belongs-to-collection"),
         coverHref = coverItem?.attr("href")?.takeIf(String::isNotBlank), language = field("language"),
         sagaOrder = series("calibre:series_index", "group-position"),
-        coverCandidates = (guides + fallbackImages).map { it.attr("href") }.filter(String::isNotBlank))
+        coverCandidates = (guides + fallbackImages).map { it.attr("href") }
+            .plus(openingPages).filter(String::isNotBlank).distinct(),
+        imageCandidates = otherImages.distinct())
 }
-

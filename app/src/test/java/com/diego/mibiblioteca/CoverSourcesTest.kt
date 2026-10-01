@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoverSourcesTest {
+    @Test fun publisherLazyCoverUsesRealImageInsteadOfPlaceholder() {
+        val html = """<h1>La sombra del viento</h1><a href="/autor/carlos-ruiz-zafon">Carlos Ruiz Zafón</a>
+            <img alt="La sombra del viento" src="data:image/gif;base64,R0lGODlh" 
+                 data-original="https://images.example.net/real-cover.jpg">"""
+        assertEquals(listOf("https://images.example.net/real-cover.jpg"),
+            publicCoverImages(html, "https://www.planetadelibros.com/libro-sombra/123",
+                "La sombra del viento", "Carlos Ruiz Zafón", ""))
+    }
     @Test fun accentsInitialsAndReorderedAuthors() {
         assertTrue(coverTitleMatches("La sombra del viento", "LA SOMBRA DEL VIENTO (edición ilustrada)"))
         assertTrue(coverAuthorMatches("Carlos Ruiz Zafón", "Ruiz Zafon, Carlos"))
