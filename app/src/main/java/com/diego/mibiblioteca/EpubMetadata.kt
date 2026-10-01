@@ -35,7 +35,7 @@ internal data class EpubMeta(var title: String = "", var author: String = "Autor
 internal fun parseOpf(bytes: ByteArray): EpubMeta {
     val doc = Jsoup.parse(ByteArrayInputStream(bytes), null, "", org.jsoup.parser.Parser.xmlParser())
     fun org.jsoup.nodes.Element.localName() = tagName().substringAfter(':').lowercase()
-    fun org.jsoup.nodes.Element.attribute(name: String) = attributes().firstOrNull {
+    fun org.jsoup.nodes.Element.xmlAttr(name: String) = attributes().firstOrNull {
         it.key.substringAfter(':') == name
     }?.value.orEmpty()
     val metadata = doc.getAllElements().firstOrNull { it.localName() == "metadata" }
@@ -50,9 +50,9 @@ internal fun parseOpf(bytes: ByteArray): EpubMeta {
     val title = titles.firstOrNull { refined(it.id(), "title-type") == "main" } ?: titles.firstOrNull()
     val creators = fields.filter { it.localName() == "creator" }
     val authors = creators.filter {
-        val role = it.attribute("role").ifBlank { refined(it.id(), "role") }
+        val role = it.xmlAttr("role").ifBlank { refined(it.id(), "role") }
         role.isBlank() || role in listOf("aut", "author")
-    }.map { creator -> cleanCatalogText(creator.text().ifBlank { creator.attribute("file-as") }) }
+    }.map { creator -> cleanCatalogText(creator.text().ifBlank { creator.xmlAttr("file-as") }) }
         .filter { it.isNotBlank() && !sourceTag.containsMatchIn(it) && !unknownAuthor(it) }.distinct()
     val manifest = doc.getAllElements().filter { it.localName() == "item" }
     val coverId = refinements.firstOrNull { it.attr("name") == "cover" }?.attr("content")
