@@ -18,6 +18,34 @@ internal val featuredNewsSources = linkedMapOf(
     "Planeta de Libros" to "https://www.planetadelibros.com/blog/noticias"
 )
 
+private fun imageFrom(element: org.jsoup.nodes.Element?): String? {
+    if (element == null) return null
+    val direct = listOf("data-src", "data-original", "data-lazy-src", "src")
+        .firstNotNullOfOrNull { key -> element.absUrl(key).takeIf { it.startsWith("https://") } }
+    if (direct != null && !Regex("(?i)placeholder|logo|icon|avatar|sprite")
+            .containsMatchIn(direct)) return direct
+    val srcset = element.attr("data-srcset").ifBlank { element.attr("srcset") }
+        .substringBefore(',').trim().substringBefore(' ')
+    if (srcset.isBlank()) return null
+    return try { java.net.URI(element.baseUri()).resolve(srcset).toString()
+        .takeIf { it.startsWith("https://") } } catch (_: Exception) { null }
+}
+
+internal fun articleImageUrl(address: String): String? = try {
+    val connection = URL(address).openConnection() as HttpURLConnection
+    connection.connectTimeout = 5000
+    connection.readTimeout = 6000
+    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+    val doc = try { connection.inputStream.use { Jsoup.parse(it, "UTF-8", address) } }
+        finally { connection.disconnect() }
+    listOf("meta[property=og:image]", "meta[property=og:image:secure_url]",
+        "meta[name=twitter:image]", "meta[itemprop=image]")
+        .firstNotNullOfOrNull { selector ->
+            doc.selectFirst(selector)?.let { imageFrom(it) ?: it.absUrl("content")
+                .takeIf { url -> url.startsWith("https://") } }
+        } ?: imageFrom(doc.selectFirst("article img, main img"))
+} catch (_: Exception) { null }
+
 internal fun fetchFeaturedNews(source: String, address: String): List<LaunchNews> = try {
     val connection = URL(address).openConnection() as HttpURLConnection
     connection.connectTimeout = 6500
@@ -33,15 +61,18 @@ internal fun fetchFeaturedNews(source: String, address: String): List<LaunchNews
         if (!destination.startsWith("https://") || destination == address ||
             destinationHost != host || destination.contains("#")) return@mapNotNull null
         val picture = link.selectFirst("img") ?: link.parent()?.selectFirst("img")
-            ?: return@mapNotNull null
-        val image = listOf("data-src", "data-original", "src")
-            .firstNotNullOfOrNull { key -> picture.absUrl(key).takeIf { it.startsWith("https://") } }
-            ?: return@mapNotNull null
-        val title = link.text().trim().ifBlank { picture.attr("alt").trim() }
+        val image = imageFrom(picture)
+        val title = link.text().trim().ifBlank { picture?.attr("alt")?.trim().orEmpty() }
         if (title.length !in 9..150 || title.contains("cookie", true) ||
-            title.contains("iniciar sesión", true)) return@mapNotNull null
+            title.contains("iniciar sesión", true) ||
+            (image == null && !Regex("(?i)novedad|libro|novela|lanzamiento|lectura|publica")
+                .containsMatchIn(title))) return@mapNotNull null
+        title to (destination to image)
+    }.distinctBy { it.second.first }.take(4).mapNotNull { (title, linkAndImage) ->
+        val (destination, listingImage) = linkAndImage
+        val image = articleImageUrl(destination) ?: listingImage ?: return@mapNotNull null
         LaunchNews(source, title, destination, image, today)
-    }.distinctBy { it.url }.take(2)
+    }.take(2)
 } catch (_: Exception) { emptyList() }
 
 internal val starterNews = listOf(

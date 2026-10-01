@@ -169,32 +169,42 @@ private val newsImageCache = object : LruCache<String, Bitmap>(12 * 1024) {
         (value.byteCount / 1024).coerceAtLeast(1)
 }
 
-@Composable private fun rememberNewsImage(url: String): State<Bitmap?> {
+@Composable private fun rememberNewsImage(news: LaunchNews): State<Bitmap?> {
+    val url = news.imageUrl
     val imageUrl = when {
         url.startsWith("https://www.bing.com/th?") && !url.contains("&w=") -> "$url&w=800&h=450"
         url.contains("casadellibro.com/a/l/s5/") -> url.replace("/s5/", "/s7/")
         else -> url
     }
-    return produceState<Bitmap?>(initialValue = newsImageCache.get(imageUrl), imageUrl) {
+    return produceState<Bitmap?>(initialValue = newsImageCache.get(imageUrl), news.url, imageUrl) {
         if (value == null) value = withContext(Dispatchers.IO) {
-            try {
-                val conn = URL(imageUrl).openConnection() as HttpURLConnection
+            fun load(candidate: String): Bitmap? {
+                return try {
+                if (!candidate.startsWith("https://")) return null
+                val conn = URL(candidate).openConnection() as HttpURLConnection
                 conn.connectTimeout = 5000
                 conn.readTimeout = 6000
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+                conn.setRequestProperty("Referer", news.url)
+                conn.setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
                 try {
-                    if (conn.contentLengthLong > 4_000_000) return@withContext null
+                    if (conn.contentLengthLong > 4_000_000) return null
                     val bytes = conn.inputStream.use { it.readNBytes(4_000_001) }
-                    if (bytes.size > 4_000_000) return@withContext null
+                    if (bytes.size > 4_000_000) return null
                     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                    val sample = generateSequence(1) { it * 2 }
-                        .first { bounds.outWidth / it <= 1400 && bounds.outHeight / it <= 1400 }
+                    if (bounds.outWidth < 100 || bounds.outHeight < 100) return null
+                    var sample = 1
+                    while (bounds.outWidth / sample > 1400 || bounds.outHeight / sample > 1400) sample *= 2
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
                         BitmapFactory.Options().apply { inSampleSize = sample })?.also {
                         newsImageCache.put(imageUrl, it)
                     }
                 } finally { conn.disconnect() }
-            } catch (_: Exception) { null }
+                } catch (_: Exception) { null }
+            }
+            load(imageUrl) ?: if (news.source in featuredNewsSources)
+                articleImageUrl(news.url)?.let(::load) else null
         }
     }
 }
@@ -2528,7 +2538,7 @@ private fun openCasaDelLibro(context: Context) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             state = listState,
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+            contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (tab == "Inicio" && vm.readingFirst && readingBooks.isNotEmpty())
@@ -2537,7 +2547,7 @@ private fun openCasaDelLibro(context: Context) {
                     vm.recordOpen(book.uri)
                 } }
             item(key = "controls") {
-                Column {
+                Column(Modifier.padding(horizontal = 12.dp)) {
                     if (tab == "Inicio") {
                     Spacer(Modifier.height(12.dp))
                     Text("✦  ENTRE ESTANTERÍAS  ✦", color = Brass, fontFamily = FontFamily.Serif,
@@ -2614,7 +2624,7 @@ private fun openCasaDelLibro(context: Context) {
             if (tab == "Inicio") {
                 if (vm.showHomeNews) {
                 item(key = "launch-news") {
-                    Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 16.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Actualidad literaria en España", fontFamily = FontFamily.Serif,
@@ -2630,8 +2640,8 @@ private fun openCasaDelLibro(context: Context) {
                     }
                 }
                 items(visibleNews, key = { "news:" + it.url }, contentType = { "news" }) { news ->
-                    val picture by rememberNewsImage(news.imageUrl)
-                    Card(Modifier.fillMaxWidth().padding(bottom = 10.dp).clickable {
+                    val picture by rememberNewsImage(news)
+                    Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp).clickable {
                         try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url))) }
                         catch (_: Exception) {
                             android.widget.Toast.makeText(context, "No se pudo abrir la noticia",
@@ -2727,7 +2737,7 @@ private fun openCasaDelLibro(context: Context) {
                 groupedBooks.forEach { (name, group) ->
                     if (name.isNotBlank()) item(key = "group:$name") {
                         Text(name, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                            color = Mahogany, modifier = Modifier.padding(top = 10.dp))
+                            color = Mahogany, modifier = Modifier.padding(start = 12.dp, top = 10.dp))
                         if (groupMode == "Sagas" && name != "Sin saga") {
                             val numbers = group.map { sagaNumber(it) }
                                 .filter { it.isFinite() && it >= 1 && it <= 100 && it % 1.0 == 0.0 }
@@ -2742,7 +2752,8 @@ private fun openCasaDelLibro(context: Context) {
                     val ordered = group
                     when (vm.viewModeFor(vm.selectedSection)) {
                         "Galería" -> items(ordered.chunked(2), key = { "grid:" + name + ":" + it.first().uri }, contentType = { "gallery" }) { pair ->
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 pair.forEach { book ->
                                     BookGalleryCard(book, Modifier.weight(1f),
                                         vm.readingPercent(book.uri)) { selected = book }
@@ -2847,14 +2858,17 @@ private fun openCasaDelLibro(context: Context) {
 @Composable private fun ReadingShelf(books: List<Book>, progress: (Uri) -> Int, onOpen: (Book) -> Unit) {
     Column {
         Text("Continuar leyendo", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-            fontSize = 21.sp, color = Mahogany, modifier = Modifier.padding(top = 16.dp, bottom = 12.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(end = 8.dp)) {
+            fontSize = 21.sp, color = Mahogany,
+            modifier = Modifier.padding(start = 12.dp, top = 16.dp, bottom = 12.dp))
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val coverWidth = (maxWidth - 36.dp) / 2
+        LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp)) {
             items(books, key = { "reading:" + it.uri }) { book ->
-                Column(Modifier.width(144.dp).clickable { onOpen(book) }) {
+                Column(Modifier.width(coverWidth).clickable { onOpen(book) }) {
                     Card(elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
-                        Cover(book, 144.dp, 202.dp)
+                        Cover(book, coverWidth, coverWidth * 1.40f)
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(displayTitle(book), fontSize = 13.sp, lineHeight = 17.sp,
@@ -2870,13 +2884,14 @@ private fun openCasaDelLibro(context: Context) {
                 }
             }
         }
+        }
     }
 }
 
 @Composable private fun BookCard(book: Book, onClick: () -> Unit) {
     val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
-    Card(Modifier.fillMaxWidth().clickable(onClick = onClick),
+    Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp).clickable(onClick = onClick),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = Paper),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
@@ -2898,7 +2913,7 @@ private fun openCasaDelLibro(context: Context) {
 @Composable private fun BookCompactCard(book: Book, onClick: () -> Unit) {
     val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
-    Card(Modifier.fillMaxWidth().clickable(onClick = onClick),
+    Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp).clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = Paper)) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Cover(book, 50.dp, 72.dp)
