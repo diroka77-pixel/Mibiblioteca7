@@ -2061,7 +2061,6 @@ private fun openCasaDelLibro(context: Context) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var selected by remember { mutableStateOf<Book?>(null) }
     var readingUri by rememberSaveable { mutableStateOf<String?>(null) }
-    var aiChatOpen by rememberSaveable { mutableStateOf(false) }
     var tab by rememberSaveable { mutableStateOf("Inicio") }
     val tabs = remember { listOf("Inicio", "Biblioteca", "Pendientes", "Secciones") }
     var addingSection by remember { mutableStateOf(false) }
@@ -2105,8 +2104,7 @@ private fun openCasaDelLibro(context: Context) {
     )
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
     val current = selected?.let { s -> vm.books.firstOrNull { it.uri == s.uri } }
-    BackHandler(enabled = readingUri == null && !aiChatOpen &&
-        (selected != null || showWishList || tab != "Inicio")) {
+    BackHandler(enabled = readingUri == null && (selected != null || showWishList || tab != "Inicio")) {
         when {
             selected != null -> selected = null
             showWishList -> showWishList = false
@@ -2298,17 +2296,14 @@ private fun openCasaDelLibro(context: Context) {
         } },
         confirmButton = { LibraryTextButton(onClick = { newsSettings = false }) { Text("Cerrar") } })
     val shown = current
-    LaunchedEffect(tab, shown?.uri, aiChatOpen) {
-        (context as? MainActivity)?.setMetricScreen(if (aiChatOpen) "Chat IA" else
-            if (shown != null) "Ficha" else tab)
+    LaunchedEffect(tab, shown?.uri) {
+        (context as? MainActivity)?.setMetricScreen(if (shown != null) "Ficha" else tab)
     }
     val readingBook = readingUri?.let { key -> vm.books.firstOrNull { it.uri.toString() == key } }
     if (readingBook != null) {
         ReaderScreen(readingBook, onBack = { readingUri = null },
             onProgress = { percent -> vm.updateReadingPercent(readingBook.uri, percent) },
             onHighlightsChanged = vm::readerAnnotationsChanged)
-    } else if (aiChatOpen) {
-        AiChatScreen(onBack = { aiChatOpen = false }, onGoogle = { openGoogleAi(context) })
     } else if (shown != null) {
             BookDetail(shown, { selected = null }, { vm.toggleFavorite(shown.uri) },
                 { vm.recordOpen(shown.uri) },
@@ -2456,10 +2451,8 @@ private fun openCasaDelLibro(context: Context) {
                     HorizontalDivider(Modifier.padding(vertical = 14.dp))
                     NavigationDrawerItem(label = { Text("Goodreads") }, selected = false,
                         icon = { AppIcon("Goodreads") }, onClick = { openGoodreads(context) })
-                    NavigationDrawerItem(label = { Text("Consulta IA") }, selected = false,
-                        icon = { AppIcon("Google IA") }, onClick = {
-                            scope.launch { drawerState.close() }; aiChatOpen = true
-                        })
+                    NavigationDrawerItem(label = { Text("Google IA") }, selected = false,
+                        icon = { AppIcon("Google IA") }, onClick = { openGoogleAi(context) })
                     HorizontalDivider(Modifier.padding(vertical = 14.dp))
                     NavigationDrawerItem(label = { Text("Ajustes") }, selected = false,
                         icon = { AppIcon("Ajustes") }, onClick = { settingsOpen = true })
@@ -2540,7 +2533,7 @@ private fun openCasaDelLibro(context: Context) {
             onLibrary = { switchTab("Biblioteca") },
             onFavorites = { switchTab("Biblioteca"); vm.onlyFavorites = true },
             onGoodreads = { openGoodreads(context) },
-            onGoogle = { aiChatOpen = true })
+            onGoogle = { openGoogleAi(context) })
         Box(Modifier.fillMaxWidth().weight(1f)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -2842,7 +2835,7 @@ private fun openCasaDelLibro(context: Context) {
         Triple("Libros", "Libros", Color(0xFF673D62)) to onLibrary,
         Triple("Favoritos", "Favoritos", Color(0xFFC58D45)) to onFavorites,
         Triple("Goodreads", "Goodreads", Color(0xFF186D66)) to onGoodreads,
-        Triple("Consulta IA", "Google IA", Color(0xFFB96056)) to onGoogle
+        Triple("Google IA", "Google IA", Color(0xFFB96056)) to onGoogle
     )
     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 8.dp),
         horizontalArrangement = Arrangement.SpaceEvenly) {
