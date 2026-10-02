@@ -19,6 +19,9 @@ import android.view.Menu
 import android.view.MenuItem
 import android.widget.TextView
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import android.os.Handler
+import android.os.Looper
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -575,10 +578,21 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var translationQuote by remember { mutableStateOf<String?>(null) }
     var searchText by remember { mutableStateOf("") }
     var speech by remember { mutableStateOf<TextToSpeech?>(null) }
-    DisposableEffect(context) {
-        val engine = TextToSpeech(context) { }
+    var speechReady by remember { mutableStateOf(false) }
+    var audioActive by remember(book.uri) { mutableStateOf(false) }
+    var audioAdvance by remember(book.uri) { mutableIntStateOf(0) }
+    DisposableEffect(context, book.uri) {
+        var engine: TextToSpeech? = null
+        engine = TextToSpeech(context) { status ->
+            speechReady = status == TextToSpeech.SUCCESS
+        }
         speech = engine
-        onDispose { engine.stop(); engine.shutdown(); speech = null }
+        onDispose {
+            audioActive = false
+            engine?.stop()
+            engine?.shutdown()
+            speech = null
+        }
     }
     var brightness by remember { mutableFloatStateOf(prefs.getFloat("brightness", -1f)) }
     val activity = context as? Activity
@@ -905,6 +919,45 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             }
                         }
                         val currentPage = textPage.coerceIn(pages.indices)
+                        LaunchedEffect(audioAdvance) {
+                            if (audioAdvance > 0 && audioActive) {
+                                if (textPage < pages.lastIndex) textPage++
+                                else audioActive = false
+                            }
+                        }
+                        LaunchedEffect(audioActive, currentPage, pages, speechReady) {
+                            val engine = speech
+                            if (!audioActive || !speechReady || engine == null) {
+                                engine?.stop()
+                            } else {
+                                val locale = if (book.language.startsWith("en", true))
+                                    java.util.Locale.ENGLISH else java.util.Locale.forLanguageTag("es-ES")
+                                val availability = engine.setLanguage(locale)
+                                if (availability < TextToSpeech.LANG_AVAILABLE) {
+                                    audioActive = false
+                                    android.widget.Toast.makeText(context,
+                                        "Instala una voz del idioma del libro en los ajustes de voz de Android",
+                                        android.widget.Toast.LENGTH_LONG).show()
+                                } else {
+                                    val spoken = pages[currentPage].slices.joinToString(" ") { slice ->
+                                        paragraphs[slice.paragraph].text.substring(slice.start, slice.end)
+                                    }.trim()
+                                    engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                                        override fun onStart(utteranceId: String?) {}
+                                        override fun onDone(utteranceId: String?) {
+                                            Handler(Looper.getMainLooper()).post { audioAdvance++ }
+                                        }
+                                        override fun onError(utteranceId: String?) {
+                                            Handler(Looper.getMainLooper()).post { audioActive = false }
+                                        }
+                                    })
+                                    if (spoken.isNotBlank())
+                                        engine.speak(spoken.take(3900), TextToSpeech.QUEUE_FLUSH,
+                                            null, "page_$currentPage")
+                                    else audioAdvance++
+                                }
+                            }
+                        }
                         fun turn(delta: Int) {
                             textPage = (textPage + delta).coerceIn(pages.indices)
                         }
@@ -979,6 +1032,17 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             Box(Modifier.align(Alignment.CenterEnd).width(32.dp).fillMaxHeight()
                                 .clickable { turn(1) })
                         }
+                    }
+                    Row(Modifier.align(Alignment.CenterHorizontally),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { audioActive = !audioActive },
+                            enabled = speechReady) {
+                            Text(if (audioActive) "Pausar audio" else "Leer en voz alta")
+                        }
+                        if (audioActive) TextButton(onClick = {
+                            audioActive = false
+                            speech?.stop()
+                        }) { Text("Detener") }
                     }
                     Text("Página ${textPage + 1} de ${totalTextPages.coerceAtLeast(1)} · $percent % leído",
                         Modifier.align(Alignment.CenterHorizontally), color = foreground)
