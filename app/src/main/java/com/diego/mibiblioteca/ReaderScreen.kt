@@ -226,7 +226,8 @@ internal fun readerProgressKey(uri: Uri): String = MessageDigest.getInstance("SH
 private val readerFileLock = Any()
 
 internal fun localReaderFile(context: Context, book: Book): File = synchronized(readerFileLock) {
-    val name = DocumentFile.fromSingleUri(context, book.uri)?.name
+    val name = (if (book.uri.scheme == "file") book.uri.lastPathSegment
+        else DocumentFile.fromSingleUri(context, book.uri)?.name)
         ?: book.uri.lastPathSegment.orEmpty().substringAfterLast('/').substringAfterLast(':')
     val extension = name.substringAfterLast('.', "").lowercase().takeIf { it.matches(Regex("[a-z0-9]{1,5}")) }.orEmpty().ifBlank {
         when (context.contentResolver.getType(book.uri)) {
