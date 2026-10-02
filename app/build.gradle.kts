@@ -6,7 +6,7 @@ plugins {
 
 android { namespace = "com.diego.mibiblioteca"; compileSdk = 35
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 35; versionCode = 63; versionName = "0.63.0" }
+    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 35; versionCode = 64; versionName = "0.64.0" }
     val persistentKeyPath = System.getenv("MIBIBLIOTECA_KEYSTORE_PATH")
     val persistentSigning = if (!persistentKeyPath.isNullOrBlank()) signingConfigs.create("persistent") {
         storeFile = file(persistentKeyPath)
@@ -36,6 +36,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.navigation:navigation-compose:2.8.5")
     implementation("androidx.documentfile:documentfile:1.0.1")

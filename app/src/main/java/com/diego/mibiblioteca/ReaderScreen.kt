@@ -220,10 +220,12 @@ private suspend fun shareReadingFile(context: Context, book: Book) {
 internal fun readerProgressKey(uri: Uri): String = MessageDigest.getInstance("SHA-256")
     .digest(uri.toString().toByteArray()).joinToString("") { "%02x".format(it) }
 
-internal fun localReaderFile(context: Context, book: Book): File {
+private val readerFileLock = Any()
+
+internal fun localReaderFile(context: Context, book: Book): File = synchronized(readerFileLock) {
     val name = DocumentFile.fromSingleUri(context, book.uri)?.name
         ?: book.uri.lastPathSegment.orEmpty().substringAfterLast('/').substringAfterLast(':')
-    val extension = name.substringAfterLast('.', "").lowercase().take(5).ifBlank {
+    val extension = name.substringAfterLast('.', "").lowercase().takeIf { it.matches(Regex("[a-z0-9]{1,5}")) }.orEmpty().ifBlank {
         when (context.contentResolver.getType(book.uri)) {
             "application/pdf" -> "pdf"
             "application/epub+zip" -> "epub"
@@ -235,12 +237,20 @@ internal fun localReaderFile(context: Context, book: Book): File {
     val file = File(folder, "${readerProgressKey(book.uri)}.$extension")
     val stamp = File(folder, "${readerProgressKey(book.uri)}.stamp")
     val fingerprint = "${book.sourceSize}:${book.sourceModified}"
-    if (file.exists() && file.length() > 0 && stamp.takeIf(File::exists)?.readText() == fingerprint)
-        return file.also { it.setLastModified(System.currentTimeMillis()) }
+    require(book.sourceSize <= FileLimits.BOOK_BYTES) { "El libro supera el límite de 256 MB." }
+    if (file.exists() && file.length() in 1..FileLimits.BOOK_BYTES && stamp.takeIf { it.exists() && it.length() < 1024 }?.readText() == fingerprint)
+        return@synchronized file.also { it.setLastModified(System.currentTimeMillis()) }
     val partial = File(folder, "${readerProgressKey(book.uri)}.partial")
     try {
         context.contentResolver.openInputStream(book.uri)?.use { input ->
-            partial.outputStream().use { input.copyTo(it, 64 * 1024) }
+            require(folder.usableSpace > FileLimits.FREE_SPACE + book.sourceSize.coerceAtLeast(0)) {
+                "No hay espacio suficiente para abrir el libro."
+            }
+            partial.outputStream().use { output ->
+                input.copyLimited(output, FileLimits.BOOK_BYTES) {
+                    require(folder.usableSpace > FileLimits.FREE_SPACE) { "No queda espacio suficiente en el teléfono." }
+                }
+            }
         } ?: error("No se pudo leer el archivo de Drive")
         require(partial.length() > 0) { "El archivo está vacío" }
         if (file.exists()) file.delete()
@@ -255,7 +265,7 @@ internal fun localReaderFile(context: Context, book: Book): File {
             total -= old.length(); old.delete()
             File(folder, old.nameWithoutExtension + ".stamp").delete()
         }
-        return file
+        return@synchronized file
     } finally { partial.delete() }
 }
 
@@ -294,23 +304,25 @@ private fun paragraphsFromHtml(html: String): List<ReadingParagraph> {
 }
 
 internal fun readEpubText(file: File): ReadingDocument = ZipFile(file).use { zip ->
-    val container = zip.getEntry("META-INF/container.xml")?.let { zip.getInputStream(it).bufferedReader().readText() }
+    val container = zip.readEntryLimited("META-INF/container.xml", FileLimits.INDEX_BYTES)?.toString(Charsets.UTF_8)
         ?: return@use ReadingDocument.Unsupported("El EPUB no contiene su índice principal")
     val opf = Regex("full-path\\s*=\\s*['\"]([^'\"]+)['\"]")
         .find(container)?.groupValues?.get(1)
         ?: return@use ReadingDocument.Unsupported("No se encontró el contenido del EPUB")
-    val packageXml = zip.getEntry(opf)?.let { zip.getInputStream(it).bufferedReader().readText() }
+    val packageXml = zip.readEntryLimited(opf, FileLimits.INDEX_BYTES)?.toString(Charsets.UTF_8)
         ?: return@use ReadingDocument.Unsupported("No se pudo leer el contenido del EPUB")
     val xml = Jsoup.parse(packageXml, "", Parser.xmlParser())
     val manifest = xml.select("manifest > item").associate { it.attr("id") to it.attr("href") }
     val spine = xml.select("spine > itemref").mapNotNull { manifest[it.attr("idref")] }
     val paths = spine.ifEmpty { manifest.values.filter { it.endsWith(".xhtml", true) || it.endsWith(".html", true) } }
+    require(paths.size <= FileLimits.CHAPTERS) { "El EPUB contiene demasiados capítulos." }
+    var totalBytes = 0L
     val paragraphs = mutableListOf<ReadingParagraph>()
     for (href in paths) {
         val path = resolveZipPath(opf, java.net.URLDecoder.decode(href, "UTF-8"))
-        val entry = zip.getEntry(path) ?: continue
-        if (entry.size > 3_000_000) continue
-        val html = zip.getInputStream(entry).bufferedReader().use { it.readText() }
+        val bytes = zip.readEntryLimited(path, minOf(FileLimits.CHAPTER_BYTES, FileLimits.TEXT_BYTES - totalBytes)) ?: continue
+        totalBytes += bytes.size
+        val html = bytes.toString(Charsets.UTF_8)
         val section = paragraphsFromHtml(html)
         if (section.isEmpty()) continue
         if (section.none(ReadingParagraph::heading)) {
@@ -397,19 +409,19 @@ private fun loadReadingDocument(context: Context, book: Book): ReadingDocument {
             val paragraphs = when (file.extension.lowercase()) {
                 "docx" -> ZipFile(file).use { zip ->
                     zip.getEntry("word/document.xml")?.let { entry ->
-                        val xml = zip.getInputStream(entry).bufferedReader().readText()
+                        val xml = zip.readEntryLimited(entry.name, FileLimits.TEXT_BYTES)!!.toString(Charsets.UTF_8)
                         val doc = Jsoup.parse(xml, "", Parser.xmlParser())
                         doc.select("w|p").mapNotNull { p -> p.text().trim().takeIf(String::isNotBlank)
                             ?.let { text -> ReadingParagraph(text,
                                 p.selectFirst("w|pStyle")?.attr("w:val")?.startsWith("Heading", true) == true) } }
                     }.orEmpty()
                 }
-                "html", "htm" -> paragraphsFromHtml(file.readText())
-                "rtf" -> file.readText().replace(Regex("\\\\'[0-9a-fA-F]{2}"), " ")
+                "html", "htm" -> paragraphsFromHtml(file.inputStream().use { it.readLimited(FileLimits.TEXT_BYTES).toString(Charsets.UTF_8) })
+                "rtf" -> file.inputStream().use { it.readLimited(FileLimits.TEXT_BYTES).toString(Charsets.UTF_8) }.replace(Regex("\\\\'[0-9a-fA-F]{2}"), " ")
                     .replace(Regex("\\\\[a-zA-Z]+-?\\d* ?"), " ")
                     .replace(Regex("[{}]"), " ").split(Regex("\\n+"))
                     .mapNotNull { it.trim().takeIf(String::isNotBlank)?.let(::ReadingParagraph) }
-                else -> file.readText().split(Regex("\\n\\s*\\n|\\r\\n\\s*\\r\\n"))
+                else -> file.inputStream().use { it.readLimited(FileLimits.TEXT_BYTES).toString(Charsets.UTF_8) }.split(Regex("\\n\\s*\\n|\\r\\n\\s*\\r\\n"))
                     .mapNotNull { raw -> raw.trim().takeIf(String::isNotBlank)?.let { text ->
                         ReadingParagraph(text.trimStart('#', ' '),
                             file.extension.equals("md", true) && text.startsWith('#'))
