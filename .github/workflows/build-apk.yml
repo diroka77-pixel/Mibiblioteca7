@@ -1,13 +1,11 @@
 name: Compilar APK
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 jobs:
   apk:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -47,13 +45,6 @@ jobs:
           name: MiBiblioteca-v0.64-firmada
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
-      - name: Publicar APK descargable
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cp app/build/outputs/apk/release/app-release.apk MiBiblioteca-v0.64.apk
-          gh release view v0.64 >/dev/null 2>&1 || gh release create v0.64 --title "MiBiblioteca v0.64" --notes "Límites de archivos y respaldos; validación antes de restaurar; copia anterior recuperable en Drive; protección de datos locales; biblioteca estable ante sincronización incompleta. Conserva la firma permanente."
-          gh release upload v0.64 MiBiblioteca-v0.64.apk --clobber
       - name: Eliminar clave temporal del runner
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
