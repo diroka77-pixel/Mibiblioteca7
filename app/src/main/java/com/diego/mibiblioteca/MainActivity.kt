@@ -275,6 +275,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var coverUpdateTotal by mutableIntStateOf(0); private set
     var reviewPending by mutableStateOf<Set<Uri>>(emptySet()); private set
     var books by mutableStateOf<List<Book>>(emptyList()); private set
+    var importedBookUri by mutableStateOf<Uri?>(null); private set
+    fun clearImportedBook() { importedBookUri = null }
     private val readerPrefs = app.getSharedPreferences("reader", Context.MODE_PRIVATE)
     var readingPercents by mutableStateOf<Map<Uri, Int>>(emptyMap()); private set
     private var readerCloudJob: Job? = null
@@ -938,6 +940,47 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun readingBooks(): List<Book> = books.filter { it.status == ReadingStatus.READING }
         .sortedByDescending { prefs.getLong("opened_" + it.uri.toString().hashCode(), 0L) }
 
+    fun importLocalEpub(source: Uri) {
+        viewModelScope.launch {
+            try {
+                val imported = withContext(Dispatchers.IO) {
+                    val context = getApplication<Application>()
+                    val name = DocumentFile.fromSingleUri(context, source)?.name
+                        ?: source.lastPathSegment.orEmpty().substringAfterLast('/')
+                    require(name.endsWith(".epub", ignoreCase = true) ||
+                        context.contentResolver.getType(source) == "application/epub+zip") {
+                        "Selecciona un archivo EPUB."
+                    }
+                    val folder = File(context.filesDir, "imported").apply { mkdirs() }
+                    val target = File(folder, "book-" + MessageDigest.getInstance("SHA-256")
+                        .digest(source.toString().toByteArray()).joinToString("") {
+                            "%02x".format(it)
+                        } + ".epub")
+                    val partial = File(folder, target.name + ".partial")
+                    try {
+                        context.contentResolver.openInputStream(source)?.use { input ->
+                            partial.outputStream().use { output ->
+                                input.copyLimited(output, FileLimits.BOOK_BYTES)
+                            }
+                        } ?: error("No se pudo leer el archivo")
+                        require(partial.length() > 0) { "El archivo está vacío" }
+                        if (target.exists()) target.delete()
+                        check(partial.renameTo(target)) { "No se pudo guardar el EPUB" }
+                    } finally { partial.delete() }
+                    readEpub(context, Uri.fromFile(target), name,
+                        target.length(), target.lastModified())
+                }
+                books = (books.filterNot { it.uri == imported.uri } + imported)
+                    .sortedBy { it.title.lowercase() }
+                saveBooks()
+                importedBookUri = imported.uri
+                message = "EPUB añadido a Mi Biblioteca"
+            } catch (e: Exception) {
+                message = "No se pudo importar el EPUB: ${e.localizedMessage ?: "archivo no válido"}"
+            }
+        }
+    }
+
     fun selectFolder(uri: Uri) {
         if (syncing) { message = "Espera a que termine la sincronización antes de cambiar de carpeta."; return }
         val resolver = getApplication<Application>().contentResolver
@@ -980,6 +1023,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 if (prefs.getString(folderKey, null) != uri.toString()) return@launch
                 val latest = if (changedFolder) emptyMap() else books.associateBy { it.uri }
+                val localBooks = books.filter { it.uri.scheme == "file" }
                 books = mergeLibraryScan(result, cached, latest, { it.uri }) { b, prior ->
                     val saved = prefs.getString("info_" + b.uri, null)?.let { JSONObject(it) }
                     b.copy(spanishPlot = prior?.spanishPlot ?: saved?.optString("plot").orEmpty(),
@@ -998,6 +1042,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         coverSource = prior?.coverSource?.takeIf(String::isNotBlank)
                             ?: if (b.cover != null) "Portada del EPUB" else "")
                 }
+                books = (books + localBooks.filter { it.uri.scheme == "file" &&
+                    books.none { current -> current.uri == it.uri } })
+                    .sortedBy { it.title.lowercase() }
                 val previousUris = cached.keys
                 val currentUris = result.map { it.uri }.toSet()
                 val added = (currentUris - previousUris).size
@@ -1093,7 +1140,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             coverLoading = book.uri
             try {
                 val embedded = withContext(Dispatchers.IO) {
-                    val name = DocumentFile.fromSingleUri(getApplication(), book.uri)?.name.orEmpty()
+                    val name = (if (book.uri.scheme == "file") book.uri.lastPathSegment else DocumentFile.fromSingleUri(getApplication(), book.uri)?.name).orEmpty()
                     if (name.endsWith(".epub", ignoreCase = true))
                         readEpub(getApplication(), book.uri, name, book.sourceSize, book.sourceModified).cover
                     else null
@@ -1945,6 +1992,16 @@ class MainActivity : ComponentActivity() {
         handleSharedBook(intent)
     }
     private fun handleSharedBook(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_VIEW && intent.data != null) {
+            libraryVm.importLocalEpub(intent.data!!)
+            return
+        }
+        if (intent?.action == Intent.ACTION_SEND && intent.type != "text/plain") {
+            intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.let {
+                libraryVm.importLocalEpub(it)
+                return
+            }
+        }
         if (intent?.action != Intent.ACTION_SEND) return
         val shared = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
         val url = Regex("https://(?:www\\.)?goodreads\\.com/[^\\s]+").find(shared)?.value ?: return
@@ -2025,7 +2082,7 @@ private fun searchBookInGoogleAi(context: Context, book: Book) {
 
 private fun shareBookFile(context: Context, book: Book) {
     try {
-        val name = DocumentFile.fromSingleUri(context, book.uri)?.name.orEmpty()
+        val name = (if (book.uri.scheme == "file") book.uri.lastPathSegment else DocumentFile.fromSingleUri(context, book.uri)?.name).orEmpty()
         val mime = when (name.substringAfterLast('.', "").lowercase()) {
             "epub" -> "application/epub+zip"
             "pdf" -> "application/pdf"
@@ -2225,6 +2282,17 @@ private fun openCasaDelLibro(context: Context) {
         dismissButton = { LibraryTextButton(onClick = { addWishDialog = false }) { Text("Cancelar") } }
     )
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
+    LaunchedEffect(vm.importedBookUri, vm.books) {
+        vm.importedBookUri?.let { uri ->
+            vm.books.firstOrNull { it.uri == uri }?.let {
+                selected = it
+                readingUri = uri.toString()
+                vm.recordOpen(uri)
+                vm.setStatus(uri, ReadingStatus.READING)
+                vm.clearImportedBook()
+            }
+        }
+    }
     val current = selected?.let { s -> vm.books.firstOrNull { it.uri == s.uri } }
     BackHandler(enabled = readingUri == null && (selected != null || showWishList || tab != "Inicio")) {
         when {
@@ -2241,7 +2309,7 @@ private fun openCasaDelLibro(context: Context) {
         "Biblioteca" -> libraryListState
         else -> sectionsListState
     }
-    val swipeThreshold = with(LocalDensity.current) { 56.dp.toPx() }
+    val swipeThreshold = with(LocalDensity.current) { 40.dp.toPx() }
     val readingShelfGestureHeight = with(LocalDensity.current) { 440.dp.toPx() }
     val swipeControlsHeight = with(LocalDensity.current) { 145.dp.toPx() }
     val scope = rememberCoroutineScope()
@@ -2661,11 +2729,9 @@ private fun openCasaDelLibro(context: Context) {
               }
               val horizontal = end.x - start.x
               val vertical = end.y - start.y
-              if (start.y > swipeControlsHeight && start.x > swipeThreshold &&
-                  !(currentTab == "Inicio" && hasReadingShelf &&
-                      start.y < readingShelfGestureHeight) &&
+              if (start.y > swipeControlsHeight &&
                   kotlin.math.abs(horizontal) > swipeThreshold &&
-                  kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.25f) {
+                  kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.1f) {
                   val index = tabs.indexOf(currentTab)
                   val next = index + if (horizontal < 0) 1 else -1
                   if (next in tabs.indices) currentSwitch(tabs[next])
@@ -3316,8 +3382,9 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 }
                 LibraryActionButton(onClick = {
                     val safeName = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), " ").trim().take(90)
-                    val extension = androidx.documentfile.provider.DocumentFile.fromSingleUri(context, book.uri)
-                        ?.name?.substringAfterLast('.', "epub")?.lowercase().orEmpty()
+                    val extension = (if (book.uri.scheme == "file") book.uri.lastPathSegment
+                        else androidx.documentfile.provider.DocumentFile.fromSingleUri(context, book.uri)?.name)
+                        ?.substringAfterLast('.', "epub")?.lowercase().orEmpty()
                     exportPicker.launch((safeName.ifBlank { "Libro" }) + "." +
                         extension.takeIf { it in setOf("epub", "pdf", "mobi", "azw", "azw3", "txt", "html", "htm", "rtf", "docx", "md") }.orEmpty().ifBlank { "epub" })
                 }, modifier = Modifier.fillMaxWidth(), enabled = !exportingEpub) {
