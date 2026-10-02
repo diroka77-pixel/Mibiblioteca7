@@ -1140,7 +1140,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             coverLoading = book.uri
             try {
                 val embedded = withContext(Dispatchers.IO) {
-                    val name = DocumentFile.fromSingleUri(getApplication(), book.uri)?.name.orEmpty()
+                    val name = (if (book.uri.scheme == "file") book.uri.lastPathSegment else DocumentFile.fromSingleUri(getApplication(), book.uri)?.name).orEmpty()
                     if (name.endsWith(".epub", ignoreCase = true))
                         readEpub(getApplication(), book.uri, name, book.sourceSize, book.sourceModified).cover
                     else null
@@ -2082,7 +2082,7 @@ private fun searchBookInGoogleAi(context: Context, book: Book) {
 
 private fun shareBookFile(context: Context, book: Book) {
     try {
-        val name = DocumentFile.fromSingleUri(context, book.uri)?.name.orEmpty()
+        val name = (if (book.uri.scheme == "file") book.uri.lastPathSegment else DocumentFile.fromSingleUri(context, book.uri)?.name).orEmpty()
         val mime = when (name.substringAfterLast('.', "").lowercase()) {
             "epub" -> "application/epub+zip"
             "pdf" -> "application/pdf"
@@ -3382,8 +3382,9 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 }
                 LibraryActionButton(onClick = {
                     val safeName = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), " ").trim().take(90)
-                    val extension = androidx.documentfile.provider.DocumentFile.fromSingleUri(context, book.uri)
-                        ?.name?.substringAfterLast('.', "epub")?.lowercase().orEmpty()
+                    val extension = (if (book.uri.scheme == "file") book.uri.lastPathSegment
+                        else androidx.documentfile.provider.DocumentFile.fromSingleUri(context, book.uri)?.name)
+                        ?.substringAfterLast('.', "epub")?.lowercase().orEmpty()
                     exportPicker.launch((safeName.ifBlank { "Libro" }) + "." +
                         extension.takeIf { it in setOf("epub", "pdf", "mobi", "azw", "azw3", "txt", "html", "htm", "rtf", "docx", "md") }.orEmpty().ifBlank { "epub" })
                 }, modifier = Modifier.fillMaxWidth(), enabled = !exportingEpub) {
