@@ -2092,8 +2092,7 @@ private fun openCasaDelLibro(context: Context) {
     LibraryActionButton(onClick = onClick, modifier = modifier, enabled = enabled, content = content)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable fun LibraryApp(vm: LibraryViewModel = viewModel()) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var selected by remember { mutableStateOf<Book?>(null) }
