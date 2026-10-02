@@ -1,12 +1,8 @@
 name: Compilar APK
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/build-apk.yml']
 jobs:
   apk:
-    if: github.event_name == 'push' && github.event.before == 'b444af47918d15aca4fcc168547d10a07eed8b41' && github.event.head_commit.message == 'Publicar MiBiblioteca 0.64 para pruebas'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -52,20 +48,3 @@ jobs:
       - name: Eliminar clave temporal del runner
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
-  publish_once:
-    needs: apk
-    if: github.event_name == 'push' && github.event.before == 'b444af47918d15aca4fcc168547d10a07eed8b41' && github.event.head_commit.message == 'Publicar MiBiblioteca 0.64 para pruebas'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: MiBiblioteca-v0.64-firmada
-      - name: Publicar versión 0.64 para pruebas
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          test -f app-release.apk
-          mv app-release.apk MiBiblioteca-v0.64.apk
-          gh release create v0.64 MiBiblioteca-v0.64.apk --repo "$GITHUB_REPOSITORY" --title "MiBiblioteca v0.64" --notes "Versión para pruebas: límites de archivos y respaldos, protección de datos locales y estabilidad de la biblioteca."
