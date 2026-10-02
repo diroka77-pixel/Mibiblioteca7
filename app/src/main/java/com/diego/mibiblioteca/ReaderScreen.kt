@@ -844,6 +844,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 }
                 val total = positions.last().coerceAtLeast(1)
                 var textPage by remember(book.uri) { mutableIntStateOf(0) }
+                var totalTextPages by remember(book.uri) { mutableIntStateOf(0) }
                 var ready by remember(book.uri) { mutableStateOf(false) }
                 var percent by remember(book.uri) { mutableIntStateOf(prefs.getInt("percent_$key", 0)) }
                 Column(Modifier.padding(padding).fillMaxSize()) {
@@ -868,6 +869,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             return@BoxWithConstraints
                         }
                         LaunchedEffect(pages) {
+                            totalTextPages = pages.size
                             val legacyItem = prefs.getInt("item_$key", 0).coerceIn(0, paragraphs.lastIndex)
                             val savedChar = prefs.getInt("char_$key", positions[legacyItem])
                             textPage = pages.indexOfLast { it.startChar <= savedChar }.coerceAtLeast(0)
@@ -966,7 +968,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 .clickable { turn(1) })
                         }
                     }
-                    Text("Página ${textPage + 1} de ${pages.size} · $percent % leído",
+                    Text("Página ${textPage + 1} de ${totalTextPages.coerceAtLeast(1)} · $percent % leído",
                         Modifier.align(Alignment.CenterHorizontally), color = foreground)
                 }
             }
