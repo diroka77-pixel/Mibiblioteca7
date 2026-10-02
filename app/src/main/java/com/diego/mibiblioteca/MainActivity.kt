@@ -130,6 +130,10 @@ data class Book(
     val coverSource: String = ""
 )
 
+private fun safeSavedArray(raw: String?): org.json.JSONArray = try {
+    org.json.JSONArray(raw ?: "[]")
+} catch (_: Exception) { org.json.JSONArray() }
+
 private fun bookSections(book: Book): List<String> =
     (book.sections + book.section).map(String::trim).filter(String::isNotBlank).distinct()
 
@@ -304,13 +308,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("library", Context.MODE_PRIVATE)
     private val bookStore = BookStore(app)
     private val saveMutex = Mutex()
+    private var catalogSaveJob: Job? = null
     @Volatile private var saveVersion = 0
     private val folderKey = "folder_uri"
     private val cloudMutex = Mutex()
     private val cloudName = "MiBiblioteca_Diroka77.json"
 
     init {
-        sections = org.json.JSONArray(prefs.getString("sections", "[]")).let { arr ->
+        sections = safeSavedArray(prefs.getString("sections", "[]")).let { arr ->
             (0 until arr.length()).map { arr.optString(it) }
         }
         viewModelScope.launch {
@@ -322,7 +327,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             prefs.edit().putString("view_mode", viewMode)
                 .putBoolean("cover_first_v48", true).apply()
         }
-        reviewPending = org.json.JSONArray(prefs.getString("review_pending", "[]")).let { arr ->
+        reviewPending = safeSavedArray(prefs.getString("review_pending", "[]")).let { arr ->
             (0 until arr.length()).map { Uri.parse(arr.optString(it)) }.toSet()
         }
         showHomeNews = prefs.getBoolean("show_home_news", true)
@@ -330,10 +335,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         loadWishList()
         folderName = prefs.getString("folder_name", null)
         restoreLaunchNews()
-        hiddenNewsSources = org.json.JSONArray(prefs.getString("hidden_news_sources", "[]")).let { arr ->
+        hiddenNewsSources = safeSavedArray(prefs.getString("hidden_news_sources", "[]")).let { arr ->
             (0 until arr.length()).map { arr.optString(it) }.toSet()
         }
-        hiddenNewsUrls = org.json.JSONArray(prefs.getString("hidden_news_urls", "[]")).let { arr ->
+        hiddenNewsUrls = safeSavedArray(prefs.getString("hidden_news_urls", "[]")).let { arr ->
             (0 until arr.length()).map { arr.optString(it) }.toSet()
         }
         newsLastChecked = prefs.getLong("literary_news_v3_checked", 0L)
@@ -342,7 +347,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun restoreLaunchNews() {
-        val saved = try { org.json.JSONArray(prefs.getString("literary_news", "[]")) }
+        val saved = try { safeSavedArray(prefs.getString("literary_news", "[]")) }
             catch (_: Exception) { org.json.JSONArray() }
         val cached = (0 until saved.length()).mapNotNull { i ->
             try { saved.getJSONObject(i).let {
@@ -406,11 +411,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun restoreCachedBooks(onlyIfEmpty: Boolean = false) {
+        val revision = saveVersion
+        val folder = prefs.getString(folderKey, null)
         try {
             val restored = withContext(Dispatchers.IO) {
             val fromDatabase = bookStore.readArray()
             val array = if (fromDatabase.length() > 0) fromDatabase
-                else org.json.JSONArray(prefs.getString("books_cache", "[]"))
+                else safeSavedArray(prefs.getString("books_cache", "[]"))
             (0 until array.length()).mapNotNull { i ->
                 try {
                 val j = array.getJSONObject(i)
@@ -440,15 +447,18 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 } catch (_: Exception) { null }
             }
             }
-            if (!onlyIfEmpty || books.isEmpty()) books = restored
-        } catch (_: Exception) { if (!onlyIfEmpty) books = emptyList() }
+            if (revision == saveVersion && folder == prefs.getString(folderKey, null) &&
+                (!onlyIfEmpty || books.isEmpty())) books = restored
+        } catch (_: Exception) {
+            detailMessage = "No se pudo recuperar el catálogo. Se conserva la biblioteca actual."
+        }
     }
 
     private fun saveBooks() {
         val snapshot = books.toList()
         val revision = ++saveVersion
         prefs.edit().putLong("local_revision", System.currentTimeMillis()).apply()
-        viewModelScope.launch {
+        catalogSaveJob = viewModelScope.launch {
             try {
             withContext(Dispatchers.IO) {
                 saveMutex.withLock {
@@ -478,8 +488,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun loadWishList() {
-        val arr = org.json.JSONArray(prefs.getString("wish_list", "[]"))
-        wishList = (0 until arr.length()).map { arr.getJSONObject(it).let { j ->
+        val arr = safeSavedArray(prefs.getString("wish_list", "[]"))
+        wishList = (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.let { j ->
             j.optString("title") to j.optString("url")
         } }
     }
@@ -506,7 +516,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun cloudSnapshot(): String {
-        val booksJson = org.json.JSONArray(prefs.getString("books_cache", "[]"))
+        val booksJson = safeSavedArray(prefs.getString("books_cache", "[]"))
         for (i in 0 until booksJson.length()) {
             val j = booksJson.getJSONObject(i)
             val uri = Uri.parse(j.getString("uri"))
@@ -517,6 +527,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 .put("readerItem", readerPrefs.getInt("item_$progressKey", 0))
                 .put("readerOffset", readerPrefs.getInt("offset_$progressKey", 0))
                 .put("readerPage", readerPrefs.getInt("page_$progressKey", 0))
+                .put("readerChar", readerPrefs.getInt("char_$progressKey", 0))
                 .put("readerHighlights", readerPrefs.getString("highlights_$progressKey", "[]"))
             j.put("plot", info?.optString("plot").orEmpty())
             j.put("bio", info?.optString("bio").orEmpty())
@@ -531,13 +542,18 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         return JSONObject().put("backupVersion", 1)
             .put("updatedAt", prefs.getLong("local_revision", 0L))
             .put("sections", org.json.JSONArray(sections))
-            .put("wishList", org.json.JSONArray(prefs.getString("wish_list", "[]")))
-            .put("books", booksJson).toString()
+            .put("wishList", safeSavedArray(prefs.getString("wish_list", "[]")))
+            .put("books", booksJson).toString().also {
+                require(it.toByteArray(Charsets.UTF_8).size <= FileLimits.BACKUP_BYTES) {
+                    "El respaldo supera el límite de 32 MB."
+                }
+            }
     }
 
     fun exportBackup(destination: Uri) {
         viewModelScope.launch {
             try {
+                catalogSaveJob?.join()
                 withContext(Dispatchers.IO) {
                     val payload = saveMutex.withLock { cloudSnapshot() }
                     getApplication<Application>().contentResolver.openOutputStream(destination, "wt")
@@ -554,12 +570,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val payload = withContext(Dispatchers.IO) {
                     getApplication<Application>().contentResolver.openInputStream(source)
-                        ?.bufferedReader()?.use { it.readText() }
+                        ?.use { it.readLimited(FileLimits.BACKUP_BYTES).toString(Charsets.UTF_8) }
                         ?: throw IllegalStateException("No se pudo abrir el respaldo")
                 }
-                val backup = JSONObject(payload)
-                if (backup.optInt("backupVersion") != 1 || backup.optJSONArray("books") == null)
-                    throw IllegalArgumentException("El archivo no es un respaldo de MiBiblioteca")
+                val backup = parseBackup(payload)
                 val matched = applyBackup(backup)
                 if (matched < backup.getJSONArray("books").length()) {
                     prefs.edit().putString("pending_backup", payload).apply()
@@ -572,6 +586,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun applyBackup(backup: JSONObject): Int {
+        withContext(Dispatchers.IO) {
+            validateBackup(backup)
+            validateBackupImages(backup)
+        }
         val entries = backup.optJSONArray("books") ?: return 0
         val records = (0 until entries.length()).mapNotNull { entries.optJSONObject(it) }
         val normalize: (String) -> String = { value ->
@@ -601,21 +619,26 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             }.orEmpty().ifEmpty { listOfNotNull(record.optString("section").takeIf(String::isNotBlank)) }
             val uri = book.uri
             val progressKey = readerProgressKey(uri)
-            readerPrefs.edit().putInt("percent_$progressKey", record.optInt("readerPercent"))
-                .putInt("item_$progressKey", record.optInt("readerItem"))
-                .putInt("offset_$progressKey", record.optInt("readerOffset"))
-                .putInt("page_$progressKey", record.optInt("readerPage"))
-                .putString("highlights_$progressKey", record.optString("readerHighlights", "[]")).apply()
-            prefs.edit().putString("info_" + uri, JSONObject()
-                .put("plot", record.optString("plot")).put("bio", record.optString("bio")).toString())
-                .putBoolean("manual_info_" + uri, record.optBoolean("manualInfo")).apply()
             val image = record.optString("coverBase64")
-            if (image.isNotBlank() && image.length < 2_000_000) withContext(Dispatchers.IO) {
-                val bytes = Base64.decode(image, Base64.DEFAULT)
+            if (image.isNotBlank()) run {
+                val bytes = decodeBackupCover(image)
                 val file = coverFile(getApplication(), uri)
                 file.writeBytes(bytes)
                 File(getApplication<Application>().filesDir, "manual-" + file.name).writeBytes(bytes)
             }
+            readerPrefs.edit().putInt("percent_$progressKey", record.optInt("readerPercent"))
+                .putInt("item_$progressKey", record.optInt("readerItem"))
+                .putInt("offset_$progressKey", record.optInt("readerOffset"))
+                .putInt("page_$progressKey", record.optInt("readerPage"))
+                .putInt("char_$progressKey", record.optInt("readerChar"))
+                .putString("highlights_$progressKey", record.optString("readerHighlights", "[]")).apply()
+            prefs.edit().putString("info_" + uri, JSONObject()
+                .put("plot", record.optString("plot")).put("bio", record.optString("bio")).toString())
+                .putBoolean("manual_info_" + uri, record.optBoolean("manualInfo")).apply()
+            val removedMarker = File(getApplication<Application>().filesDir,
+                "removed-" + coverFile(getApplication(), uri).name)
+            if (record.optBoolean("coverRemoved")) removedMarker.writeText("1")
+            else removedMarker.delete()
             book.copy(section = names.firstOrNull().orEmpty(), sections = names,
                 notes = record.optString("notes"), goodreadsUrl = record.optString("goodreadsUrl"),
                 wantToRead = record.optBoolean("wantToRead"), favorite = record.optBoolean("favorite"),
@@ -625,7 +648,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     ?: book.status,
                 spanishPlot = record.optString("plot"), authorBio = record.optString("bio"),
                 plotSource = record.optString("plotSource"), bioSource = record.optString("bioSource"),
-                cover = if (image.isNotBlank()) withContext(Dispatchers.IO) {
+                cover = if (record.optBoolean("coverRemoved")) null else if (image.isNotBlank()) run {
                     coverFile(getApplication(), uri).readBytes()
                 } else book.cover)
         }
@@ -647,8 +670,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val tree = prefs.getString(folderKey, null)?.let(Uri::parse) ?: return
         viewModelScope.launch {
             try {
+                catalogSaveJob?.join()
                 cloudMutex.withLock {
-                    val snapshot = withContext(Dispatchers.IO) { cloudSnapshot() }
+                    val snapshot = withContext(Dispatchers.IO) { saveMutex.withLock { cloudSnapshot() } }
                     withContext(Dispatchers.IO) {
                         val root = DocumentFile.fromTreeUri(getApplication(), tree)
                             ?: throw IllegalStateException("Carpeta no disponible")
@@ -671,16 +695,22 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             val root = DocumentFile.fromTreeUri(getApplication(), tree) ?: return@withContext null
             root.findFile(cloudName)?.let { file ->
                 getApplication<Application>().contentResolver.openInputStream(file.uri)
-                    ?.bufferedReader()?.use { JSONObject(it.readText()) }
+                    ?.use { parseBackup(it.readLimited(FileLimits.BACKUP_BYTES).toString(Charsets.UTF_8)) }
             }
         } ?: return
         if (cloud.optLong("updatedAt") <= prefs.getLong("local_revision", 0L)) return
+        withContext(Dispatchers.IO) { validateBackupImages(cloud) }
+        // Existing local records must never disappear because a cloud snapshot is incomplete.
+        if (books.isNotEmpty()) {
+            applyBackup(cloud)
+            return
+        }
         val booksArray = cloud.optJSONArray("books") ?: return
+        withContext(Dispatchers.IO) { bookStore.replaceAll(booksArray) }
         prefs.edit().putString("books_cache", booksArray.toString())
             .putString("sections", cloud.optJSONArray("sections")?.toString() ?: "[]")
             .putString("wish_list", cloud.optJSONArray("wishList")?.toString() ?: "[]")
             .putLong("local_revision", cloud.optLong("updatedAt")).apply()
-        withContext(Dispatchers.IO) { bookStore.replaceAll(booksArray) }
         for (i in 0 until booksArray.length()) {
             val j = booksArray.getJSONObject(i)
             val uri = Uri.parse(j.getString("uri"))
@@ -689,6 +719,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 .putInt("item_$progressKey", j.optInt("readerItem"))
                 .putInt("offset_$progressKey", j.optInt("readerOffset"))
                 .putInt("page_$progressKey", j.optInt("readerPage"))
+                .putInt("char_$progressKey", j.optInt("readerChar"))
                 .putString("highlights_$progressKey", j.optString("readerHighlights", "[]")).apply()
             prefs.edit().putString("info_" + uri, JSONObject()
                 .put("plot", j.optString("plot")).put("bio", j.optString("bio")).toString())
@@ -699,13 +730,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     "removed-" + coverFile(getApplication(), uri).name).writeText("1")
             }
             if (base64.isNotBlank()) withContext(Dispatchers.IO) {
-                val bytes = Base64.decode(base64, Base64.DEFAULT)
+                val bytes = decodeBackupCover(base64)
                 coverFile(getApplication(), uri).writeBytes(bytes)
                 File(getApplication<Application>().filesDir,
                     "manual-" + coverFile(getApplication(), uri).name).writeBytes(bytes)
             }
         }
-        sections = org.json.JSONArray(prefs.getString("sections", "[]")).let { arr ->
+        sections = safeSavedArray(prefs.getString("sections", "[]")).let { arr ->
             (0 until arr.length()).map { arr.optString(it) }
         }
         loadWishList()
@@ -888,7 +919,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             syncing = true; syncCount = 0; message = null
             try {
-                if (!changedFolder) try { restoreCloud(uri); restoreCachedBooks() } catch (_: Exception) {}
+                if (!changedFolder) {
+                    if (books.isEmpty()) restoreCachedBooks(onlyIfEmpty = true)
+                    try { restoreCloud(uri) } catch (_: Exception) {
+                        detailMessage = "No se pudo recuperar el respaldo de Drive. Se conserva el catálogo local."
+                    }
+                }
                 val cached = if (changedFolder) emptyMap() else books.associateBy { it.uri }
                 val result = withContext(Dispatchers.IO) {
                     scanFolder(getApplication(), uri, cached) { count ->
@@ -902,9 +938,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     syncReport = message.orEmpty()
                     return@launch
                 }
+                val latest = if (changedFolder) emptyMap() else books.associateBy { it.uri }
+                val scannedUris = result.map { it.uri }.toSet()
                 books = result.map { b ->
                     val saved = prefs.getString("info_" + b.uri, null)?.let { JSONObject(it) }
-                    val prior = cached[b.uri]
+                    val prior = latest[b.uri] ?: cached[b.uri]
                     b.copy(spanishPlot = prior?.spanishPlot ?: saved?.optString("plot").orEmpty(),
                         authorBio = prior?.authorBio ?: saved?.optString("bio").orEmpty(),
                         section = prior?.section.orEmpty(), sections = prior?.sections.orEmpty(),
@@ -921,6 +959,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         coverSource = prior?.coverSource?.takeIf(String::isNotBlank)
                             ?: if (b.cover != null) "Portada del EPUB" else "")
                 }
+                // Document providers can return incomplete listings without reporting an error.
+                if (!changedFolder) books = books + latest.values.filter { it.uri !in scannedUris }
                 val previousUris = cached.keys
                 val currentUris = result.map { it.uri }.toSet()
                 val added = (currentUris - previousUris).size
@@ -935,7 +975,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 syncCount = result.size
                 prefs.getString("pending_backup", null)?.let { pending ->
                     try {
-                        val backup = JSONObject(pending)
+                        val backup = parseBackup(pending)
                         if (applyBackup(backup) >= (backup.optJSONArray("books")?.length() ?: 0))
                             prefs.edit().remove("pending_backup").apply()
                     } catch (_: Exception) {}
@@ -943,7 +983,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 syncReport = "Última sincronización: " +
                     java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale("es", "ES"))
                         .format(java.util.Date()) +
-                    "\n${result.size} archivos · $added nuevos · $changed modificados · $missing ya no están en la carpeta."
+                    "\n${result.size} archivos · $added nuevos · $changed modificados · $missing no confirmados; se conservan sus fichas."
                 prefs.edit().putString("sync_report", syncReport).apply()
                 folderName = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(getApplication(), uri)?.name }
                 prefs.edit().putString("folder_name", folderName).apply()
@@ -1296,17 +1336,21 @@ private fun sagaNumber(book: Book): Double {
 private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, onProgress: (Int) -> Unit): List<Book> {
     val root = DocumentFile.fromTreeUri(context, treeUri) ?: throw IllegalStateException("Carpeta no disponible")
     val out = mutableListOf<Book>()
-    fun walk(dir: DocumentFile) {
+    val visited = mutableSetOf<Uri>()
+    fun walk(dir: DocumentFile, depth: Int = 0) {
+        require(depth <= 32 && visited.add(dir.uri)) { "La carpeta es demasiado profunda o contiene un ciclo." }
+        require(visited.size <= 10000) { "La carpeta contiene demasiados subdirectorios." }
+        require(dir.canRead()) { "No se puede leer una subcarpeta. Se conserva el catálogo anterior." }
         dir.listFiles().forEach { f ->
-            if (f.isDirectory) walk(f)
+            if (f.isDirectory) walk(f, depth + 1)
             else if (f.name.orEmpty().substringAfterLast('.', "").lowercase() in
                 setOf("epub", "pdf", "mobi", "azw", "azw3", "txt", "html", "htm", "rtf", "docx", "md")) {
+                require(out.size < 10000) { "La carpeta supera el límite de 10000 libros." }
                 val size = f.length()
                 val modified = f.lastModified()
                 val file = coverFile(context, f.uri)
                 val prior = cached[f.uri]
                 val removalMarker = File(context.filesDir, "removed-" + file.name)
-                if (prior?.cover == null) removalMarker.delete()
                 val removed = removalMarker.exists()
                 val unchanged = prior != null && size > 0 && prior.sourceSize == size &&
                     (modified <= 0L || prior.sourceModified == modified) &&
@@ -1592,7 +1636,7 @@ private fun getJson(url: String): JSONObject {
             googleBooksRetryAt = System.currentTimeMillis() + 60 * 60 * 1000L
             throw IllegalStateException("Cuota de Google Libros agotada")
         }
-        connection.inputStream.use { JSONObject(it.bufferedReader().readText()) }
+        connection.inputStream.use { JSONObject(it.readLimited(2L * 1024 * 1024).toString(Charsets.UTF_8)) }
     } finally { connection.disconnect() }
 }
 

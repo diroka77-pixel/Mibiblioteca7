@@ -7,7 +7,7 @@
         <package android:name="com.tagus"/>
         <package android:name="com.casadellibro.lecturadigital"/>
     </queries>
-    <application android:theme="@style/Theme.MiBiblioteca" android:label="Mi Biblioteca" android:icon="@mipmap/ic_launcher" android:allowBackup="true">
+    <application android:theme="@style/Theme.MiBiblioteca" android:label="Mi Biblioteca" android:icon="@mipmap/ic_launcher" android:allowBackup="false" android:fullBackupContent="@xml/backup_rules" android:dataExtractionRules="@xml/data_extraction_rules" android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/>
