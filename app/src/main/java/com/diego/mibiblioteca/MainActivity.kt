@@ -641,8 +641,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 .putInt("item_$progressKey", record.optInt("readerItem"))
                 .putInt("offset_$progressKey", record.optInt("readerOffset"))
                 .putInt("page_$progressKey", record.optInt("readerPage"))
-                .putInt("char_$progressKey", record.optInt("readerChar"))
                 .putString("highlights_$progressKey", record.optString("readerHighlights", "[]"))
+            if (record.has("readerChar")) readerEditor.putInt("char_$progressKey", record.getInt("readerChar"))
+            else readerEditor.remove("char_$progressKey")
             dataEditor.putString("info_" + uri, JSONObject()
                 .put("plot", record.optString("plot")).put("bio", record.optString("bio")).toString())
                 .putBoolean("manual_info_" + uri, record.optBoolean("manualInfo"))
@@ -735,6 +736,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         } ?: return
         if (cloud.optLong("updatedAt") <= prefs.getLong("local_revision", 0L)) return
         withContext(Dispatchers.IO) { validateBackupImages(cloud) }
+        if (cloud.optLong("updatedAt") <= prefs.getLong("local_revision", 0L)) return
         // Existing local records must never disappear because a cloud snapshot is incomplete.
         if (books.isNotEmpty()) {
             val result = applyBackup(cloud)
@@ -755,8 +757,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 .putInt("item_$progressKey", j.optInt("readerItem"))
                 .putInt("offset_$progressKey", j.optInt("readerOffset"))
                 .putInt("page_$progressKey", j.optInt("readerPage"))
-                .putInt("char_$progressKey", j.optInt("readerChar"))
                 .putString("highlights_$progressKey", j.optString("readerHighlights", "[]")).apply()
+            if (j.has("readerChar")) readerPrefs.edit().putInt("char_$progressKey", j.getInt("readerChar")).apply()
+            else readerPrefs.edit().remove("char_$progressKey").apply()
             prefs.edit().putString("info_" + uri, JSONObject()
                 .put("plot", j.optString("plot")).put("bio", j.optString("bio")).toString())
                 .putBoolean("manual_info_" + uri, j.optBoolean("manualInfo")).apply()
@@ -936,6 +939,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         .sortedByDescending { prefs.getLong("opened_" + it.uri.toString().hashCode(), 0L) }
 
     fun selectFolder(uri: Uri) {
+        if (syncing) { message = "Espera a que termine la sincronización antes de cambiar de carpeta."; return }
         val resolver = getApplication<Application>().contentResolver
         try {
             resolver.takePersistableUriPermission(uri,
@@ -974,6 +978,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     syncReport = message.orEmpty()
                     return@launch
                 }
+                if (prefs.getString(folderKey, null) != uri.toString()) return@launch
                 val latest = if (changedFolder) emptyMap() else books.associateBy { it.uri }
                 books = mergeLibraryScan(result, cached, latest, { it.uri }) { b, prior ->
                     val saved = prefs.getString("info_" + b.uri, null)?.let { JSONObject(it) }
