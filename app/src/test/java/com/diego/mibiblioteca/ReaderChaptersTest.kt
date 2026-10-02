@@ -26,11 +26,13 @@ class ReaderChaptersTest {
                     <body><p>Final del primero.</p></body></html>""")
                 add("OPS/two.xhtml", """<html><body><h1>Capítulo dos</h1>
                     <p>Comienzo del segundo.</p><h1>Capítulo tres</h1>
-                    <p>Comienzo del tercero.</p></body></html>""")
+                    <p>Comienzo del tercero.</p><p>Parte II</p>
+                    <p>Comienzo de la segunda parte.</p></body></html>""")
             }
             val document = readEpubText(epub) as ReadingDocument.TextDocument
             val starts = document.paragraphs.filter { it.chapterStart }.map { it.text }
-            assertEquals(listOf("Capítulo uno", "Capítulo dos", "Capítulo tres"), starts)
+            assertEquals(listOf("Capítulo uno", "Capítulo dos", "Capítulo tres", "Parte II"), starts)
+            assertTrue(document.paragraphs.first { it.text == "Parte II" }.partHeading)
             assertTrue(document.paragraphs.first { it.text == "Comienzo del segundo." }.chapterStart.not())
         } finally { epub.delete() }
     }

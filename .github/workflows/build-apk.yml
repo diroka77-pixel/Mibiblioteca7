@@ -44,16 +44,16 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: MiBiblioteca-v0.61-firmada
+          name: MiBiblioteca-v0.62-firmada
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
       - name: Publicar APK descargable
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/release/app-release.apk MiBiblioteca-v0.61.apk
-          gh release view v0.61 >/dev/null 2>&1 || gh release create v0.61 --title "MiBiblioteca v0.61" --notes "Cada capítulo EPUB comienza en una página nueva; restaura el acceso a Google IA y conserva la firma permanente."
-          gh release upload v0.61 MiBiblioteca-v0.61.apk --clobber
+          cp app/build/outputs/apk/release/app-release.apk MiBiblioteca-v0.62.apk
+          gh release view v0.62 >/dev/null 2>&1 || gh release create v0.62 --title "MiBiblioteca v0.62" --notes "Menú del lector con toque central, capítulos mejor presentados y número de página; conserva la firma permanente."
+          gh release upload v0.62 MiBiblioteca-v0.62.apk --clobber
       - name: Eliminar clave temporal del runner
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"

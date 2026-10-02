@@ -39,6 +39,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -51,6 +53,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.graphics.Color
@@ -87,7 +90,7 @@ internal sealed interface ReadingDocument {
 }
 
 internal data class ReadingParagraph(val text: String, val heading: Boolean = false,
-    val chapterStart: Boolean = false)
+    val chapterStart: Boolean = false, val partHeading: Boolean = false)
 private data class ReaderHighlight(val paragraph: Int, val start: Int, val end: Int,
     val quote: String, val color: String = "amarillo", val note: String = "")
 private data class ReadingSlice(val paragraph: Int, val start: Int, val end: Int, val height: Int)
@@ -112,9 +115,16 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
     val workerContext = kotlinx.coroutines.currentCoroutineContext()
     paragraphs.forEachIndexed { index, paragraph ->
         workerContext.ensureActive()
-        if (paragraph.chapterStart) finish()
+        if (paragraph.chapterStart) {
+            finish()
+            occupied = (gapPx * 3).coerceAtMost(height / 4)
+        }
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
-            textSize = textSizePx + if (paragraph.heading) 4 * textSizePx / 18f else 0f
+            textSize = textSizePx + when {
+                paragraph.partHeading -> 8 * textSizePx / 18f
+                paragraph.heading -> 4 * textSizePx / 18f
+                else -> 0f
+            }
             typeface = Typeface.create(Typeface.SERIF,
                 if (paragraph.heading) Typeface.BOLD else Typeface.NORMAL)
         }
@@ -266,12 +276,18 @@ private fun paragraphsFromHtml(html: String): List<ReadingParagraph> {
     val result = nodes.mapNotNull { element ->
         val text = element.text().trim().replace(Regex("\\s+"), " ")
         text.takeIf(String::isNotBlank)?.let {
-            val heading = element.tagName().startsWith("h")
+            val part = it.length < 85 && Regex("(?i)^(?:parte|part|libro|book)\\s+[ivxlcdm0-9]+\\b")
+                .containsMatchIn(it)
+            val namedChapter = it.length < 85 &&
+                Regex("(?i)^(?:cap[ií]tulo|chapter)\\s+[ivxlcdm0-9]+\\b")
+                    .containsMatchIn(it)
+            val heading = element.tagName().startsWith("h") || part || namedChapter
             val chapterHeading = element.tagName() == "h1" ||
+                part || namedChapter ||
                 (element.tagName() == "h2" &&
                     Regex("(?i)cap[ií]tulo|chapter|parte|pr[oó]logo|ep[ií]logo|introducci[oó]n")
                         .containsMatchIn(it))
-            ReadingParagraph(it, heading, chapterStart = chapterHeading)
+            ReadingParagraph(it, heading, chapterStart = chapterHeading, partHeading = part)
         }
     }
     return result.ifEmpty { listOfNotNull(body.text().trim().takeIf(String::isNotBlank)?.let(::ReadingParagraph)) }
@@ -484,7 +500,11 @@ private fun SelectableParagraph(
             })
         }
     }, update = { view ->
-        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, size + if (paragraph.heading) 4f else 0f)
+        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, size + when {
+            paragraph.partHeading -> 8f
+            paragraph.heading -> 4f
+            else -> 0f
+        })
         view.typeface = Typeface.create(Typeface.SERIF,
             if (paragraph.heading) Typeface.BOLD else Typeface.NORMAL)
         view.setLineSpacing(0f, 1.45f)
@@ -529,7 +549,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var fontSize by remember { mutableFloatStateOf(prefs.getFloat("font_size", 18f)) }
     var dark by remember { mutableStateOf(prefs.getBoolean("dark", false)) }
     var sepia by remember { mutableStateOf(prefs.getBoolean("sepia", false)) }
-    var controlsVisible by remember(book.uri) { mutableStateOf(false) }
     var page by remember(book.uri) { mutableIntStateOf(prefs.getInt("page_$key", 0)) }
     val scope = rememberCoroutineScope()
     val swipeDistance = with(LocalDensity.current) { 64.dp.toPx() }
@@ -574,8 +593,40 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     ModalNavigationDrawer(drawerState = drawer, drawerContent = {
         ModalDrawerSheet {
             Column(Modifier.fillMaxHeight().widthIn(max = 320.dp).padding(16.dp)) {
-                Text("Índice de lectura", style = MaterialTheme.typography.titleLarge)
+                TextButton(onClick = { scope.launch { drawer.close() }; onBack() }) {
+                    AppIcon("Volver", "Volver a la biblioteca")
+                    Spacer(Modifier.width(6.dp))
+                    Text("Volver a la biblioteca")
+                }
+                Text("Índice y lectura", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(12.dp))
+                if (document is ReadingDocument.TextDocument) {
+                    Text("Tamaño de letra · ${fontSize.toInt()} pt", fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(onClick = {
+                            fontSize = (fontSize - 1).coerceAtLeast(12f)
+                            prefs.edit().putFloat("font_size", fontSize).apply()
+                        }, enabled = fontSize > 12f) { Text("A−") }
+                        Spacer(Modifier.width(12.dp))
+                        OutlinedButton(onClick = {
+                            fontSize = (fontSize + 1).coerceAtMost(30f)
+                            prefs.edit().putFloat("font_size", fontSize).apply()
+                        }, enabled = fontSize < 30f) { Text("A+") }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = {
+                        dark = false; sepia = false
+                        prefs.edit().putBoolean("dark", false).putBoolean("sepia", false).apply()
+                    }) { Text("Día") }
+                    TextButton(onClick = {
+                        dark = false; sepia = true
+                        prefs.edit().putBoolean("dark", false).putBoolean("sepia", true).apply()
+                    }) { Text("Sepia") }
+                    TextButton(onClick = {
+                        dark = true; prefs.edit().putBoolean("dark", true).apply()
+                    }) { Text("Noche") }
+                }
                 if (document is ReadingDocument.TextDocument)
                     OutlinedTextField(searchText, { searchText = it }, singleLine = true,
                         label = { Text("Buscar en el libro") },
@@ -651,20 +702,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     brightness = -1f
                     prefs.edit().putFloat("brightness", -1f).apply()
                 }) { Text("Usar brillo del sistema") }
-                if (document is ReadingDocument.TextDocument) {
-                    Text("Tamaño de letra: ${fontSize.toInt()}", fontSize = 12.sp)
-                    Row {
-                        OutlinedButton(onClick = {
-                            fontSize = (fontSize - 2).coerceAtLeast(12f)
-                            prefs.edit().putFloat("font_size", fontSize).apply()
-                        }) { Text("A−") }
-                        Spacer(Modifier.width(12.dp))
-                        OutlinedButton(onClick = {
-                            fontSize = (fontSize + 2).coerceAtMost(30f)
-                            prefs.edit().putFloat("font_size", fontSize).apply()
-                        }) { Text("A+") }
-                    }
-                }
                 TextButton(onClick = { scope.launch {
                     try { shareReadingFile(context, book) }
                     catch (e: Exception) { android.widget.Toast.makeText(context,
@@ -678,7 +715,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         TopAppBar(title = { Text(book.customTitle.ifBlank { book.title }.take(38), maxLines = 1) },
             navigationIcon = { IconButton(onClick = onBack) { AppIcon("Volver", "Volver") } },
             actions = {
-                IconButton(onClick = { scope.launch { drawer.open() } }) { AppIcon("Índice", "Capítulos") }
                 IconButton(onClick = { dark = !dark; prefs.edit().putBoolean("dark", dark).apply() }) {
                     AppIcon(if (dark) "Día" else "Noche", "Cambiar tema")
                 }
@@ -686,7 +722,30 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 titleContentColor = foreground, navigationIconContentColor = foreground,
                 actionIconContentColor = foreground))
     }) { padding ->
-      Box(Modifier.fillMaxSize()) {
+      Box(Modifier.fillMaxSize().pointerInput(document) {
+          awaitEachGesture {
+              val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+              val start = down.position
+              var end = start
+              var released = false
+              var releaseTime = down.uptimeMillis
+              while (true) {
+                  val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                      .firstOrNull { it.id == down.id } ?: break
+                  end = change.position
+                  if (!change.pressed) { released = true; releaseTime = change.uptimeMillis; break }
+              }
+              if (released && (document is ReadingDocument.TextDocument ||
+                  document is ReadingDocument.PdfDocument)) {
+                  val center = start.x in size.width * 0.32f..size.width * 0.68f &&
+                      start.y in size.height * 0.30f..size.height * 0.70f
+                  val still = kotlin.math.abs(end.x - start.x) < 14.dp.toPx() &&
+                      kotlin.math.abs(end.y - start.y) < 14.dp.toPx()
+                  if (center && still && releaseTime - down.uptimeMillis < 350L)
+                      scope.launch { drawer.open() }
+              }
+          }
+      }) {
         when (document) {
             null -> Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -868,7 +927,10 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     shadowElevation = if (angle == 0f) 0f else 18.dp.toPx()
                                 }.background(background).padding(horizontal = 22.dp, vertical = 16.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    pages[shown].slices.forEach { slice ->
+                                    pages[shown].slices.forEachIndexed { position, slice ->
+                                        if (position == 0 && slice.start == 0 &&
+                                            paragraphs[slice.paragraph].chapterStart)
+                                            Spacer(Modifier.height(28.dp))
                                         SelectableParagraph(paragraphs[slice.paragraph], slice.paragraph,
                                             slice.start, slice.end, fontSize, foreground, dark,
                                             openingParagraph(paragraphs, slice.paragraph), highlights,
@@ -904,64 +966,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 .clickable { turn(1) })
                         }
                     }
-                    Text("Página ${textPage + 1} · $percent % leído",
+                    Text("Página ${textPage + 1} de ${pages.size} · $percent % leído",
                         Modifier.align(Alignment.CenterHorizontally), color = foreground)
                 }
             }
         }
-        if (document is ReadingDocument.TextDocument || document is ReadingDocument.PdfDocument) {
-            if (controlsVisible) {
-                Surface(Modifier.padding(padding).align(Alignment.TopCenter).fillMaxWidth(),
-                    color = background.copy(alpha = 0.97f), shadowElevation = 6.dp) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onBack) { AppIcon("Volver", "Volver", tint = foreground) }
-                        Text(book.customTitle.ifBlank { book.title }.take(42), maxLines = 1,
-                            modifier = Modifier.weight(1f), color = foreground, fontSize = 15.sp)
-                        IconButton(onClick = { scope.launch { drawer.open() } }) {
-                            AppIcon("Índice", "Capítulos", tint = foreground)
-                        }
-                        IconButton(onClick = {
-                            dark = !dark; prefs.edit().putBoolean("dark", dark).apply()
-                        }) { AppIcon(if (dark) "Día" else "Noche", "Cambiar tema", tint = foreground) }
-                        IconButton(onClick = { controlsVisible = false }) {
-                            AppIcon("Cerrar", "Ocultar controles", tint = foreground)
-                        }
-                    }
-                }
-                Surface(Modifier.padding(padding).align(Alignment.BottomCenter).fillMaxWidth(),
-                    color = background.copy(alpha = 0.97f), shadowElevation = 6.dp) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center) {
-                        if (document is ReadingDocument.TextDocument) {
-                            TextButton(onClick = {
-                                sepia = !sepia; prefs.edit().putBoolean("sepia", sepia).apply()
-                            }) { Text(if (sepia) "Blanco" else "Sepia", color = foreground,
-                                fontSize = 12.sp) }
-                            OutlinedButton(onClick = {
-                                fontSize = (fontSize - 1).coerceAtLeast(12f)
-                                prefs.edit().putFloat("font_size", fontSize).apply()
-                            }, enabled = fontSize > 12f) { Text("A−") }
-                            Text("${fontSize.toInt()} pt", modifier = Modifier.padding(horizontal = 16.dp),
-                                color = foreground, fontSize = 13.sp)
-                            OutlinedButton(onClick = {
-                                fontSize = (fontSize + 1).coerceAtMost(30f)
-                                prefs.edit().putFloat("font_size", fontSize).apply()
-                            }, enabled = fontSize < 30f) { Text("A+") }
-                        } else Text("Desliza o toca los bordes para pasar página",
-                            color = foreground, fontSize = 12.sp)
-                    }
-                }
-            } else {
-                Surface(Modifier.padding(padding).align(Alignment.TopEnd).padding(8.dp),
-                    color = background.copy(alpha = 0.88f), shape = MaterialTheme.shapes.large) {
-                    IconButton(onClick = { controlsVisible = true }) {
-                        AppIcon("Índice", "Mostrar controles", tint = foreground)
-                    }
-                }
-            }
-        }
+
       }
     }
     }
