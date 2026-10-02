@@ -220,10 +220,12 @@ private suspend fun shareReadingFile(context: Context, book: Book) {
 internal fun readerProgressKey(uri: Uri): String = MessageDigest.getInstance("SHA-256")
     .digest(uri.toString().toByteArray()).joinToString("") { "%02x".format(it) }
 
-internal fun localReaderFile(context: Context, book: Book): File {
+private val readerFileLock = Any()
+
+internal fun localReaderFile(context: Context, book: Book): File = synchronized(readerFileLock) {
     val name = DocumentFile.fromSingleUri(context, book.uri)?.name
         ?: book.uri.lastPathSegment.orEmpty().substringAfterLast('/').substringAfterLast(':')
-    val extension = name.substringAfterLast('.', "").lowercase().take(5).ifBlank {
+    val extension = name.substringAfterLast('.', "").lowercase().takeIf { it.matches(Regex("[a-z0-9]{1,5}")) }.orEmpty().ifBlank {
         when (context.contentResolver.getType(book.uri)) {
             "application/pdf" -> "pdf"
             "application/epub+zip" -> "epub"
@@ -237,7 +239,7 @@ internal fun localReaderFile(context: Context, book: Book): File {
     val fingerprint = "${book.sourceSize}:${book.sourceModified}"
     require(book.sourceSize <= FileLimits.BOOK_BYTES) { "El libro supera el límite de 256 MB." }
     if (file.exists() && file.length() in 1..FileLimits.BOOK_BYTES && stamp.takeIf { it.exists() && it.length() < 1024 }?.readText() == fingerprint)
-        return file.also { it.setLastModified(System.currentTimeMillis()) }
+        return@synchronized file.also { it.setLastModified(System.currentTimeMillis()) }
     val partial = File(folder, "${readerProgressKey(book.uri)}.partial")
     try {
         context.contentResolver.openInputStream(book.uri)?.use { input ->
@@ -263,7 +265,7 @@ internal fun localReaderFile(context: Context, book: Book): File {
             total -= old.length(); old.delete()
             File(folder, old.nameWithoutExtension + ".stamp").delete()
         }
-        return file
+        return@synchronized file
     } finally { partial.delete() }
 }
 

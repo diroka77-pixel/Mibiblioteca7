@@ -544,6 +544,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .put("sections", org.json.JSONArray(sections))
             .put("wishList", safeSavedArray(prefs.getString("wish_list", "[]")))
             .put("books", booksJson).toString().also {
+                parseBackup(it)
                 require(it.toByteArray(Charsets.UTF_8).size <= FileLimits.BACKUP_BYTES) {
                     "El respaldo supera el límite de 32 MB."
                 }
@@ -623,8 +624,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             if (image.isNotBlank()) run {
                 val bytes = decodeBackupCover(image)
                 val file = coverFile(getApplication(), uri)
-                file.writeBytes(bytes)
-                File(getApplication<Application>().filesDir, "manual-" + file.name).writeBytes(bytes)
+                file.writeSafely(bytes)
+                File(getApplication<Application>().filesDir, "manual-" + file.name).writeSafely(bytes)
             }
             readerPrefs.edit().putInt("percent_$progressKey", record.optInt("readerPercent"))
                 .putInt("item_$progressKey", record.optInt("readerItem"))
@@ -679,6 +680,22 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         val file = root.findFile(cloudName)
                             ?: root.createFile("application/json", cloudName)
                             ?: throw IllegalStateException("No se pudo crear el archivo de datos")
+                        val resolver = getApplication<Application>().contentResolver
+                        // Save a validated previous generation before truncating the current one.
+                        val previous = try {
+                            resolver.openInputStream(file.uri)?.use {
+                                it.readLimited(FileLimits.BACKUP_BYTES).also { bytes ->
+                                    parseBackup(bytes.toString(Charsets.UTF_8))
+                                }
+                            }
+                        } catch (_: Exception) { null }
+                        if (previous != null) {
+                            val recovery = root.findFile(cloudName + ".previous")
+                                ?: root.createFile("application/octet-stream", cloudName + ".previous")
+                                ?: error("No se pudo conservar el respaldo anterior")
+                            resolver.openOutputStream(recovery.uri, "wt")?.use { it.write(previous) }
+                                ?: error("No se pudo conservar el respaldo anterior")
+                        }
                         getApplication<Application>().contentResolver.openOutputStream(file.uri, "wt")
                             ?.use { it.write(snapshot.toByteArray(Charsets.UTF_8)) }
                             ?: throw IllegalStateException("Sin permiso para escribir en Drive")
@@ -693,10 +710,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun restoreCloud(tree: Uri) {
         val cloud = withContext(Dispatchers.IO) {
             val root = DocumentFile.fromTreeUri(getApplication(), tree) ?: return@withContext null
-            root.findFile(cloudName)?.let { file ->
-                getApplication<Application>().contentResolver.openInputStream(file.uri)
-                    ?.use { parseBackup(it.readLimited(FileLimits.BACKUP_BYTES).toString(Charsets.UTF_8)) }
+            fun readSnapshot(name: String): JSONObject? = root.findFile(name)?.let { file ->
+                getApplication<Application>().contentResolver.openInputStream(file.uri)?.use {
+                    parseBackup(it.readLimited(FileLimits.BACKUP_BYTES).toString(Charsets.UTF_8)).also(::validateBackupImages)
+                }
             }
+            try { readSnapshot(cloudName) ?: readSnapshot(cloudName + ".previous") }
+            catch (failure: Exception) { readSnapshot(cloudName + ".previous") ?: throw failure }
         } ?: return
         if (cloud.optLong("updatedAt") <= prefs.getLong("local_revision", 0L)) return
         withContext(Dispatchers.IO) { validateBackupImages(cloud) }
@@ -731,9 +751,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (base64.isNotBlank()) withContext(Dispatchers.IO) {
                 val bytes = decodeBackupCover(base64)
-                coverFile(getApplication(), uri).writeBytes(bytes)
+                coverFile(getApplication(), uri).writeSafely(bytes)
                 File(getApplication<Application>().filesDir,
-                    "manual-" + coverFile(getApplication(), uri).name).writeBytes(bytes)
+                    "manual-" + coverFile(getApplication(), uri).name).writeSafely(bytes)
             }
         }
         sections = safeSavedArray(prefs.getString("sections", "[]")).let { arr ->
@@ -822,8 +842,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 withContext(Dispatchers.IO) {
                     val file = coverFile(getApplication(), uri)
-                    file.writeBytes(bytes)
-                    File(getApplication<Application>().filesDir, "manual-" + file.name).writeBytes(bytes)
+                    file.writeSafely(bytes)
+                    File(getApplication<Application>().filesDir, "manual-" + file.name).writeSafely(bytes)
                     File(getApplication<Application>().filesDir, "removed-" + file.name).delete()
                 }
                 books = books.map { if (it.uri == uri) it.copy(cover = bytes, coverSource = "Imagen elegida por ti") else it }
@@ -939,10 +959,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     return@launch
                 }
                 val latest = if (changedFolder) emptyMap() else books.associateBy { it.uri }
-                val scannedUris = result.map { it.uri }.toSet()
-                books = result.map { b ->
+                books = mergeLibraryScan(result, cached, latest, { it.uri }) { b, prior ->
                     val saved = prefs.getString("info_" + b.uri, null)?.let { JSONObject(it) }
-                    val prior = latest[b.uri] ?: cached[b.uri]
                     b.copy(spanishPlot = prior?.spanishPlot ?: saved?.optString("plot").orEmpty(),
                         authorBio = prior?.authorBio ?: saved?.optString("bio").orEmpty(),
                         section = prior?.section.orEmpty(), sections = prior?.sections.orEmpty(),
@@ -959,8 +977,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         coverSource = prior?.coverSource?.takeIf(String::isNotBlank)
                             ?: if (b.cover != null) "Portada del EPUB" else "")
                 }
-                // Document providers can return incomplete listings without reporting an error.
-                if (!changedFolder) books = books + latest.values.filter { it.uri !in scannedUris }
                 val previousUris = cached.keys
                 val currentUris = result.map { it.uri }.toSet()
                 val added = (currentUris - previousUris).size
@@ -1023,7 +1039,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         if (books.firstOrNull { it.uri == uri }?.cover != null) continue
                         withContext(Dispatchers.IO) {
                             File(app.filesDir, "removed-" + coverFile(app, uri).name).delete()
-                            coverFile(app, uri).writeBytes(bytes)
+                            coverFile(app, uri).writeSafely(bytes)
                         }
                         books = books.map { if (it.uri == uri) it.copy(cover = bytes,
                             coverSource = "Catálogos públicos") else it }
@@ -1067,7 +1083,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 } else {
                     withContext(Dispatchers.IO) {
                         val file = coverFile(getApplication(), book.uri)
-                        file.writeBytes(bytes)
+                        file.writeSafely(bytes)
                         File(getApplication<Application>().filesDir, "removed-" + file.name).delete()
                     }
                     books = books.map { if (it.uri == book.uri) it.copy(cover = bytes,
@@ -1187,7 +1203,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     if (bytes != null && current?.cover == null) {
                         withContext(Dispatchers.IO) {
                             File(app.filesDir, "removed-" + coverFile(app, uri).name).delete()
-                            coverFile(app, uri).writeBytes(bytes)
+                            coverFile(app, uri).writeSafely(bytes)
                         }
                         books = books.map { if (it.uri == uri) it.copy(
                             cover = bytes, coverSource = "Catálogos públicos") else it }
@@ -1260,7 +1276,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             prefs.edit().putBoolean("cover_attempt_v9_" + book.uri, true).apply()
             val cover = try { withContext(Dispatchers.IO) { fetchCover(book) } } catch (_: Exception) { null }
             if (cover != null) {
-                withContext(Dispatchers.IO) { coverFile(getApplication(), book.uri).writeBytes(cover) }
+                withContext(Dispatchers.IO) { coverFile(getApplication(), book.uri).writeSafely(cover) }
                 books = books.map { if (it.uri == book.uri) it.copy(cover = cover, coverSource = "Catálogos públicos") else it }
             }
         }
@@ -1370,7 +1386,7 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
                         sourceCoverChecked = true, hadEmbeddedCover = parsed.cover != null,
                         cover = parsed.cover ?: prior?.cover)
                 }
-                if (!removed && !file.exists() && epub.cover != null) file.writeBytes(epub.cover)
+                if (!removed && !file.exists() && epub.cover != null) file.writeSafely(epub.cover)
                 val saved = if (unchanged && prior?.cover != null) prior.cover
                     else file.takeIf { it.exists() }?.readBytes()
                 out += if (removed) epub.copy(cover = null)

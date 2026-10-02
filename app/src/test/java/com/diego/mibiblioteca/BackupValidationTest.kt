@@ -18,6 +18,10 @@ class BackupValidationTest {
     }
     private fun JSONObject.removeChar() = apply { remove("readerChar") }
 
+    @Test fun rejectsDeepJsonBeforeParserAndAllowsBracketsInsideText() {
+        assertThrows(IllegalArgumentException::class.java) { parseBackup("[".repeat(10000) + "]".repeat(10000)) }
+        assertNotNull(parseBackup(backup(book().put("notes", "[Una nota] {texto}")).toString()))
+    }
     @Test fun rejectsDuplicateUrisBeforeRestoration() {
         assertThrows(IllegalArgumentException::class.java) { validateBackup(backup(book(), book())) }
     }
