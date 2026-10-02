@@ -24,6 +24,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -47,6 +49,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -1926,6 +1931,37 @@ private fun openGoogleAi(context: Context) {
     }
 }
 
+private fun searchBookInGoogleAi(context: Context, book: Book) {
+    val query = "Reseña, argumento y datos del libro " + displayTitle(book) +
+        " de " + displayAuthor(book)
+    val url = Uri.parse("https://www.google.com/search?udm=50&q=" +
+        java.net.URLEncoder.encode(query, "UTF-8"))
+    try { context.startActivity(Intent(Intent.ACTION_VIEW, url)
+        .setPackage("com.google.android.googlequicksearchbox")) }
+    catch (_: Exception) { searchInGoogleApp(context, query) }
+}
+
+private fun shareBookFile(context: Context, book: Book) {
+    try {
+        val name = DocumentFile.fromSingleUri(context, book.uri)?.name.orEmpty()
+        val mime = when (name.substringAfterLast('.', "").lowercase()) {
+            "epub" -> "application/epub+zip"
+            "pdf" -> "application/pdf"
+            else -> "application/octet-stream"
+        }
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(Intent.EXTRA_STREAM, book.uri)
+            clipData = android.content.ClipData.newUri(context.contentResolver, name, book.uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(send, "Compartir libro"))
+    } catch (_: Exception) {
+        android.widget.Toast.makeText(context, "No se pudo compartir este archivo de Drive",
+            android.widget.Toast.LENGTH_LONG).show()
+    }
+}
+
 private fun searchInGoogleApp(context: Context, query: String) {
     try {
         context.startActivity(Intent(Intent.ACTION_WEB_SEARCH)
@@ -2057,12 +2093,14 @@ private fun openCasaDelLibro(context: Context) {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable fun LibraryApp(vm: LibraryViewModel = viewModel()) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var selected by remember { mutableStateOf<Book?>(null) }
     var readingUri by rememberSaveable { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableStateOf("Inicio") }
-    val tabs = remember { listOf("Inicio", "Biblioteca", "Pendientes", "Secciones") }
+    val tabs = remember { listOf("Inicio", "Biblioteca", "Secciones") }
+    LaunchedEffect(Unit) { if (tab == "Pendientes") tab = "Secciones" }
     var addingSection by remember { mutableStateOf(false) }
     var sectionName by remember { mutableStateOf("") }
     var sectionToDelete by remember { mutableStateOf<String?>(null) }
@@ -2071,8 +2109,11 @@ private fun openCasaDelLibro(context: Context) {
         tab = name
         showWishList = false
         vm.selectedSection = null
-        vm.qualityFilter = if (name == "Pendientes") "Todos" else "Ninguno"
+        vm.qualityFilter = "Ninguno"
+        vm.statusFilter = null
+        vm.onlyFavorites = false
     }
+    var bookMenu by remember { mutableStateOf<Book?>(null) }
     var addWishDialog by remember { mutableStateOf(false) }
     var wishTitle by remember { mutableStateOf("") }
     var wishUrl by remember { mutableStateOf("") }
@@ -2113,16 +2154,13 @@ private fun openCasaDelLibro(context: Context) {
     }
     val homeListState = rememberLazyListState()
     val libraryListState = rememberLazyListState()
-    val pendingListState = rememberLazyListState()
     val sectionsListState = rememberLazyListState()
     val listState = when (tab) {
         "Inicio" -> homeListState
         "Biblioteca" -> libraryListState
-        "Pendientes" -> pendingListState
         else -> sectionsListState
     }
     val swipeThreshold = with(LocalDensity.current) { 56.dp.toPx() }
-    val drawerEdge = with(LocalDensity.current) { 28.dp.toPx() }
     val readingShelfGestureHeight = with(LocalDensity.current) { 440.dp.toPx() }
     val swipeControlsHeight = with(LocalDensity.current) { 145.dp.toPx() }
     val scope = rememberCoroutineScope()
@@ -2144,6 +2182,11 @@ private fun openCasaDelLibro(context: Context) {
         uri?.let(vm::importBackup)
     }
     val readingBooks = remember(vm.books) { vm.readingBooks() }
+    val pageMotion = remember { Animatable(0f) }
+    LaunchedEffect(tab) {
+        pageMotion.snapTo(24f)
+        pageMotion.animateTo(0f, tween(190))
+    }
     val visibleNews = remember(vm.launchNews, vm.hiddenNewsSources, vm.hiddenNewsUrls) {
         vm.launchNews.filter(vm::isNewsVisible)
     }
@@ -2158,19 +2201,16 @@ private fun openCasaDelLibro(context: Context) {
     val sectionSnapshot = vm.selectedSection
     val qualitySnapshot = vm.qualityFilter
     val reviewSnapshot = vm.reviewPending
-    val filteredBooks by produceState(initialValue = emptyList<Book>(), booksSnapshot,
-        querySnapshot, statusSnapshot, favoritesSnapshot, sectionSnapshot,
-        qualitySnapshot, reviewSnapshot) {
-        value = withContext(Dispatchers.Default) {
-            filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
-                sectionSnapshot, qualitySnapshot, reviewSnapshot)
-        }
+    val filteredBooks = remember(booksSnapshot, querySnapshot, statusSnapshot,
+        favoritesSnapshot, sectionSnapshot, qualitySnapshot, reviewSnapshot) {
+        filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
+            sectionSnapshot, qualitySnapshot, reviewSnapshot)
     }
     val visibleBooks = if (tab == "Inicio") emptyList() else filteredBooks
-    val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Inicio" ||
-        tab == "Pendientes") "Todos" else vm.groupMode
+    val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Inicio") "Todos" else vm.groupMode
     val sectionNames = vm.sections
-    val groupedBooks by produceState<Map<String, List<Book>>>(emptyMap(), visibleBooks,
+    val groupedBooks by key(tab, visibleBooks, groupMode, sectionNames, sortMode) {
+      produceState<Map<String, List<Book>>>(emptyMap(), visibleBooks,
         groupMode, sectionNames, tab, sortMode) {
         val booksToGroup = visibleBooks
         value = withContext(Dispatchers.Default) {
@@ -2201,6 +2241,7 @@ private fun openCasaDelLibro(context: Context) {
             }
         }
         }
+      }
     }
     vm.infoCandidate?.let { (uri, found) ->
         var authorDraft by remember(uri, found) { mutableStateOf(found.author) }
@@ -2275,10 +2316,6 @@ private fun openCasaDelLibro(context: Context) {
                 Text("Mostrar noticias", Modifier.weight(1f))
                 Switch(vm.showHomeNews, vm::setHomeNews)
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Continuar leyendo primero", Modifier.weight(1f))
-                Switch(vm.readingFirst, vm::updateReadingFirst)
-            }
         } },
         confirmButton = { LibraryTextButton(onClick = { homeSettings = false }) { Text("Cerrar") } })
     if (newsSettings) AlertDialog(onDismissRequest = { newsSettings = false },
@@ -2298,6 +2335,34 @@ private fun openCasaDelLibro(context: Context) {
     val shown = current
     LaunchedEffect(tab, shown?.uri) {
         (context as? MainActivity)?.setMetricScreen(if (shown != null) "Ficha" else tab)
+    }
+    bookMenu?.let { picked ->
+        val book = vm.books.firstOrNull { it.uri == picked.uri } ?: picked
+        ModalBottomSheet(onDismissRequest = { bookMenu = null }, containerColor = Paper) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+                Text(displayTitle(book), fontFamily = FontFamily.Serif, fontSize = 21.sp,
+                    fontWeight = FontWeight.Bold, color = Mahogany, maxLines = 2)
+                Text(displayAuthor(book), color = Teal, fontSize = 13.sp)
+                Spacer(Modifier.height(12.dp))
+                fun close(action: () -> Unit) { bookMenu = null; action() }
+                @Composable fun option(label: String, icon: String, action: () -> Unit) {
+                    NavigationDrawerItem(label = { Text(label) }, selected = false,
+                        icon = { AppIcon(icon, size = 21.dp) }, onClick = { close(action) })
+                }
+                option("Abrir ficha", "Libros") { selected = book }
+                option("Compartir archivo", "Compartir") { shareBookFile(context, book) }
+                option("Recuperar portada", "Portada") { vm.downloadCover(book) }
+                if (book.status == ReadingStatus.READING)
+                    option("Quitar de Estoy leyendo", "Cerrar") { vm.setStatus(book.uri, ReadingStatus.PENDING) }
+                option("Consultar libro con Google IA", "Google IA") {
+                    searchBookInGoogleAi(context, book)
+                }
+                option("Ver reseña en Goodreads", "Goodreads") { openGoodreads(context, book) }
+                option("Buscar información del autor", "Buscar") {
+                    searchInGoogleApp(context, displayAuthor(book) + " biografía escritor")
+                }
+            }
+        }
     }
     val readingBook = readingUri?.let { key -> vm.books.firstOrNull { it.uri.toString() == key } }
     if (readingBook != null) {
@@ -2386,7 +2451,7 @@ private fun openCasaDelLibro(context: Context) {
                     Text("Explorar", color = Mahogany, fontWeight = FontWeight.SemiBold)
                     NavigationDrawerItem(label = { Text("Favoritos") }, selected = vm.onlyFavorites && tab == "Biblioteca",
                         icon = { AppIcon("Favoritos") }, onClick = {
-                            switchTab("Biblioteca"); vm.onlyFavorites = true
+                            switchTab("Biblioteca"); vm.query = ""; vm.onlyFavorites = true
                             scope.launch { drawerState.close() }
                         })
                     NavigationDrawerItem(label = { Text("Quiero leer") }, selected = showWishList,
@@ -2418,11 +2483,12 @@ private fun openCasaDelLibro(context: Context) {
                                 onClick = { vm.groupMode = mode; scope.launch { drawerState.close() } })
                         }
                     }
-                    if (tab == "Pendientes") {
-                        Text("Ficha pendiente", color = Mahogany, fontWeight = FontWeight.SemiBold)
+                    if (tab == "Secciones") {
+                        Text("Datos de las fichas", color = Mahogany, fontWeight = FontWeight.SemiBold)
                         listOf("Todos", "Revisar", "Portada", "Argumento", "Biografía", "Autor").forEach { kind ->
                             NavigationDrawerItem(label = { Text(kind) }, selected = vm.qualityFilter == kind,
-                                onClick = { vm.qualityFilter = kind; scope.launch { drawerState.close() } })
+                                onClick = { vm.qualityFilter = if (kind == "Todos") "Ninguno" else kind;
+                                    scope.launch { drawerState.close() } })
                         }
                     }
                     if (tab == "Secciones") {
@@ -2499,7 +2565,7 @@ private fun openCasaDelLibro(context: Context) {
         }
     ) { p ->
       val currentTab by rememberUpdatedState(tab)
-      val hasReadingShelf by rememberUpdatedState(vm.readingFirst && readingBooks.isNotEmpty())
+      val hasReadingShelf by rememberUpdatedState(readingBooks.isNotEmpty())
       val currentSwitch by rememberUpdatedState<(String) -> Unit>({ switchTab(it) })
       Box(Modifier.padding(p).fillMaxSize().pointerInput(swipeThreshold) {
           awaitEachGesture {
@@ -2514,10 +2580,7 @@ private fun openCasaDelLibro(context: Context) {
               }
               val horizontal = end.x - start.x
               val vertical = end.y - start.y
-              if (start.x <= drawerEdge &&
-                  horizontal > swipeThreshold && kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.4f) {
-                  scope.launch { drawerState.open() }
-              } else if (start.y > swipeControlsHeight && start.x > swipeThreshold &&
+              if (start.y > swipeControlsHeight && start.x > swipeThreshold &&
                   !(currentTab == "Inicio" && hasReadingShelf &&
                       start.y < readingShelfGestureHeight) &&
                   kotlin.math.abs(horizontal) > swipeThreshold &&
@@ -2531,18 +2594,22 @@ private fun openCasaDelLibro(context: Context) {
         Column(Modifier.fillMaxSize()) {
         QuickAccess(
             onLibrary = { switchTab("Biblioteca") },
-            onFavorites = { switchTab("Biblioteca"); vm.onlyFavorites = true },
+            onFavorites = { switchTab("Biblioteca"); vm.query = ""; vm.onlyFavorites = true },
             onGoodreads = { openGoodreads(context) },
             onGoogle = { openGoogleAi(context) })
         Box(Modifier.fillMaxWidth().weight(1f)) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().graphicsLayer {
+                translationX = pageMotion.value * density
+                alpha = 1f - pageMotion.value / 300f
+            },
             state = listState,
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (tab == "Inicio" && vm.readingFirst && readingBooks.isNotEmpty())
-                item(key = "reading-shelf") { ReadingShelf(readingBooks, vm::readingPercent) { book ->
+            if (tab == "Inicio" && readingBooks.isNotEmpty())
+                item(key = "reading-shelf") { ReadingShelf(readingBooks, vm::readingPercent,
+                    onLongPress = { bookMenu = it }) { book ->
                     readingUri = book.uri.toString()
                     vm.recordOpen(book.uri)
                 } }
@@ -2562,11 +2629,6 @@ private fun openCasaDelLibro(context: Context) {
                     if (tab == "Biblioteca") Text("Todos los libros",
                         fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold, color = Mahogany)
-                    if (tab == "Pendientes") {
-                        Text("Fichas por completar", fontFamily = FontFamily.Serif,
-                            style = MaterialTheme.typography.headlineSmall, color = Mahogany)
-                        Text("${filteredBooks.size} pendientes", fontSize = 12.sp, color = Mahogany)
-                    }
                     if (tab == "Secciones") Text("Tus secciones",
                         fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall, color = Mahogany)
                     if (vm.syncing) {
@@ -2699,11 +2761,6 @@ private fun openCasaDelLibro(context: Context) {
                     }
                 }
                 }
-                if (!vm.readingFirst && readingBooks.isNotEmpty())
-                    item(key = "reading-shelf") { ReadingShelf(readingBooks, vm::readingPercent) { book ->
-                        readingUri = book.uri.toString()
-                        vm.recordOpen(book.uri)
-                    } }
                 if (vm.books.isEmpty() && !vm.syncing) item(key = "empty-home") {
                     Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
                         Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta de libros") }
@@ -2728,10 +2785,14 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                 }
-            } else if (visibleBooks.isEmpty()) {
+            } else if (filteredBooks.isEmpty()) {
                 item(key = "no-results") {
-                    Text(if (tab == "Pendientes") "No hay fichas pendientes en este filtro."
+                    Text(if (vm.onlyFavorites) "Todavía no hay libros favoritos."
                         else "No hay libros con estos filtros.", modifier = Modifier.padding(20.dp))
+                }
+            } else if (groupedBooks.isEmpty()) {
+                item(key = "organizing-books") {
+                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(20.dp), color = Teal)
                 }
             } else {
                 groupedBooks.forEach { (name, group) ->
@@ -2756,15 +2817,16 @@ private fun openCasaDelLibro(context: Context) {
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 pair.forEach { book ->
                                     BookGalleryCard(book, Modifier.weight(1f),
-                                        vm.readingPercent(book.uri)) { selected = book }
+                                        vm.readingPercent(book.uri), { bookMenu = book }) { selected = book }
                                 }
                                 if (pair.size == 1) Spacer(Modifier.weight(1f))
                             }
                         }
                         else -> items(ordered, key = { name + ":" + it.uri },
                             contentType = { vm.viewModeFor(vm.selectedSection) }) { book ->
-                            if (vm.viewModeFor(vm.selectedSection) == "Compacta") BookCompactCard(book) { selected = book }
-                            else BookCard(book) { selected = book }
+                            if (vm.viewModeFor(vm.selectedSection) == "Compacta")
+                                BookCompactCard(book, { bookMenu = book }) { selected = book }
+                            else BookCard(book, { bookMenu = book }) { selected = book }
                         }
                     }
                 }
@@ -2855,7 +2917,9 @@ private fun openCasaDelLibro(context: Context) {
     }
 }
 
-@Composable private fun ReadingShelf(books: List<Book>, progress: (Uri) -> Int, onOpen: (Book) -> Unit) {
+@OptIn(ExperimentalFoundationApi::class)
+@Composable private fun ReadingShelf(books: List<Book>, progress: (Uri) -> Int,
+    onLongPress: (Book) -> Unit, onOpen: (Book) -> Unit) {
     Column {
         Text("Continuar leyendo", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
             fontSize = 21.sp, color = Mahogany,
@@ -2865,7 +2929,8 @@ private fun openCasaDelLibro(context: Context) {
         LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(horizontal = 12.dp)) {
             items(books, key = { "reading:" + it.uri }) { book ->
-                Column(Modifier.width(coverWidth).clickable { onOpen(book) }) {
+                Column(Modifier.width(coverWidth).combinedClickable(
+                    onClick = { onOpen(book) }, onLongClick = { onLongPress(book) })) {
                     Card(elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
                         Cover(book, coverWidth, coverWidth * 1.40f)
@@ -2888,10 +2953,12 @@ private fun openCasaDelLibro(context: Context) {
     }
 }
 
-@Composable private fun BookCard(book: Book, onClick: () -> Unit) {
+@OptIn(ExperimentalFoundationApi::class)
+@Composable private fun BookCard(book: Book, onLongPress: () -> Unit, onClick: () -> Unit) {
     val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
-    Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp).clickable(onClick = onClick),
+    Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp).combinedClickable(
+        onClick = onClick, onLongClick = onLongPress),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = Paper),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
@@ -2910,10 +2977,12 @@ private fun openCasaDelLibro(context: Context) {
     }
 }
 
-@Composable private fun BookCompactCard(book: Book, onClick: () -> Unit) {
+@OptIn(ExperimentalFoundationApi::class)
+@Composable private fun BookCompactCard(book: Book, onLongPress: () -> Unit, onClick: () -> Unit) {
     val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
-    Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp).clickable(onClick = onClick),
+    Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp).combinedClickable(
+        onClick = onClick, onLongClick = onLongPress),
         colors = CardDefaults.cardColors(containerColor = Paper)) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Cover(book, 50.dp, 72.dp)
@@ -2927,11 +2996,13 @@ private fun openCasaDelLibro(context: Context) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable private fun BookGalleryCard(book: Book, modifier: Modifier = Modifier,
-    progress: Int, onClick: () -> Unit) {
+    progress: Int, onLongPress: () -> Unit, onClick: () -> Unit) {
     val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
-    BoxWithConstraints(modifier.clickable(onClick = onClick).padding(bottom = 8.dp)) {
+    BoxWithConstraints(modifier.combinedClickable(
+        onClick = onClick, onLongClick = onLongPress).padding(bottom = 8.dp)) {
         val coverWidth = maxWidth
         Column(Modifier.fillMaxWidth()) {
             Card(elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
