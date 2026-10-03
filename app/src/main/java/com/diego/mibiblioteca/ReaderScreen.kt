@@ -1262,8 +1262,8 @@ private fun RadioVoiceOption(label: String, selected: Boolean, onClick: () -> Un
 
 private const val DAVEFX_ENGINE = "com.k2fsa.sherpa.onnx.tts.engine"
 private const val DAVEFX_DOWNLOAD_URL =
-    "https://huggingface.co/csukuangfj2/sherpa-onnx-apk/resolve/84b121c256db85d6ebe0015705e647c36f489bc1/tts-engine-new/1.13.1/sherpa-onnx-1.13.1-arm64-v8a-es-tts-engine-vits-piper-es_ES-davefx-medium.apk"
-private const val DAVEFX_SHA256 = "0c41a7ec529761b929e3ef24c588fcc4fe76803a021285d638d8cccb6f205f43"
+    "https://huggingface.co/csukuangfj2/sherpa-onnx-apk/resolve/main/tts-engine-new/1.13.8/sherpa-onnx-1.13.8-arm64-v8a-spa-tts-engine-vits-piper-es_ES-davefx-medium.apk"
+private const val DAVEFX_SHA256 = "74f515985857e94ecb91c72537f0e7155a51cdbcb35f4f8634f73f117989aee3"
 
 private fun hasDavefxEngine(context: Context): Boolean = try {
     context.packageManager.getPackageInfo(DAVEFX_ENGINE, 0)
