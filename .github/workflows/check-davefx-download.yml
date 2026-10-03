@@ -10,13 +10,10 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
-      - name: Identificar URL de Davefx
+      - name: Descargar motor oficial Davefx
         run: |
-          curl --fail --location --max-time 60 'https://k2-fsa.github.io/sherpa/onnx/tts/apk-engine.html' -o index.html
-          python3 - <<'PY'
-          html=open("index.html").read()
-          needle="arm64-v8a-spa-tts-engine-vits-piper-es_ES-davefx-medium.apk"
-          index=html.find(needle)
-          print("INDEX", index)
-          print(html[max(index-800,0):index+len(needle)+400])
-          PY
+          curl --fail --location --retry 2 --max-time 240 \
+            'https://huggingface.co/csukuangfj2/sherpa-onnx-apk/resolve/main/tts-engine-new/1.13.8/sherpa-onnx-1.13.8-arm64-v8a-spa-tts-engine-vits-piper-es_ES-davefx-medium.apk' \
+            -o Davefx.apk
+          sha256sum Davefx.apk
+          file Davefx.apk
