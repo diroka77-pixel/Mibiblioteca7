@@ -2539,7 +2539,9 @@ private fun openCasaDelLibro(context: Context) {
     ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = drawerState.isOpen,
         drawerContent = {
             ModalDrawerSheet(drawerContainerColor = Paper,
-                modifier = Modifier.width(300.dp)) {
+                drawerShape = androidx.compose.foundation.shape.RoundedCornerShape(
+                    topEnd = 24.dp, bottomEnd = 24.dp),
+                modifier = Modifier.width(320.dp)) {
                 Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 18.dp)) {
                     if (settingsOpen) {
@@ -2584,10 +2586,19 @@ private fun openCasaDelLibro(context: Context) {
                                 scope.launch { drawerState.close() }; backupMenu = true
                             })
                     } else {
-                    Text("Mi Biblioteca", color = Mahogany, fontSize = 21.sp,
-                        fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
-                    Text("By Diroka77", color = Teal, fontSize = 12.sp)
-                    Spacer(Modifier.height(20.dp))
+                    Surface(color = Mahogany,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(18.dp)) {
+                            Text("Mi Biblioteca", color = Color.White, fontSize = 23.sp,
+                                fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
+                            Text("By Diroka77", color = Color(0xFFE9D8BD), fontSize = 12.sp)
+                            Text("Tu espacio de lectura", color = Color(0xFFF4E8D8),
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    Spacer(Modifier.height(18.dp))
+                    Text("NAVEGAR", color = Teal, style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
                     tabs.forEach { name ->
                         NavigationDrawerItem(label = { Text(name) }, selected = tab == name,
                             icon = { AppIcon(name, size = 22.dp) }, onClick = {
@@ -2597,7 +2608,9 @@ private fun openCasaDelLibro(context: Context) {
                                 selectedTextColor = Teal, selectedIconColor = Teal))
                     }
                     HorizontalDivider(Modifier.padding(vertical = 14.dp))
-                    Text("Explorar", color = Mahogany, fontWeight = FontWeight.SemiBold)
+                    Text("EXPLORAR", color = Teal,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
                     NavigationDrawerItem(label = { Text("Favoritos") }, selected = vm.onlyFavorites && tab == "Biblioteca",
                         icon = { AppIcon("Favoritos") }, onClick = {
                             switchTab("Biblioteca"); vm.query = ""; vm.onlyFavorites = true
@@ -2611,7 +2624,8 @@ private fun openCasaDelLibro(context: Context) {
                     if (showWishList) LibraryTextButton(onClick = { addWishDialog = true }) { Text("Añadir Goodreads") }
                     if (tab == "Biblioteca" && !showWishList) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                        Text("Mostrar", color = Mahogany, fontWeight = FontWeight.SemiBold)
+                        Text("MOSTRAR", color = Teal,
+                            style = MaterialTheme.typography.labelMedium)
                         Row(Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("Todos", "Leyendo", "Leídos").forEach { kind ->
@@ -2625,7 +2639,7 @@ private fun openCasaDelLibro(context: Context) {
                                 }
                             }
                         }
-                        Text("Agrupar por", color = Mahogany, fontWeight = FontWeight.SemiBold,
+                        Text("AGRUPAR POR", color = Teal, style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.padding(top = 14.dp))
                         listOf("Todos", "Autores", "Sagas", "Secciones").forEach { mode ->
                             NavigationDrawerItem(label = { Text(mode) }, selected = vm.groupMode == mode,
@@ -2641,7 +2655,8 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                     if (tab == "Secciones") {
-                        Text("Mis secciones", color = Mahogany, fontWeight = FontWeight.SemiBold)
+                        Text("MIS SECCIONES", color = Teal,
+                            style = MaterialTheme.typography.labelMedium)
                         (listOf("Todas") + vm.sections).forEach { name ->
                             NavigationDrawerItem(label = { Text(name) },
                                 selected = vm.selectedSection == name || name == "Todas" && vm.selectedSection == null,
@@ -2653,7 +2668,8 @@ private fun openCasaDelLibro(context: Context) {
                     }
                     if (tab != "Inicio" && !showWishList) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                        Text("Vista", color = Mahogany, fontWeight = FontWeight.SemiBold)
+                        Text("VISTA", color = Teal,
+                            style = MaterialTheme.typography.labelMedium)
                         Row(Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("Lista", "Galería", "Compacta").forEach { mode ->

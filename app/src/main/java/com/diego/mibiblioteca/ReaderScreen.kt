@@ -582,11 +582,17 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var speechReady by remember { mutableStateOf(false) }
     var audioActive by remember(book.uri) { mutableStateOf(false) }
     var audioAdvance by remember(book.uri) { mutableIntStateOf(0) }
-    DisposableEffect(context, book.uri) {
+    var showVoicePicker by remember { mutableStateOf(false) }
+    var selectedVoiceName by remember { mutableStateOf(prefs.getString("voice_name", "").orEmpty()) }
+    DisposableEffect(context, book.uri, selectedVoiceName) {
         var engine: TextToSpeech? = null
-        engine = TextToSpeech(context) { status ->
+        speechReady = false
+        engine = TextToSpeech(context, { status ->
             speechReady = status == TextToSpeech.SUCCESS
-        }
+            if (status != TextToSpeech.SUCCESS && selectedVoiceName == "davefx")
+                android.widget.Toast.makeText(context, "No se pudo iniciar Davefx. Revisa la instalación de la voz.",
+                    android.widget.Toast.LENGTH_LONG).show()
+        }, if (selectedVoiceName == "davefx") DAVEFX_ENGINE else null)
         speech = engine
         onDispose {
             audioActive = false
@@ -618,15 +624,45 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     val document = state
     BackHandler { if (drawer.isOpen) scope.launch { drawer.close() } else onBack() }
     ModalNavigationDrawer(drawerState = drawer, drawerContent = {
-        ModalDrawerSheet {
-            Column(Modifier.fillMaxHeight().widthIn(max = 320.dp).padding(16.dp)) {
-                TextButton(onClick = { scope.launch { drawer.close() }; onBack() }) {
-                    AppIcon("Volver", "Volver a la biblioteca")
-                    Spacer(Modifier.width(6.dp))
-                    Text("Volver a la biblioteca")
-                }
-                Text("Índice y lectura", style = MaterialTheme.typography.titleLarge)
+        ModalDrawerSheet(
+            modifier = Modifier.width(320.dp),
+            drawerContainerColor = Color(0xFFF8F3E9),
+            drawerShape = androidx.compose.foundation.shape.RoundedCornerShape(
+                topEnd = 24.dp, bottomEnd = 24.dp)
+        ) {
+            Column(Modifier.fillMaxHeight().padding(horizontal = 18.dp, vertical = 22.dp)) {
+                Text("Mi Biblioteca", color = Color(0xFF8A623C),
+                    style = MaterialTheme.typography.labelLarge)
+                Text(book.customTitle.ifBlank { book.title }.take(54),
+                    color = Color(0xFF392A24), maxLines = 2,
+                    style = MaterialTheme.typography.headlineSmall)
                 Spacer(Modifier.height(12.dp))
+                NavigationDrawerItem(label = { Text("Volver a la biblioteca") },
+                    selected = false, icon = { AppIcon("Volver", "Volver") },
+                    onClick = { scope.launch { drawer.close() }; onBack() })
+                HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                Text("ESCUCHAR", color = Color(0xFF785940),
+                    style = MaterialTheme.typography.labelMedium)
+                if (document is ReadingDocument.TextDocument) {
+                    NavigationDrawerItem(
+                        label = { Text(if (audioActive) "Pausar lectura" else "Leer en voz alta") },
+                        selected = audioActive,
+                        icon = { AppIcon(if (audioActive) "Cerrar" else "Audio") },
+                        onClick = { if (speechReady) audioActive = !audioActive; scope.launch { drawer.close() } },
+                        colors = NavigationDrawerItemDefaults.colors(
+                            selectedContainerColor = Color(0xFFE7DCC8),
+                            selectedTextColor = Color(0xFF503727)))
+                    NavigationDrawerItem(label = { Text("Detener lectura") }, selected = false,
+                        icon = { AppIcon("Cerrar") },
+                        onClick = { audioActive = false; speech?.stop() })
+                    NavigationDrawerItem(label = { Text("Elegir voz") }, selected = false,
+                        icon = { AppIcon("Ajustes") },
+                        onClick = { showVoicePicker = true })
+                }
+                HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                Text("APARIENCIA", color = Color(0xFF785940),
+                    style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(8.dp))
                 if (document is ReadingDocument.TextDocument) {
                     Text("Tamaño de letra · ${fontSize.toInt()} pt", fontWeight = FontWeight.SemiBold)
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -658,7 +694,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     OutlinedTextField(searchText, { searchText = it }, singleLine = true,
                         label = { Text("Buscar en el libro") },
                         modifier = Modifier.fillMaxWidth())
-                Text("Capítulos", fontWeight = FontWeight.Bold)
+                HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                Text("CAPÍTULOS Y MARCAS", color = Color(0xFF785940),
+                    style = MaterialTheme.typography.labelMedium)
                 val chapters = if (document is ReadingDocument.TextDocument)
                     document.paragraphs.withIndex().filter { it.value.heading }
                 else emptyList()
@@ -926,7 +964,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 else audioActive = false
                             }
                         }
-                        LaunchedEffect(audioActive, currentPage, pages, speechReady) {
+                        LaunchedEffect(audioActive, currentPage, pages, speechReady, selectedVoiceName) {
                             val engine = speech
                             if (!audioActive || !speechReady || engine == null) {
                                 engine?.stop()
@@ -934,6 +972,10 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 val locale = if (book.language.startsWith("en", true))
                                     java.util.Locale.ENGLISH else java.util.Locale.forLanguageTag("es-ES")
                                 val availability = engine.setLanguage(locale)
+                                 val chosenVoice = engine.voices?.firstOrNull {
+                                     selectedVoiceName != "davefx" && it.name == selectedVoiceName }
+                                 if (chosenVoice != null && chosenVoice.locale.language == locale.language)
+                                     engine.voice = chosenVoice
                                 if (availability < TextToSpeech.LANG_AVAILABLE) {
                                     audioActive = false
                                     android.widget.Toast.makeText(context,
@@ -1034,17 +1076,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 .clickable { turn(1) })
                         }
                     }
-                    Row(Modifier.align(Alignment.CenterHorizontally),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { audioActive = !audioActive },
-                            enabled = speechReady) {
-                            Text(if (audioActive) "Pausar audio" else "Leer en voz alta")
-                        }
-                        if (audioActive) TextButton(onClick = {
-                            audioActive = false
-                            speech?.stop()
-                        }) { Text("Detener") }
-                    }
                     Text("Página ${textPage + 1} de ${totalTextPages.coerceAtLeast(1)} · $percent % leído",
                         Modifier.align(Alignment.CenterHorizontally), color = foreground)
                 }
@@ -1053,6 +1084,48 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
 
       }
     }
+    }
+    if (showVoicePicker) {
+        val language = if (book.language.startsWith("en", true)) "en" else "es"
+        val choices = speech?.voices.orEmpty()
+            .filter { it.locale.language == language && !it.isNetworkConnectionRequired }
+            .sortedWith(compareBy({ it.locale.toLanguageTag() }, { it.name }))
+        AlertDialog(onDismissRequest = { showVoicePicker = false },
+            title = { Text("Elegir voz") },
+            text = {
+                Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                    Text("Voces sin conexión instaladas en el dispositivo",
+                        style = MaterialTheme.typography.bodySmall)
+                    RadioVoiceOption("Davefx · español de España",
+                        selectedVoiceName == "davefx") {
+                        if (hasDavefxEngine(context)) {
+                            selectedVoiceName = "davefx"
+                            prefs.edit().putString("voice_name", "davefx").apply()
+                            showVoicePicker = false
+                        } else {
+                            context.startActivity(Intent(Intent.ACTION_VIEW,
+                                Uri.parse(DAVEFX_DOWNLOAD_PAGE)))
+                        }
+                    }
+                    if (!hasDavefxEngine(context)) Text(
+                        "Para usar Davefx, instala su motor de voz desde la página oficial y vuelve aquí.",
+                        style = MaterialTheme.typography.bodySmall)
+                    RadioVoiceOption("Predeterminada", selectedVoiceName.isBlank()) {
+                        selectedVoiceName = ""; prefs.edit().remove("voice_name").apply()
+                        showVoicePicker = false
+                    }
+                    choices.forEach { voice ->
+                        RadioVoiceOption(voice.name + " · " + voice.locale.toLanguageTag(),
+                            selectedVoiceName == voice.name) {
+                            selectedVoiceName = voice.name
+                            prefs.edit().putString("voice_name", voice.name).apply()
+                            showVoicePicker = false
+                        }
+                    }
+                    if (choices.isEmpty()) Text("No hay voces sin conexión para este idioma.")
+                }
+            },
+            confirmButton = { TextButton(onClick = { showVoicePicker = false }) { Text("Cerrar") } })
     }
     pendingNote?.let { selected ->
         AlertDialog(onDismissRequest = { pendingNote = null },
@@ -1125,4 +1198,23 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             }
         }
     }
+}
+
+@Composable
+private fun RadioVoiceOption(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        RadioButton(selected = selected, onClick = onClick)
+        Text(label, modifier = Modifier.padding(start = 8.dp), maxLines = 2)
+    }
+}
+
+private const val DAVEFX_ENGINE = "com.k2fsa.sherpa.onnx.tts.engine"
+private const val DAVEFX_DOWNLOAD_PAGE = "https://k2-fsa.github.io/sherpa/onnx/tts/apk-engine.html"
+
+private fun hasDavefxEngine(context: Context): Boolean = try {
+    context.packageManager.getPackageInfo(DAVEFX_ENGINE, 0)
+    true
+} catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+    false
 }
