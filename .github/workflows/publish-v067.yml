@@ -1,0 +1,56 @@
+name: Publicar MiBiblioteca v0.67
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v067.yml'
+permissions:
+  contents: write
+jobs:
+  release:
+    if: github.event.head_commit.message == 'Publicar MiBiblioteca v0.67'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Instalar SDK 35
+        run: |
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Restaurar firma permanente
+        env:
+          KEYSTORE_B64: ${{ secrets.MIBIBLIOTECA_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.MIBIBLIOTECA_KEYSTORE_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_B64"
+          test -n "$KEYSTORE_PASSWORD"
+          umask 077
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/mibiblioteca.p12"
+          keytool -list -keystore "$RUNNER_TEMP/mibiblioteca.p12" -storepass:env KEYSTORE_PASSWORD -alias mibiblioteca >/dev/null
+      - name: Probar y compilar APK firmada
+        env:
+          MIBIBLIOTECA_KEYSTORE_PATH: ${{ runner.temp }}/mibiblioteca.p12
+          MIBIBLIOTECA_KEYSTORE_PASSWORD: ${{ secrets.MIBIBLIOTECA_KEYSTORE_PASSWORD }}
+        run: gradle :app:testDebugUnitTest :app:assembleRelease --no-daemon
+      - name: Verificar y publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$APK"
+          cp "$APK" MiBiblioteca-v0.67.apk
+          gh release create v0.67 MiBiblioteca-v0.67.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target 8dc667717e4b0267269dbc8fd6f8d2acbba6b2a5 \
+            --title "MiBiblioteca v0.67" \
+            --notes "Correcciones de sincronización y respaldo de Drive: conserva catálogo ante listados vacíos, carga la caché antes de sincronizar y evita sobrescribir respaldos después de un fallo. Al elegir Davefx descarga su motor oficial, verifica la huella SHA-256 y ofrece instalarlo con Android. Prueba estas funciones con tu carpeta y respaldo reales."
+      - name: Eliminar clave temporal
+        if: always()
+        run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
