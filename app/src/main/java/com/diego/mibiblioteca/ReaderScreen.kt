@@ -644,17 +644,16 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         label = { Text(if (audioActive) "Pausar lectura" else "Leer en voz alta") },
                         selected = audioActive,
                         icon = { AppIcon(if (audioActive) "Cerrar" else "Audio") },
-                        enabled = speechReady,
-                        onClick = { audioActive = !audioActive; scope.launch { drawer.close() } },
+                        onClick = { if (speechReady) audioActive = !audioActive; scope.launch { drawer.close() } },
                         colors = NavigationDrawerItemDefaults.colors(
                             selectedContainerColor = Color(0xFFE7DCC8),
                             selectedTextColor = Color(0xFF503727)))
                     NavigationDrawerItem(label = { Text("Detener lectura") }, selected = false,
-                        icon = { AppIcon("Cerrar") }, enabled = audioActive,
+                        icon = { AppIcon("Cerrar") },
                         onClick = { audioActive = false; speech?.stop() })
                     NavigationDrawerItem(label = { Text("Elegir voz") }, selected = false,
-                        icon = { AppIcon("Ajustes") }, enabled = speechReady,
-                        onClick = { showVoicePicker = true })
+                        icon = { AppIcon("Ajustes") },
+                        onClick = { if (speechReady) showVoicePicker = true })
                 }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 Text("APARIENCIA", color = Color(0xFF785940),
