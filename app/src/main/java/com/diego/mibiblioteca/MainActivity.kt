@@ -2317,6 +2317,21 @@ private fun openCasaDelLibro(context: Context) {
         "Biblioteca" -> libraryListState
         else -> sectionsListState
     }
+    var restoreListPosition by remember { mutableStateOf(false) }
+    var savedListIndex by remember { mutableIntStateOf(0) }
+    var savedListOffset by remember { mutableIntStateOf(0) }
+    fun openBookFromList(book: Book) {
+        savedListIndex = listState.firstVisibleItemIndex
+        savedListOffset = listState.firstVisibleItemScrollOffset
+        restoreListPosition = true
+        selected = book
+    }
+    LaunchedEffect(selected, restoreListPosition, tab) {
+        if (selected == null && restoreListPosition) {
+            listState.scrollToItem(savedListIndex, savedListOffset)
+            restoreListPosition = false
+        }
+    }
     val swipeThreshold = with(LocalDensity.current) { 40.dp.toPx() }
     val readingShelfGestureHeight = with(LocalDensity.current) { 440.dp.toPx() }
     val swipeControlsHeight = with(LocalDensity.current) { 145.dp.toPx() }
@@ -2506,7 +2521,7 @@ private fun openCasaDelLibro(context: Context) {
                     NavigationDrawerItem(label = { Text(label) }, selected = false,
                         icon = { AppIcon(icon, size = 21.dp) }, onClick = { close(action) })
                 }
-                option("Abrir ficha", "Libros") { selected = book }
+                option("Abrir ficha", "Libros") { openBookFromList(book) }
                 option("Compartir archivo", "Compartir") { shareBookFile(context, book) }
                 option("Recuperar portada", "Portada") { vm.downloadCover(book) }
                 if (book.status == ReadingStatus.READING)
@@ -2710,18 +2725,15 @@ private fun openCasaDelLibro(context: Context) {
                         modifier = Modifier.semantics { contentDescription = "Abrir menú" }) {
                         Icon(Icons.Outlined.Menu, "Abrir menú", tint = Color.White)
                     }
-                    Text("Mi Biblioteca", color = Color.White, fontSize = 14.sp,
-                        fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.width(10.dp))
-                    Box(Modifier.size(40.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Mi Biblioteca", color = Color.White, fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.width(9.dp))
+                    Box(Modifier.size(38.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
                         .background(Color.White.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
                         Image(painterResource(R.drawable.ic_bookshelf_foreground),
-                            "Estantería de libros", modifier = Modifier.size(30.dp))
+                            "Estantería de libros", modifier = Modifier.size(29.dp))
                     }
-                    Spacer(Modifier.width(10.dp))
-                    Text("By Diroka77", color = Color.White, fontSize = 14.sp,
-                        fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.width(40.dp))
                 }
                 OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
                     tab = "Biblioteca"; vm.qualityFilter = "Ninguno"
@@ -2992,7 +3004,7 @@ private fun openCasaDelLibro(context: Context) {
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 pair.forEach { book ->
                                     BookGalleryCard(book, Modifier.weight(1f),
-                                        vm.readingPercent(book.uri), { bookMenu = book }) { selected = book }
+                                        vm.readingPercent(book.uri), { bookMenu = book }) { openBookFromList(book) }
                                 }
                                 if (pair.size == 1) Spacer(Modifier.weight(1f))
                             }
@@ -3000,8 +3012,8 @@ private fun openCasaDelLibro(context: Context) {
                         else -> items(ordered, key = { name + ":" + it.uri },
                             contentType = { vm.viewModeFor(vm.selectedSection) }) { book ->
                             if (vm.viewModeFor(vm.selectedSection) == "Compacta")
-                                BookCompactCard(book, { bookMenu = book }) { selected = book }
-                            else BookCard(book, { bookMenu = book }) { selected = book }
+                                BookCompactCard(book, { bookMenu = book }) { openBookFromList(book) }
+                            else BookCard(book, { bookMenu = book }) { openBookFromList(book) }
                         }
                     }
                 }
