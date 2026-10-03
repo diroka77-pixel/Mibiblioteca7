@@ -727,7 +727,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private suspend fun restoreCloud(tree: Uri) {
+    private suspend fun restoreCloud(tree: Uri, force: Boolean = false) {
         val cloud = withContext(Dispatchers.IO) {
             val root = DocumentFile.fromTreeUri(getApplication(), tree) ?: return@withContext null
             fun readSnapshot(name: String): JSONObject? = root.findFile(name)?.let { file ->
@@ -738,7 +738,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             try { readSnapshot(cloudName) ?: readSnapshot(cloudName + ".previous") }
             catch (failure: Exception) { readSnapshot(cloudName + ".previous") ?: throw failure }
         } ?: return
-        if (books.isNotEmpty() &&
+        if (!force && books.isNotEmpty() &&
             cloud.optLong("updatedAt") <= prefs.getLong("local_revision", 0L)) return
         withContext(Dispatchers.IO) { validateBackupImages(cloud) }
         // Existing local records must never disappear because a cloud snapshot is incomplete.
@@ -1007,7 +1007,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 initialRestoreJob?.join()
                 if (books.isEmpty()) restoreCachedBooks(onlyIfEmpty = true)
-                try { restoreCloud(uri) } catch (e: Exception) {
+                try { restoreCloud(uri, force = changedFolder) } catch (e: Exception) {
                     detailMessage = "No se pudo recuperar el respaldo de Drive: ${e.localizedMessage}"
                 }
                 val cached = if (changedFolder) emptyMap() else books.associateBy { it.uri }
