@@ -10,25 +10,13 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
-      - name: Consultar enlace oficial de Davefx
+      - name: Identificar URL de Davefx
         run: |
           curl --fail --location --max-time 60 'https://k2-fsa.github.io/sherpa/onnx/tts/apk-engine.html' -o index.html
           python3 - <<'PY'
-          from html.parser import HTMLParser
-          from urllib.parse import urljoin
-          class Links(HTMLParser):
-              href = None
-              def handle_starttag(self, tag, attrs):
-                  if tag == "a": self.href = dict(attrs).get("href")
-              def handle_data(self, data):
-                  if self.href and "arm64-v8a-spa-tts-engine-vits-piper-es_ES-davefx-medium.apk" in data:
-                      print(urljoin("https://k2-fsa.github.io/sherpa/onnx/tts/apk-engine.html", self.href))
-                      open("url.txt","w").write(urljoin("https://k2-fsa.github.io/sherpa/onnx/tts/apk-engine.html", self.href))
-              def handle_endtag(self, tag):
-                  if tag == "a": self.href = None
-          Links().feed(open("index.html").read())
+          html=open("index.html").read()
+          needle="arm64-v8a-spa-tts-engine-vits-piper-es_ES-davefx-medium.apk"
+          index=html.find(needle)
+          print("INDEX", index)
+          print(html[max(index-800,0):index+len(needle)+400])
           PY
-          test -s url.txt
-          curl --fail --location --retry 2 --max-time 240 "$(cat url.txt)" -o Davefx.apk
-          sha256sum Davefx.apk
-          file Davefx.apk
