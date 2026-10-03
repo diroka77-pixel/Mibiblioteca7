@@ -50,6 +50,10 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.layout.ContentScale
@@ -1963,7 +1967,7 @@ private val Mahogany = Color(0xFF49352A)
 private val Brass = Color(0xFFAD8248)
 private val Parchment = Color(0xFFF7F6F2)
 private val Paper = Color.White
-private val Teal = Color(0xFF176C66)
+private val Teal = Color(0xFF5C9F94)
 
 private val libraryColors = lightColorScheme(
     primary = Teal, onPrimary = Paper, secondary = Brass,
@@ -2784,6 +2788,11 @@ private fun openCasaDelLibro(context: Context) {
             onGoodreads = { openGoodreads(context) },
             onGoogle = { openGoogleAi(context) })
         Box(Modifier.fillMaxWidth().weight(1f)) {
+        androidx.compose.animation.AnimatedContent(
+            targetState = tab,
+            transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(100)) },
+            label = "library-tab-transition"
+        ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().graphicsLayer {
                 translationX = pageMotion.value * density
@@ -3022,13 +3031,12 @@ private fun openCasaDelLibro(context: Context) {
                 }
             }
         }
+            }
         if (tab == "Biblioteca" && !showWishList) {
             LibraryScrollHandle(listState, Modifier.align(Alignment.CenterEnd))
         }
         }
-        }
       }
-    }
     }
     }
 }
@@ -3282,6 +3290,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     val scope = rememberCoroutineScope()
     var confirmDelete by remember { mutableStateOf(false) }
     var sectionMenu by remember { mutableStateOf(false) }
+    var moreActionsExpanded by rememberSaveable(book.uri) { mutableStateOf(false) }
     var editInfo by remember { mutableStateOf(false) }
     var editIdentityDialog by remember { mutableStateOf(false) }
     var titleDraft by remember { mutableStateOf("") }
@@ -3419,38 +3428,48 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 }, modifier = Modifier.fillMaxWidth()) {
                     ActionLabel("Leer este libro", "Leer")
                 }
-                LibraryActionButton(onClick = {
-                    val safeName = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), " ").trim().take(90)
-                    val extension = (if (book.uri.scheme == "file") book.uri.lastPathSegment
-                        else androidx.documentfile.provider.DocumentFile.fromSingleUri(context, book.uri)?.name)
-                        ?.substringAfterLast('.', "epub")?.lowercase().orEmpty()
-                    exportPicker.launch((safeName.ifBlank { "Libro" }) + "." +
-                        extension.takeIf { it in setOf("epub", "pdf", "mobi", "azw", "azw3", "txt", "html", "htm", "rtf", "docx", "md") }.orEmpty().ifBlank { "epub" })
-                }, modifier = Modifier.fillMaxWidth(), enabled = !exportingEpub) {
-                    ActionLabel(if (exportingEpub) "Guardando archivo…" else "Descargar archivo de Drive", "Descargar")
-                }
-                    Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LibraryActionButton(onClick = {
+                        val safeName = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), " ").trim().take(90)
+                        val extension = (if (book.uri.scheme == "file") book.uri.lastPathSegment
+                            else androidx.documentfile.provider.DocumentFile.fromSingleUri(context, book.uri)?.name)
+                            ?.substringAfterLast('.', "epub")?.lowercase().orEmpty()
+                        exportPicker.launch((safeName.ifBlank { "Libro" }) + "." +
+                            extension.takeIf { it in setOf("epub", "pdf", "mobi", "azw", "azw3", "txt", "html", "htm", "rtf", "docx", "md") }.orEmpty().ifBlank { "epub" })
+                    }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), enabled = !exportingEpub) {
+                        ActionLabel(if (exportingEpub) "Guardando…" else "Descargar", "Descargar", 12.sp)
+                    }
                     LibraryActionButton(onClick = {
                         titleDraft = displayTitle(book); authorDraft = displayAuthor(book)
                         sagaDraft = book.saga; orderDraft = book.sagaOrder
                         editIdentityDialog = true
-                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                        ActionLabel("Editar título y autor", "Editar")
+                    }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                        ActionLabel("Editar datos", "Editar", 12.sp)
                     }
-                    Spacer(Modifier.height(14.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        LibraryActionButton(onClick = recoverCover, enabled = !coverSearching,
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                            ActionLabel(if (coverSearching) "Recuperando…" else "Recuperar portada", "Buscar", 12.sp)
+                }
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(onClick = { moreActionsExpanded = !moreActionsExpanded },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
+                    ActionLabel(if (moreActionsExpanded) "Menos opciones" else "Más opciones", "Más", 12.sp)
+                }
+                androidx.compose.animation.AnimatedVisibility(visible = moreActionsExpanded) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            LibraryActionButton(onClick = recoverCover, enabled = !coverSearching,
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                                ActionLabel(if (coverSearching) "Recuperando…" else "Recuperar portada", "Buscar", 11.sp)
+                            }
+                            LibraryActionButton(onClick = { coverPicker.launch("image/*") },
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                                ActionLabel("Cambiar portada", "Portada", 11.sp)
+                            }
                         }
-                        LibraryActionButton(onClick = { coverPicker.launch("image/*") },
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                            ActionLabel("Cambiar portada", "Portada", 12.sp)
+                        LibraryTextButton(onClick = { searchCoverImages(context, book) }) {
+                            ActionLabel("Ver imágenes en Google", "Buscar", 12.sp)
                         }
                     }
-                    LibraryTextButton(onClick = { searchCoverImages(context, book) }) {
-                        ActionLabel("Ver imágenes en Google", "Buscar", 12.sp)
-                    }
+                }
                 }
             }
             item {
@@ -3529,12 +3548,21 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 }
             }
             item {
-                LibraryActionButton(onClick = { openGoodreads(context, book) },
-                    modifier = Modifier.fillMaxWidth()) { ActionLabel("Abrir este libro en Goodreads", "Goodreads") }
-                LibraryActionButton(onClick = { searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book)) },
-                    modifier = Modifier.fillMaxWidth()) { ActionLabel("Consultar en Google", "Google") }
-                LibraryActionButton(onClick = { confirmDelete = true },
-                    modifier = Modifier.fillMaxWidth()) { ActionLabel("Borrar este archivo de Drive", "Borrar") }
+                OutlinedButton(onClick = { openGoodreads(context, book) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp)) {
+                    ActionLabel("Abrir en Goodreads", "Goodreads")
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = { searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book)) },
+                        modifier = Modifier.weight(1f).heightIn(min = 46.dp)) {
+                        ActionLabel("Google", "Buscar", 12.sp)
+                    }
+                    OutlinedButton(onClick = { confirmDelete = true },
+                        modifier = Modifier.weight(1f).heightIn(min = 46.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                        ActionLabel("Borrar archivo", "Borrar", 12.sp)
+                    }
+                }
             }
         }
     }
