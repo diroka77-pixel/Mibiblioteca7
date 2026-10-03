@@ -4,15 +4,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SpeechPositionTest {
-    @Test fun estimatedPausePositionAdvancesToCurrentWordWhenEngineHasNoRangeCallbacks() {
-        assertEquals(8, estimateSpeechWordOffset("Uno dos tres cuatro", 0, 600, 1f))
+    @Test fun speechIsQueuedOneWordAtATimeAndKeepsOriginalOffsets() {
+        assertEquals(listOf(SpeechChunk(0, "Uno, "), SpeechChunk(5, "dos "),
+            SpeechChunk(9, "y "), SpeechChunk(11, "tres.")),
+            speechWordChunks("Uno, dos y tres."))
     }
 
-    @Test fun estimateContinuesFromLastExactWordCallback() {
-        assertEquals(8, estimateSpeechWordOffset("Uno dos tres cuatro", 4, 300, 1f))
-    }
-
-    @Test fun emptyUtteranceHasSafeZeroOffset() {
-        assertEquals(0, estimateSpeechWordOffset("", 0, 1000, 1f))
-    }
+    @Test fun emptyTextHasNoSpeechChunks() { assertEquals(emptyList<SpeechChunk>(), speechWordChunks("")) }
 }

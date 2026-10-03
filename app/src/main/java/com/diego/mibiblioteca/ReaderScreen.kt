@@ -24,8 +24,6 @@ import android.speech.tts.UtteranceProgressListener
 import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -104,41 +102,9 @@ private data class ReaderHighlight(val paragraph: Int, val start: Int, val end: 
 private data class ReadingSlice(val paragraph: Int, val start: Int, val end: Int, val height: Int)
 private data class ReadingPage(val slices: List<ReadingSlice>, val startChar: Int)
 private data class SpeechPage(val text: String, val sourcePositions: IntArray)
-internal fun estimateSpeechWordOffset(text: String, anchorOffset: Int, elapsedMs: Long,
-    rate: Float, charactersPerSecond: Float = 14.5f): Int {
-    val estimated = (anchorOffset + elapsedMs.coerceAtLeast(0L) / 1000f *
-        charactersPerSecond * rate).toInt().coerceIn(0, text.length)
-    var wordStart = estimated.coerceAtMost((text.length - 1).coerceAtLeast(0))
-    while (wordStart > 0 && text[wordStart - 1].isLetterOrDigit()) wordStart--
-    while (wordStart > 0 && !text[wordStart - 1].isWhitespace() &&
-        !text[wordStart - 1].isLetterOrDigit()) wordStart--
-    return wordStart
-}
-
-private class SpeechTimeline(
-    val page: SpeechPage,
-    val pageBaseOffset: Int,
-    val utterance: String,
-    val totalCharacters: Int,
-    rate: Float
-) {
-    val anchorOffset = AtomicInteger(0)
-    val anchorTime = AtomicLong(android.os.SystemClock.uptimeMillis())
-    @Volatile var speechRate: Float = rate
-
-    fun markRange(offset: Int, time: Long) {
-        anchorOffset.set(offset.coerceIn(0, utterance.length))
-        anchorTime.set(time)
-    }
-
-    fun estimateWordPosition(now: Long): Int {
-        // A time estimate fills in when a TTS engine omits onRangeStart.
-        val wordStart = estimateSpeechWordOffset(utterance, anchorOffset.get(),
-            now - anchorTime.get(), speechRate)
-        val absoluteOffset = (pageBaseOffset + wordStart).coerceIn(0, page.text.length)
-        return speechCharForOffset(page, absoluteOffset, totalCharacters)
-    }
-}
+internal data class SpeechChunk(val start: Int, val text: String)
+internal fun speechWordChunks(text: String): List<SpeechChunk> =
+    Regex("\\S+\\s*").findAll(text).map { SpeechChunk(it.range.first, it.value) }.toList()
 
 private fun speechPage(page: ReadingPage, paragraphs: List<ReadingParagraph>, positions: IntArray): SpeechPage {
     val text = StringBuilder()
@@ -783,9 +749,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     val activeSpeechCursor = remember(book.uri) {
         AtomicInteger(prefs.getInt("char_$key", 0))
     }
-    val activeSpeechTimeline = remember(book.uri) { AtomicReference<SpeechTimeline?>(null) }
     val speechGeneration = remember(book.uri) { AtomicInteger(0) }
-    val lastSpeechUiUpdate = remember(book.uri) { AtomicLong(0) }
     fun saveSpeechCursor(position: Int) {
         val safePosition = position.coerceAtLeast(0)
         activeSpeechCursor.set(safePosition)
@@ -793,11 +757,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         prefs.edit().putInt("char_$key", safePosition).apply()
     }
     fun currentSpeechPosition(): Int {
-        val exactPosition = activeSpeechCursor.get()
-        val timeline = activeSpeechTimeline.get() ?: return exactPosition
-        val now = android.os.SystemClock.uptimeMillis()
-        if (now - timeline.anchorTime.get() <= 300L) return exactPosition
-        return maxOf(exactPosition, timeline.estimateWordPosition(now))
+        return activeSpeechCursor.get()
     }
     fun pauseSpeech() {
         // Ignore callbacks delivered late by the utterance that is being stopped.
@@ -812,7 +772,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             speech?.stop()
         }
         speechRate = ((((speechRate + delta) * 10f).toInt()) / 10f).coerceIn(0.5f, 2f)
-        activeSpeechTimeline.get()?.speechRate = speechRate
         prefs.edit().putFloat("speech_rate", speechRate).apply()
     }
     var audioSeekRequest by remember(book.uri) { mutableIntStateOf(0) }
@@ -1269,41 +1228,40 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     val spoken = spokenPage.text.substring(offsetInPage)
                                     val spokenBaseOffset = offsetInPage
                                     val utteranceGeneration = speechGeneration.incrementAndGet()
-                                    val timeline = SpeechTimeline(spokenPage, spokenBaseOffset,
-                                        spoken.take(3900), total, speechRate)
-                                    activeSpeechTimeline.set(timeline)
-                                    activeSpeechCursor.set(audioCursor)
+                                    val maxLength = minOf(spoken.length, 3900)
+                                    val safeLength = if (maxLength < spoken.length)
+                                        spoken.lastIndexOf(' ', maxLength).takeIf { it > 0 } ?: maxLength
+                                        else maxLength
+                                    val chunks = speechWordChunks(spoken.take(safeLength))
+                                    fun speakChunk(index: Int, queueMode: Int) {
+                                        if (speechGeneration.get() != utteranceGeneration) return
+                                        val chunk = chunks.getOrNull(index) ?: return
+                                        val wordPosition = speechCharForOffset(spokenPage,
+                                            spokenBaseOffset + chunk.start, total)
+                                        activeSpeechCursor.set(wordPosition)
+                                        audioCursor = wordPosition
+                                        prefs.edit().putInt("char_$key", wordPosition)
+                                            .putInt("percent_$key", (wordPosition * 100 / total).coerceIn(0, 99))
+                                            .apply()
+                                        val result = engine.speak(chunk.text, queueMode, null,
+                                            "page_${currentPage}_generation_${utteranceGeneration}_chunk_$index")
+                                        if (result == TextToSpeech.ERROR) audioActive = false
+                                    }
                                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                                        override fun onStart(utteranceId: String?) {
-                                            timeline.markRange(0, android.os.SystemClock.uptimeMillis())
-                                        }
-                                        override fun onRangeStart(utteranceId: String?, start: Int,
-                                            end: Int, frame: Int) {
-                                            if (speechGeneration.get() != utteranceGeneration) return
-                                            val now = android.os.SystemClock.uptimeMillis()
-                                            timeline.markRange(start, now)
-                                            val charPosition = speechCharForOffset(
-                                                spokenPage, spokenBaseOffset + start, total)
-                                            activeSpeechCursor.set(charPosition)
-                                            val previous = lastSpeechUiUpdate.get()
-                                            if (now - previous >= 250 &&
-                                                lastSpeechUiUpdate.compareAndSet(previous, now)) {
-                                                Handler(Looper.getMainLooper()).post {
-                                                    if (speechGeneration.get() != utteranceGeneration) return@post
-                                                    audioCursor = charPosition
-                                                    prefs.edit().putInt("char_$key", charPosition)
-                                                        .putInt("percent_$key",
-                                                            (charPosition * 100 / total).coerceIn(0, 99)).apply()
-                                                }
-                                            }
-                                        }
+                                        override fun onStart(utteranceId: String?) {}
                                         override fun onDone(utteranceId: String?) {
                                             if (speechGeneration.get() != utteranceGeneration) return
                                             Handler(Looper.getMainLooper()).post {
                                                 if (speechGeneration.get() != utteranceGeneration) return@post
-                                                val nextChar = pages.getOrNull(currentPage + 1)?.startChar ?: total
-                                                saveSpeechCursor(nextChar.coerceAtMost(total - 1))
-                                                audioAdvance++
+                                                val finishedChunk = utteranceId?.substringAfterLast('_')?.toIntOrNull()
+                                                val nextChunk = (finishedChunk ?: (chunks.size - 1)) + 1
+                                                if (nextChunk < chunks.size) {
+                                                    speakChunk(nextChunk, TextToSpeech.QUEUE_ADD)
+                                                } else {
+                                                    val nextChar = pages.getOrNull(currentPage + 1)?.startChar ?: total
+                                                    saveSpeechCursor(nextChar.coerceAtMost(total - 1))
+                                                    audioAdvance++
+                                                }
                                             }
                                         }
                                         override fun onError(utteranceId: String?) {
@@ -1313,9 +1271,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             }
                                         }
                                     })
-                                    if (spoken.isNotBlank())
-                                        engine.speak(spoken.take(3900), TextToSpeech.QUEUE_FLUSH,
-                                            null, "page_$currentPage")
+                                    if (chunks.isNotEmpty()) speakChunk(0, TextToSpeech.QUEUE_FLUSH)
                                     else audioAdvance++
                                 }
                             }
