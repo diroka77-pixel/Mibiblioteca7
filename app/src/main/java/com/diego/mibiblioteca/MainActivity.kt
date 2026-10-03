@@ -313,6 +313,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val bookStore = BookStore(app)
     private val saveMutex = Mutex()
     private var catalogSaveJob: Job? = null
+    private var initialRestoreJob: Job? = null
     @Volatile private var saveVersion = 0
     private val folderKey = "folder_uri"
     private val cloudMutex = Mutex()
@@ -322,7 +323,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         sections = safeSavedArray(prefs.getString("sections", "[]")).let { arr ->
             (0 until arr.length()).map { arr.optString(it) }
         }
-        viewModelScope.launch {
+        initialRestoreJob = viewModelScope.launch {
             restoreCachedBooks(onlyIfEmpty = true)
         }
         viewMode = prefs.getString("view_mode", "Galería") ?: "Galería"
@@ -685,6 +686,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun saveCloud() {
+        if (syncing) return // Never publish an incomplete catalog while Drive is being scanned.
         prefs.edit().putLong("local_revision", System.currentTimeMillis()).apply()
         val tree = prefs.getString(folderKey, null)?.let(Uri::parse) ?: return
         viewModelScope.launch {
@@ -736,9 +738,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             try { readSnapshot(cloudName) ?: readSnapshot(cloudName + ".previous") }
             catch (failure: Exception) { readSnapshot(cloudName + ".previous") ?: throw failure }
         } ?: return
-        if (cloud.optLong("updatedAt") <= prefs.getLong("local_revision", 0L)) return
+        if (books.isNotEmpty() &&
+            cloud.optLong("updatedAt") <= prefs.getLong("local_revision", 0L)) return
         withContext(Dispatchers.IO) { validateBackupImages(cloud) }
-        if (cloud.optLong("updatedAt") <= prefs.getLong("local_revision", 0L)) return
         // Existing local records must never disappear because a cloud snapshot is incomplete.
         if (books.isNotEmpty()) {
             val result = applyBackup(cloud)
@@ -781,6 +783,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             (0 until arr.length()).map { arr.optString(it) }
         }
         loadWishList()
+        prefs.edit().putString("pending_backup", cloud.toString()).apply()
         restoreCachedBooks()
     }
 
@@ -992,7 +995,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             message = "Drive ha concedido solo lectura; no se podrán borrar archivos."
         }
         val changedFolder = prefs.getString(folderKey, null) != uri.toString()
-        prefs.edit().putString(folderKey, uri.toString()).commit()
         sync(uri, changedFolder)
     }
 
@@ -1001,12 +1003,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         if (syncing) return
         viewModelScope.launch {
             syncing = true; syncCount = 0; message = null
+            var completed = false
             try {
-                if (!changedFolder) {
-                    if (books.isEmpty()) restoreCachedBooks(onlyIfEmpty = true)
-                    try { restoreCloud(uri) } catch (_: Exception) {
-                        detailMessage = "No se pudo recuperar el respaldo de Drive. Se conserva el catálogo local."
-                    }
+                initialRestoreJob?.join()
+                if (books.isEmpty()) restoreCachedBooks(onlyIfEmpty = true)
+                try { restoreCloud(uri) } catch (e: Exception) {
+                    detailMessage = "No se pudo recuperar el respaldo de Drive: ${e.localizedMessage}"
                 }
                 val cached = if (changedFolder) emptyMap() else books.associateBy { it.uri }
                 val result = withContext(Dispatchers.IO) {
@@ -1016,12 +1018,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                 }
-                if (result.isEmpty() && books.isNotEmpty() && !changedFolder) {
-                    message = "No se pudo confirmar el contenido de Drive. Se conserva la biblioteca guardada."
+                if (result.isEmpty()) {
+                    message = "Drive no devolvió libros. Se conserva la biblioteca y el respaldo anteriores."
                     syncReport = message.orEmpty()
                     return@launch
                 }
-                if (prefs.getString(folderKey, null) != uri.toString()) return@launch
+                if (changedFolder) prefs.edit().putString(folderKey, uri.toString()).commit()
+                else if (prefs.getString(folderKey, null) != uri.toString()) return@launch
                 val latest = if (changedFolder) emptyMap() else books.associateBy { it.uri }
                 val localBooks = books.filter { it.uri.scheme == "file" }
                 books = mergeLibraryScan(result, cached, latest, { it.uri }) { b, prior ->
@@ -1072,11 +1075,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 folderName = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(getApplication(), uri)?.name }
                 prefs.edit().putString("folder_name", folderName).apply()
                 message = "${result.size} libros y documentos encontrados"
+                completed = true
                 refreshMissingCovers()
                 } catch (e: Exception) {
                 message = "No se pudo leer la carpeta de Drive: ${e.localizedMessage ?: "error de acceso"}"
                 syncReport = message.orEmpty()
-            } finally { syncing = false }
+            } finally {
+                syncing = false
+                if (completed) saveCloud()
+            }
         }
     }
 
