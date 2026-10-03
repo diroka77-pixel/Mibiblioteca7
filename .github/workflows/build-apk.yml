@@ -1,5 +1,7 @@
 name: Compilar APK firmada
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 jobs:
   apk:
@@ -40,22 +42,11 @@ jobs:
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 app/build/outputs/apk/release/app-release.apk
-      - name: Preparar APK con versión del proyecto
-        run: |
-          VERSION_NAME=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
-          if [ -z "$VERSION_NAME" ]; then
-            echo "::error::No se pudo leer versionName de app/build.gradle.kts"
-            exit 1
-          fi
-          mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk "dist/MiBiblioteca-v$VERSION_NAME-firmada.apk"
-          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@v4
         with:
-          name: MiBiblioteca-v${{ env.VERSION_NAME }}-firmada
-          path: dist/MiBiblioteca-v${{ env.VERSION_NAME }}-firmada.apk
+          name: MiBiblioteca-v0.75-firmada
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
-          retention-days: 30
       - name: Eliminar clave temporal del runner
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
