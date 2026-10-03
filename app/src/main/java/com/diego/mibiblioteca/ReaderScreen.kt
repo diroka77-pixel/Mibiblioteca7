@@ -184,20 +184,39 @@ private fun saveHighlights(context: Context, key: String, highlights: List<Reade
 }
 
 private fun dictionaryDefinitions(word: String): List<String> = try {
-    val url = "https://es.wiktionary.org/w/api.php?action=parse&format=json&prop=text&page=" +
-        java.net.URLEncoder.encode(word, "UTF-8")
+    val cleaned = word.trim().trim('¿', '¡', '.', ',', ';', ':', '!', '?', '«', '»', '"', '\'', '(', ')')
+    val encoded = java.net.URLEncoder.encode(cleaned, "UTF-8")
+    val url = "https://es.wiktionary.org/w/api.php?action=parse&format=json&prop=text&page=" + encoded
     val connection = URL(url).openConnection() as HttpURLConnection
     connection.connectTimeout = 7000
     connection.readTimeout = 9000
-    connection.setRequestProperty("User-Agent", "MiBiblioteca/0.47 (lector; contacto: GitHub diroka77-pixel)")
+    connection.setRequestProperty("User-Agent", "MiBiblioteca/0.70 (diccionario; contacto: GitHub diroka77-pixel)")
     val html = try {
         connection.inputStream.use { stream ->
             JSONObject(stream.bufferedReader().readText()).getJSONObject("parse")
                 .getJSONObject("text").getString("*")
         }
     } finally { connection.disconnect() }
-    Jsoup.parse(html).select("ol > li").map { it.text().trim() }
-        .filter { it.length in 8..400 }.distinct().take(4)
+    val article = Jsoup.parse(html).selectFirst(".mw-parser-output")
+        ?: Jsoup.parse(html).body()
+    val headings = article.select("h2")
+    val spanishHeading = headings.firstOrNull { heading ->
+        val title = heading.selectFirst(".mw-headline")?.text() ?: heading.text()
+        title.replace(Regex("\\[editar\\]"), "").trim().equals("Español", ignoreCase = true)
+    }
+    val definitions = mutableListOf<String>()
+    if (spanishHeading != null) {
+        var node = spanishHeading.nextElementSibling()
+        while (node != null && node.tagName() != "h2") {
+            if (node.tagName() == "ol")
+                node.children().filter { it.tagName() == "li" }.forEach { definitions += it.text().trim() }
+            node = node.nextElementSibling()
+        }
+    } else {
+        article.select("ol > li").forEach { definitions += it.text().trim() }
+    }
+    definitions.filter { it.length in 8..600 && !it.equals(cleaned, ignoreCase = true) }
+        .distinct().take(5)
 } catch (_: Exception) { emptyList() }
 
 private suspend fun shareReadingFile(context: Context, book: Book) {
@@ -466,6 +485,7 @@ private fun SelectableParagraph(
     val translateAction by rememberUpdatedState(onTranslate)
     val speakAction by rememberUpdatedState(onSpeak)
     val searchAction by rememberUpdatedState(onSearch)
+    val currentHighlights by rememberUpdatedState(highlights)
     AndroidView(modifier = Modifier.fillMaxWidth(), factory = { context ->
         TextView(context).apply {
             setTextIsSelectable(true)
@@ -474,28 +494,35 @@ private fun SelectableParagraph(
             val selectable = this
             setCustomSelectionActionModeCallback(object : ActionMode.Callback {
                 override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-                    menu.add(0, 8001, 0, "Subrayar amarillo")
-                    menu.add(0, 8004, 1, "Subrayar azul")
+                    menu.add(0, 8001, 0, "Subrayar")
+                    menu.add(0, 8002, 1, "Diccionario")
                     menu.add(0, 8005, 2, "Nota")
-                    menu.add(0, 8002, 3, "Diccionario")
-                    menu.add(0, 8003, 4, "Compartir")
-                    menu.add(0, 8006, 5, "Traducir")
-                    menu.add(0, 8007, 6, "Escuchar")
-                    menu.add(0, 8008, 7, "Buscar en el libro")
+                    menu.add(0, 8003, 3, "Copiar")
+                    menu.add(0, 8007, 4, "Escuchar")
                     return true
                 }
-                override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
+                override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+                    val selectedStart = selectable.selectionStart.coerceAtLeast(0)
+                    val selectedEnd = selectable.selectionEnd.coerceAtMost(selectable.text.length)
+                    val absStart = start + selectedStart
+                    val absEnd = start + selectedEnd
+                    val alreadyMarked = currentHighlights.any { mark ->
+                        mark.paragraph == index && mark.start < absEnd && absStart < mark.end
+                    }
+                    menu.findItem(8001)?.title = if (alreadyMarked) "Quitar subrayado" else "Subrayar"
+                    return true
+                }
                 override fun onDestroyActionMode(mode: ActionMode) = Unit
                 override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
-                    if (item.itemId !in 8001..8008) return false
+                    if (item.itemId !in setOf(8001, 8002, 8003, 8005, 8007)) return false
                     val selectedStart = selectable.selectionStart.coerceAtLeast(0)
                     val selectedEnd = selectable.selectionEnd.coerceAtMost(selectable.text.length)
                     if (selectedEnd <= selectedStart) return false
                     val quote = selectable.text.subSequence(selectedStart, selectedEnd).toString().trim()
                     if (quote.isBlank()) return false
                     when (item.itemId) {
-                        8001, 8004 -> action(ReaderHighlight(index, start + selectedStart,
-                            start + selectedEnd, quote, if (item.itemId == 8004) "azul" else "amarillo"))
+                        8001 -> action(ReaderHighlight(index, start + selectedStart,
+                            start + selectedEnd, quote))
                         8005 -> noteAction(ReaderHighlight(index, start + selectedStart,
                             start + selectedEnd, quote))
                         8002 -> {
@@ -503,12 +530,9 @@ private fun SelectableParagraph(
                                 ':', '!', '?', '«', '»', '"', '\'')
                             if (word.isNotBlank()) lookupAction(word)
                         }
-                        8003 -> context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"; putExtra(Intent.EXTRA_TEXT, quote)
-                        }, "Compartir cita"))
-                        8006 -> translateAction(quote)
+                        8003 -> selectable.context.getSystemService(android.content.ClipboardManager::class.java)
+                            ?.setPrimaryClip(ClipData.newPlainText("Texto seleccionado", quote))
                         8007 -> speakAction(quote)
-                        8008 -> searchAction(quote)
                     }
                     mode.finish()
                     return true
@@ -584,6 +608,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var audioAdvance by remember(book.uri) { mutableIntStateOf(0) }
     var audioPage by remember(book.uri) { mutableIntStateOf(prefs.getInt("audio_page_$key", -1)) }
     var audioOffset by remember(book.uri) { mutableIntStateOf(prefs.getInt("audio_offset_$key", 0)) }
+    var speechRate by remember { mutableFloatStateOf(prefs.getFloat("speech_rate", 1.0f).coerceIn(0.6f, 1.6f)) }
     var showVoicePicker by remember { mutableStateOf(false) }
     var davefxDownloading by remember { mutableStateOf(false) }
     var davefxReadyFile by remember { mutableStateOf<File?>(null) }
@@ -665,6 +690,24 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     NavigationDrawerItem(label = { Text("Elegir voz") }, selected = false,
                         icon = { AppIcon("Ajustes") },
                         onClick = { showVoicePicker = true })
+                    Spacer(Modifier.height(8.dp))
+                    Text("Velocidad de voz · " +
+                        String.format(java.util.Locale.ROOT, "%.1f×", speechRate),
+                        fontWeight = FontWeight.SemiBold)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(onClick = {
+                            speechRate = (speechRate - 0.1f).coerceAtLeast(0.6f)
+                            prefs.edit().putFloat("speech_rate", speechRate).apply()
+                        }, enabled = speechRate > 0.6f) { Text("−") }
+                        Text((speechRate * 100).toInt().toString() + "%",
+                            modifier = Modifier.weight(1f),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        OutlinedButton(onClick = {
+                            speechRate = (speechRate + 0.1f).coerceAtMost(1.6f)
+                            prefs.edit().putFloat("speech_rate", speechRate).apply()
+                        }, enabled = speechRate < 1.6f) { Text("+") }
+                    }
                 }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 Text("APARIENCIA", color = Color(0xFF785940),
@@ -966,11 +1009,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         }
                         val currentPage = textPage.coerceIn(pages.indices)
                         LaunchedEffect(audioActive, currentPage, pages, speechReady,
-                            selectedVoiceName, audioAdvance) {
+                            selectedVoiceName, speechRate, audioAdvance) {
                             val engine = speech
                             if (!audioActive || !speechReady || engine == null) {
                                 engine?.stop()
                             } else {
+                                engine.setSpeechRate(speechRate)
                                 val locale = if (book.language.startsWith("en", true))
                                     java.util.Locale.ENGLISH else java.util.Locale.forLanguageTag("es-ES")
                                 val availability = engine.setLanguage(locale)
@@ -996,7 +1040,13 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     val baseOffset = audioOffset.coerceIn(0, fullPageText.length)
                                     val spoken = fullPageText.drop(baseOffset).take(3900)
                                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                                        override fun onStart(utteranceId: String?) {}
+                                        override fun onStart(utteranceId: String?) {
+                                            Handler(Looper.getMainLooper()).post {
+                                                audioOffset = baseOffset
+                                                prefs.edit().putInt("audio_page_$key", currentPage)
+                                                    .putInt("audio_offset_$key", baseOffset).apply()
+                                            }
+                                        }
                                         override fun onRangeStart(utteranceId: String?, start: Int, end: Int,
                                             frame: Int) {
                                             val exact = (baseOffset + start).coerceIn(0, fullPageText.length)
@@ -1088,7 +1138,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             slice.start, slice.end, fontSize, foreground, dark,
                                             openingParagraph(paragraphs, slice.paragraph), highlights,
                                             onHighlight = { mark ->
-                                                highlights = (highlights + mark).distinct()
+                                                val existing = highlights.filter { old ->
+                                                    old.paragraph == mark.paragraph &&
+                                                        old.start < mark.end && mark.start < old.end
+                                                }
+                                                highlights = if (existing.isNotEmpty()) highlights - existing.toSet()
+                                                    else (highlights + mark).distinct()
                                                 saveHighlights(context, key, highlights)
                                                 onHighlightsChanged()
                                             }, onNote = { mark ->
