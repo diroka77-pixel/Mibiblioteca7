@@ -10,9 +10,25 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
-      - name: Descargar y verificar APK oficial
+      - name: Consultar enlace oficial de Davefx
         run: |
-          curl --fail --location --retry 2 --max-time 240 \
-            'https://huggingface.co/csukuangfj2/sherpa-onnx-apk/resolve/84b121c256db85d6ebe0015705e647c36f489bc1/tts-engine-new/1.13.1/sherpa-onnx-1.13.1-arm64-v8a-es-tts-engine-vits-piper-es_ES-davefx-medium.apk' \
-            -o Davefx.apk
-          echo '0c41a7ec529761b929e3ef24c588fcc4fe76803a021285d638d8cccb6f205f43  Davefx.apk' | sha256sum --check
+          curl --fail --location --max-time 60 'https://k2-fsa.github.io/sherpa/onnx/tts/apk-engine.html' -o index.html
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from urllib.parse import urljoin
+          class Links(HTMLParser):
+              href = None
+              def handle_starttag(self, tag, attrs):
+                  if tag == "a": self.href = dict(attrs).get("href")
+              def handle_data(self, data):
+                  if self.href and "arm64-v8a-spa-tts-engine-vits-piper-es_ES-davefx-medium.apk" in data:
+                      print(urljoin("https://k2-fsa.github.io/sherpa/onnx/tts/apk-engine.html", self.href))
+                      open("url.txt","w").write(urljoin("https://k2-fsa.github.io/sherpa/onnx/tts/apk-engine.html", self.href))
+              def handle_endtag(self, tag):
+                  if tag == "a": self.href = None
+          Links().feed(open("index.html").read())
+          PY
+          test -s url.txt
+          curl --fail --location --retry 2 --max-time 240 "$(cat url.txt)" -o Davefx.apk
+          sha256sum Davefx.apk
+          file Davefx.apk
