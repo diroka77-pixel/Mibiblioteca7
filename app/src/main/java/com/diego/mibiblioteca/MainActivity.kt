@@ -2703,25 +2703,26 @@ private fun openCasaDelLibro(context: Context) {
         containerColor = Parchment,
         topBar = {
             Column(Modifier.fillMaxWidth().background(Mahogany).statusBarsPadding()) {
-                Row(Modifier.fillMaxWidth().height(60.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.fillMaxWidth().height(60.dp)) {
                     IconButton(onClick = { scope.launch { drawerState.open() } },
-                        modifier = Modifier.semantics { contentDescription = "Abrir menú" }) {
+                        modifier = Modifier.align(Alignment.CenterStart)
+                            .semantics { contentDescription = "Abrir menú" }) {
                         Icon(Icons.Outlined.Menu, "Abrir menú", tint = Color.White)
                     }
-                    Text("Mi Biblioteca", color = Color.White, fontSize = 14.sp,
-                        fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.width(10.dp))
-                    Box(Modifier.size(40.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-                        Image(painterResource(R.drawable.ic_bookshelf_foreground),
-                            "Estantería de libros", modifier = Modifier.size(30.dp))
+                    Row(Modifier.align(Alignment.Center),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center) {
+                        Box(Modifier.size(40.dp)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center) {
+                            Image(painterResource(R.drawable.ic_bookshelf_foreground),
+                                "Estantería de libros", modifier = Modifier.size(30.dp))
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Text("Mi Biblioteca", color = Color.White, fontSize = 16.sp,
+                            fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold)
                     }
-                    Spacer(Modifier.width(10.dp))
-                    Text("By Diroka77", color = Color.White, fontSize = 14.sp,
-                        fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.width(40.dp))
                 }
                 OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
                     tab = "Biblioteca"; vm.qualityFilter = "Ninguno"
