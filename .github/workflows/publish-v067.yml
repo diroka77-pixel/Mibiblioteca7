@@ -53,7 +53,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "MiBiblioteca v0.76" \
-              --notes "Mejoras del lector: cerrar el panel deslizando a la izquierda y acceso prioritario a Subrayar/Quitar subrayado y Diccionario. Incluye la interfaz de noticias más compacta y cambios acumulados sobre la versión 0.75."
+              --notes "Mejoras del lector: cerrar el panel deslizando a la izquierda y acceso prioritario a Subrayar/Quitar subrayado y Diccionario. Versión Android 0.76.0. Incluye la interfaz de noticias más compacta y cambios acumulados sobre la versión 0.75."
           fi
       - name: Eliminar clave temporal
         if: always()
