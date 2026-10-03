@@ -2754,14 +2754,14 @@ private fun openCasaDelLibro(context: Context) {
             NavigationBar(containerColor = Paper, contentColor = Mahogany,
                 tonalElevation = 6.dp) {
                 listOf(
-                    "Inicio" to "Inicio",
-                    "Biblioteca" to "Libros",
-                    "Secciones" to "Secciones",
-                    "Favoritos" to "Favoritos"
-                ).forEach { (label, icon) ->
+                    Triple("Inicio", "Inicio", "Inicio"),
+                    Triple("Biblioteca", "Libros", "Libros"),
+                    Triple("Secciones", "Secciones", "Secciones"),
+                    Triple("Favoritos", "Favoritos", "Favoritos")
+                ).forEach { (targetTab, label, icon) ->
                     NavigationBarItem(
-                        selected = tab == label,
-                        onClick = { switchTab(label) },
+                        selected = tab == targetTab,
+                        onClick = { switchTab(targetTab) },
                         icon = { AppIcon(icon, description = label, size = 22.dp) },
                         label = { Text(label, maxLines = 1) },
                         colors = NavigationBarItemDefaults.colors(
