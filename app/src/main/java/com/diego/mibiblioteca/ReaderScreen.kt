@@ -586,7 +586,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         mutableIntStateOf(prefs.getInt("char_$key", 0))
     }
     var audioSeekRequest by remember(book.uri) { mutableIntStateOf(0) }
+    var audioSeekDelta by remember(book.uri) { mutableIntStateOf(0) }
     var audioAdvance by remember(book.uri) { mutableIntStateOf(0) }
+    fun requestAudioSeek(delta: Int) {
+        audioSeekDelta = delta
+        audioSeekRequest++
+    }
     var showVoicePicker by remember { mutableStateOf(false) }
     var davefxDownloading by remember { mutableStateOf(false) }
     var davefxReadyFile by remember { mutableStateOf<File?>(null) }
@@ -979,13 +984,14 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 onProgress(percent)
                             }
                         }
-                        fun seekAudio(delta: Int) {
-                            val target = (audioCursor + delta).coerceIn(0, total - 1)
-                            audioCursor = target
-                            prefs.edit().putInt("char_$key", target)
-                                .putInt("percent_$key", (target * 100 / total).coerceIn(0, 99)).apply()
-                            textPage = pages.indexOfLast { it.startChar <= target }.coerceAtLeast(0)
-                            audioSeekRequest++
+                        LaunchedEffect(audioSeekRequest, pages) {
+                            if (audioSeekRequest > 0) {
+                                val target = (audioCursor + audioSeekDelta).coerceIn(0, total - 1)
+                                audioCursor = target
+                                prefs.edit().putInt("char_$key", target)
+                                    .putInt("percent_$key", (target * 100 / total).coerceIn(0, 99)).apply()
+                                textPage = pages.indexOfLast { it.startChar <= target }.coerceAtLeast(0)
+                            }
                         }
                         val currentPage = textPage.coerceIn(pages.indices)
                         LaunchedEffect(audioAdvance) {
@@ -1016,7 +1022,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     val fullSpoken = pageData.slices.joinToString(" ") { slice ->
                                         paragraphs[slice.paragraph].text.substring(slice.start, slice.end)
                                     }.trim()
-                                    val savedChar = prefs.getInt("char_$key", pageData.startChar)
+                                    val savedChar = audioCursor
                                     val offsetInPage = (savedChar - pageData.startChar)
                                         .coerceIn(0, fullSpoken.length)
                                     val spoken = fullSpoken.substring(offsetInPage)
@@ -1054,9 +1060,14 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             }
                         }
                         fun turn(delta: Int) {
-                            textPage = (textPage + delta).coerceIn(pages.indices)
+                            val targetPage = (textPage + delta).coerceIn(pages.indices)
+                            textPage = targetPage
+                            if (audioControlsVisible) {
+                                audioCursor = pages[targetPage].startChar
+                                prefs.edit().putInt("char_$key", audioCursor).apply()
+                            }
                         }
-                        Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().pointerInput(pages, swipeDistance) {
+                        Box(Modifier.fillMaxSize().clipToBounds().pointerInput(pages, swipeDistance) {
                             var drag = 0f
                             detectHorizontalDragGestures(onDragStart = { drag = 0f },
                                 onHorizontalDrag = { _, amount -> drag += amount },
@@ -1142,7 +1153,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 TextButton(
                                     modifier = Modifier.weight(1f).height(54.dp),
                                     contentPadding = PaddingValues(0.dp),
-                                    onClick = { seekAudio(-270) }
+                                    onClick = { requestAudioSeek(-270) }
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         AppIcon("Retroceder", size = 19.dp)
@@ -1179,7 +1190,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 TextButton(
                                     modifier = Modifier.weight(1f).height(54.dp),
                                     contentPadding = PaddingValues(0.dp),
-                                    onClick = { seekAudio(270) }
+                                    onClick = { requestAudioSeek(270) }
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         AppIcon("Avanzar", size = 19.dp)
