@@ -636,7 +636,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             drawerShape = androidx.compose.foundation.shape.RoundedCornerShape(
                 topEnd = 24.dp, bottomEnd = 24.dp)
         ) {
-            Column(Modifier.fillMaxHeight().padding(horizontal = 18.dp, vertical = 22.dp)) {
+            Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp, vertical = 22.dp)) {
                 Text("Mi Biblioteca", color = Color(0xFF8A623C),
                     style = MaterialTheme.typography.labelLarge)
                 Text(book.customTitle.ifBlank { book.title }.take(54),
@@ -706,7 +707,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 val chapters = if (document is ReadingDocument.TextDocument)
                     document.paragraphs.withIndex().filter { it.value.heading }
                 else emptyList()
-                LazyColumn(Modifier.weight(1f)) {
+                LazyColumn(Modifier.heightIn(max = 420.dp)) {
                     if (document is ReadingDocument.TextDocument && searchText.isNotBlank()) {
                         val matches = document.paragraphs.withIndex()
                             .filter { it.value.text.contains(searchText, ignoreCase = true) }
