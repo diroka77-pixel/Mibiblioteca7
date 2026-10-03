@@ -2254,7 +2254,7 @@ private fun openCasaDelLibro(context: Context) {
     var selected by remember { mutableStateOf<Book?>(null) }
     var readingUri by rememberSaveable { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableStateOf("Inicio") }
-    val tabs = remember { listOf("Inicio", "Biblioteca", "Secciones") }
+    val tabs = remember { listOf("Inicio", "Biblioteca", "Secciones", "Favoritos") }
     LaunchedEffect(Unit) { if (tab == "Pendientes") tab = "Secciones" }
     var addingSection by remember { mutableStateOf(false) }
     var sectionName by remember { mutableStateOf("") }
@@ -2266,7 +2266,7 @@ private fun openCasaDelLibro(context: Context) {
         vm.selectedSection = null
         vm.qualityFilter = "Ninguno"
         vm.statusFilter = null
-        vm.onlyFavorites = false
+        vm.onlyFavorites = name == "Favoritos"
     }
     var bookMenu by remember { mutableStateOf<Book?>(null) }
     var addWishDialog by remember { mutableStateOf(false) }
@@ -2342,7 +2342,7 @@ private fun openCasaDelLibro(context: Context) {
         }
     }
     val swipeThreshold = with(LocalDensity.current) { 40.dp.toPx() }
-    val readingShelfGestureHeight = with(LocalDensity.current) { 440.dp.toPx() }
+    val readingShelfGestureHeight = with(LocalDensity.current) { 500.dp.toPx() }
     val swipeControlsHeight = with(LocalDensity.current) { 145.dp.toPx() }
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -2749,6 +2749,30 @@ private fun openCasaDelLibro(context: Context) {
                         focusedTextColor = Ink, unfocusedTextColor = Ink),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
             }
+        },
+        bottomBar = {
+            NavigationBar(containerColor = Paper, contentColor = Mahogany,
+                tonalElevation = 6.dp) {
+                listOf(
+                    "Inicio" to "Inicio",
+                    "Biblioteca" to "Libros",
+                    "Secciones" to "Secciones",
+                    "Favoritos" to "Favoritos"
+                ).forEach { (label, icon) ->
+                    NavigationBarItem(
+                        selected = tab == label,
+                        onClick = { switchTab(label) },
+                        icon = { AppIcon(icon, description = label, size = 22.dp) },
+                        label = { Text(label, maxLines = 1) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Ink,
+                            selectedTextColor = Mahogany,
+                            indicatorColor = Color(0xFFE9DCC6),
+                            unselectedIconColor = Teal,
+                            unselectedTextColor = Mahogany.copy(alpha = 0.72f))
+                    )
+                }
+            }
         }
     ) { p ->
       val currentTab by rememberUpdatedState(tab)
@@ -2767,9 +2791,11 @@ private fun openCasaDelLibro(context: Context) {
               }
               val horizontal = end.x - start.x
               val vertical = end.y - start.y
-              if (start.y > swipeControlsHeight &&
-                  kotlin.math.abs(horizontal) > swipeThreshold &&
-                  kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.1f) {
+              val isReadingShelfSwipe = currentTab == "Inicio" && hasReadingShelf &&
+                  start.y in swipeControlsHeight..readingShelfGestureHeight
+              if (start.y > swipeControlsHeight && !isReadingShelfSwipe &&
+                  kotlin.math.abs(horizontal) > swipeThreshold * 1.45f &&
+                  kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.25f) {
                   val index = tabs.indexOf(currentTab)
                   val next = index + if (horizontal < 0) 1 else -1
                   if (next in tabs.indices) currentSwitch(tabs[next])
@@ -2782,8 +2808,6 @@ private fun openCasaDelLibro(context: Context) {
       }) {
         Column(Modifier.fillMaxSize()) {
         QuickAccess(
-            onLibrary = { switchTab("Biblioteca") },
-            onFavorites = { switchTab("Biblioteca"); vm.query = ""; vm.onlyFavorites = true },
             onGoodreads = { openGoodreads(context) },
             onGoogle = { openGoogleAi(context) })
         Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -2820,6 +2844,9 @@ private fun openCasaDelLibro(context: Context) {
                         fontWeight = FontWeight.Bold, color = Mahogany)
                     if (tab == "Secciones") Text("Tus secciones",
                         fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall, color = Mahogany)
+                    if (tab == "Favoritos") Text("Tus favoritos",
+                        fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold, color = Mahogany)
                     if (vm.syncing) {
                         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
                         Text("Revisando ${vm.syncCount} libros…", modifier = Modifier.padding(vertical = 8.dp),
@@ -3025,7 +3052,7 @@ private fun openCasaDelLibro(context: Context) {
                 }
             }
         }
-        if (tab == "Biblioteca" && !showWishList) {
+        if ((tab == "Biblioteca" || tab == "Favoritos") && !showWishList) {
             LibraryScrollHandle(listState, Modifier.align(Alignment.CenterEnd))
         }
         }
@@ -3083,13 +3110,10 @@ private fun openCasaDelLibro(context: Context) {
 }
 
 @Composable private fun QuickAccess(
-    onLibrary: () -> Unit, onFavorites: () -> Unit,
     onGoodreads: () -> Unit, onGoogle: () -> Unit
 ) {
     val shortcuts = listOf(
-        Triple("Libros", "Libros", Color(0xFF673D62)) to onLibrary,
-        Triple("Favoritos", "Favoritos", Color(0xFFC58D45)) to onFavorites,
-        Triple("Goodreads", "Goodreads", Color(0xFF186D66)) to onGoodreads,
+        Triple("Goodreads", "Goodreads", Teal) to onGoodreads,
         Triple("Google IA", "Google IA", Color(0xFFB96056)) to onGoogle
     )
     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 8.dp),
