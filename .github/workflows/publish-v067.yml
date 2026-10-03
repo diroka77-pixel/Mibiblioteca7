@@ -1,4 +1,4 @@
-name: Publicar MiBiblioteca v0.67
+name: Publicar MiBiblioteca v0.75
 on:
   push:
     branches: [main]
@@ -8,7 +8,7 @@ permissions:
   contents: write
 jobs:
   release:
-    if: github.event.head_commit.message == 'Publicar MiBiblioteca v0.67'
+    if: github.event.head_commit.message == 'Publicar MiBiblioteca v0.75'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,12 +45,12 @@ jobs:
           APK=app/build/outputs/apk/release/app-release.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$APK"
-          cp "$APK" MiBiblioteca-v0.67.apk
-          gh release create v0.67 MiBiblioteca-v0.67.apk \
+          cp "$APK" MiBiblioteca-v0.75.apk
+          gh release create v0.75 MiBiblioteca-v0.75.apk \
             --repo "$GITHUB_REPOSITORY" \
-            --target 8dc667717e4b0267269dbc8fd6f8d2acbba6b2a5 \
-            --title "MiBiblioteca v0.67" \
-            --notes "Correcciones de sincronización y respaldo de Drive: conserva catálogo ante listados vacíos, carga la caché antes de sincronizar y evita sobrescribir respaldos después de un fallo. Al elegir Davefx descarga su motor oficial, verifica la huella SHA-256 y ofrece instalarlo con Android. Prueba estas funciones con tu carpeta y respaldo reales."
+            --target "$GITHUB_SHA" \
+            --title "MiBiblioteca v0.75" \
+            --notes "Corrección de reanudación del lector por voz para continuar desde la palabra actual, menú de selección accesible de cinco acciones con alternancia para quitar subrayado, y ficha de diccionario actualizada. Incluye cambios acumulados sobre la 0.74."
       - name: Eliminar clave temporal
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
