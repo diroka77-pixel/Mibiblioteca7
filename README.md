@@ -1,10 +1,17 @@
-# MiBiblioteca
+# MiBiblioteca v0.71.0
 
 Proyecto Android de MiBiblioteca. El código fuente está en `app/` y GitHub Actions genera la APK de prueba.
 
 El lector integrado abre EPUB, PDF, TXT, Markdown, HTML, RTF, DOCX y MOBI clásico (PalmDOC sin comprimir o comprimido). Guarda la posición y el porcentaje por archivo; los datos de lectura se incluyen en el respaldo de la biblioteca. EPUB y DOCX muestran el texto extraído, por lo que imágenes, diseño complejo y algunas notas no se reproducen. Los MOBI con compresión HuffCDIC y AZW3 requieren conversión a EPUB. Los PDF protegidos con contraseña no se abren con el renderizador del sistema.
 
-El lector respeta las zonas seguras de Android, permite alternar entre tema claro y oscuro y ajustar el brillo de lectura. Los bordes y los gestos horizontales avanzan o retroceden una pantalla de texto o una página PDF. El panel lateral incluye capítulos, páginas PDF y subrayados; la selección de texto permite resaltar, compartir una cita o consultar una palabra en el DLE. Los subrayados se guardan por archivo y se incluyen en el respaldo.
+El lector respeta las zonas seguras de Android, permite alternar entre tema claro y oscuro y ajustar el brillo de lectura. Los bordes y los gestos horizontales avanzan o retroceden una pantalla de texto o una página PDF. El panel lateral incluye capítulos, páginas PDF y subrayados; la selección de texto permite resaltar, compartir una cita o consultar una palabra en el Wikcionario. Las definiciones se consultan mediante la API estructurada y un extracto de respaldo. Los subrayados se guardan por archivo y se incluyen en el respaldo.
+
+## Cambios de esta versión
+
+- Reanudación de la lectura en voz desde el carácter registrado por el motor TTS. Los callbacks tardíos posteriores a pausar o detener ya no adelantan la posición ni pisan el cursor guardado.
+- Consulta del diccionario con normalización de la palabra, lectura de definiciones del Wikcionario y un segundo método de extracción para páginas con estructura diferente.
+- Davefx, controles de audio en el panel del lector y selección de texto con diccionario están incluidos en el proyecto.
+- Android versionCode 71 y versionName 0.71.0. GitHub Actions genera el artefacto `MiBiblioteca-v0.71-firmada`.
 
 ## Protección de archivos y biblioteca
 

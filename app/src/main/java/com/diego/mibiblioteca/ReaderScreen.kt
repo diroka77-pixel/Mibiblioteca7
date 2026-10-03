@@ -212,22 +212,41 @@ private fun saveHighlights(context: Context, key: String, highlights: List<Reade
         .putString("highlights_$key", array.toString()).apply()
 }
 
-private fun dictionaryDefinitions(word: String): List<String> = try {
-    val url = "https://es.wiktionary.org/w/api.php?action=parse&format=json&prop=text&page=" +
-        java.net.URLEncoder.encode(word, "UTF-8")
-    val connection = URL(url).openConnection() as HttpURLConnection
-    connection.connectTimeout = 7000
-    connection.readTimeout = 9000
-    connection.setRequestProperty("User-Agent", "MiBiblioteca/0.47 (lector; contacto: GitHub diroka77-pixel)")
-    val html = try {
-        connection.inputStream.use { stream ->
-            JSONObject(stream.bufferedReader().readText()).getJSONObject("parse")
-                .getJSONObject("text").getString("*")
-        }
-    } finally { connection.disconnect() }
-    Jsoup.parse(html).select("ol > li").map { it.text().trim() }
-        .filter { it.length in 8..400 }.distinct().take(4)
-} catch (_: Exception) { emptyList() }
+private fun dictionaryDefinitions(word: String): List<String> {
+    val normalized = word.trim().replace(Regex("\\s+"), " ")
+        .trim('¿', '¡', '.', ',', ';', ':', '!', '?', '«', '»', '"', '\'')
+    if (normalized.isBlank()) return emptyList()
+    val encoded = java.net.URLEncoder.encode(normalized, "UTF-8")
+    fun request(url: String): String? = try {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 7000
+        connection.readTimeout = 9000
+        connection.setRequestProperty("User-Agent", "MiBiblioteca/0.71 (lector; GitHub diroka77-pixel)")
+        try { connection.inputStream.bufferedReader().use { it.readText() } }
+        finally { connection.disconnect() }
+    } catch (_: Exception) { null }
+
+    val parsed = request("https://es.wiktionary.org/w/api.php?action=parse&format=json&prop=text&page=$encoded")
+        ?.let { raw -> runCatching {
+            Jsoup.parse(JSONObject(raw).getJSONObject("parse").getJSONObject("text").getString("*"))
+                .select(".mw-parser-output > ol > li, .mw-parser-output ol > li")
+                .map { it.text().trim() }.filter { it.length in 8..400 }.distinct().take(4)
+        }.getOrNull() }.orEmpty()
+    if (parsed.isNotEmpty()) return parsed
+
+    val fallback = request("https://es.wiktionary.org/w/api.php?action=query&format=json&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=$encoded")
+        ?: return emptyList()
+    return runCatching {
+        val pages = JSONObject(fallback).getJSONObject("query").getJSONObject("pages")
+        val page = pages.keys().asSequence().map { pages.getJSONObject(it) }
+            .firstOrNull { !it.has("missing") } ?: return emptyList()
+        page.optString("extract").lineSequence().map { it.trim().removePrefix("•").trim() }
+            .filter { line -> line.length in 12..400 && !line.startsWith("==") &&
+                !line.startsWith("Etimología") && !line.startsWith("Pronunciación") &&
+                !line.startsWith("Sinónimos") }
+            .distinct().take(4).toList()
+    }.getOrDefault(emptyList())
+}
 
 private suspend fun shareReadingFile(context: Context, book: Book) {
     val file = withContext(Dispatchers.IO) { localReaderFile(context, book) }
@@ -649,6 +668,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     val activeSpeechCursor = remember(book.uri) {
         AtomicInteger(prefs.getInt("char_$key", 0))
     }
+    val speechGeneration = remember(book.uri) { AtomicInteger(0) }
     fun saveSpeechCursor(position: Int) {
         val safePosition = position.coerceAtLeast(0)
         activeSpeechCursor.set(safePosition)
@@ -656,6 +676,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         prefs.edit().putInt("char_$key", safePosition).apply()
     }
     fun pauseSpeech() {
+        // Ignore callbacks delivered late by the utterance that is being stopped.
+        speechGeneration.incrementAndGet()
         if (audioActive) saveSpeechCursor(activeSpeechCursor.get())
         audioActive = false
     }
@@ -751,7 +773,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     NavigationDrawerItem(label = { Text("Detener lectura") }, selected = false,
                         icon = { AppIcon("Cerrar") },
                         onClick = {
-                            audioActive = false
+                            pauseSpeech()
                             audioControlsVisible = false
                             speech?.stop()
                         })
@@ -1111,15 +1133,18 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         .coerceIn(0, spokenPage.text.length)
                                     val spoken = spokenPage.text.substring(offsetInPage)
                                     val spokenBaseOffset = offsetInPage
+                                    val utteranceGeneration = speechGeneration.incrementAndGet()
                                     activeSpeechCursor.set(audioCursor)
                                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                                         override fun onStart(utteranceId: String?) {}
                                         override fun onRangeStart(utteranceId: String?, start: Int,
                                             end: Int, frame: Int) {
+                                            if (speechGeneration.get() != utteranceGeneration) return
                                             val charPosition = speechCharForOffset(
                                                 spokenPage, spokenBaseOffset + start, total)
                                             activeSpeechCursor.set(charPosition)
                                             Handler(Looper.getMainLooper()).post {
+                                                if (speechGeneration.get() != utteranceGeneration) return@post
                                                 audioCursor = charPosition
                                                 prefs.edit().putInt("char_$key", charPosition)
                                                     .putInt("percent_$key",
@@ -1127,14 +1152,19 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             }
                                         }
                                         override fun onDone(utteranceId: String?) {
+                                            if (speechGeneration.get() != utteranceGeneration) return
                                             Handler(Looper.getMainLooper()).post {
+                                                if (speechGeneration.get() != utteranceGeneration) return@post
                                                 val nextChar = pages.getOrNull(currentPage + 1)?.startChar ?: total
                                                 saveSpeechCursor(nextChar.coerceAtMost(total - 1))
                                                 audioAdvance++
                                             }
                                         }
                                         override fun onError(utteranceId: String?) {
-                                            Handler(Looper.getMainLooper()).post { audioActive = false }
+                                            if (speechGeneration.get() != utteranceGeneration) return
+                                            Handler(Looper.getMainLooper()).post {
+                                                if (speechGeneration.get() == utteranceGeneration) audioActive = false
+                                            }
                                         }
                                     })
                                     if (spoken.isNotBlank())
