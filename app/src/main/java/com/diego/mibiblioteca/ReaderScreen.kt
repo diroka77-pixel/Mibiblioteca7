@@ -581,6 +581,11 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var speech by remember { mutableStateOf<TextToSpeech?>(null) }
     var speechReady by remember { mutableStateOf(false) }
     var audioActive by remember(book.uri) { mutableStateOf(false) }
+    var audioControlsVisible by remember(book.uri) { mutableStateOf(false) }
+    var audioCursor by remember(book.uri) {
+        mutableIntStateOf(prefs.getInt("char_$key", 0))
+    }
+    var audioSeekRequest by remember(book.uri) { mutableIntStateOf(0) }
     var audioAdvance by remember(book.uri) { mutableIntStateOf(0) }
     var showVoicePicker by remember { mutableStateOf(false) }
     var davefxDownloading by remember { mutableStateOf(false) }
@@ -600,6 +605,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         speech = engine
         onDispose {
             audioActive = false
+            audioControlsVisible = false
             engine?.stop()
             engine?.shutdown()
             speech = null
@@ -652,14 +658,24 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     NavigationDrawerItem(
                         label = { Text(if (audioActive) "Pausar lectura" else "Leer en voz alta") },
                         selected = audioActive,
-                        icon = { AppIcon(if (audioActive) "Cerrar" else "Audio") },
-                        onClick = { if (speechReady) audioActive = !audioActive; scope.launch { drawer.close() } },
+                        icon = { AppIcon(if (audioActive) "Pausar" else "Reproducir") },
+                        onClick = {
+                            if (speechReady) {
+                                audioControlsVisible = true
+                                audioActive = !audioActive
+                            }
+                            scope.launch { drawer.close() }
+                        },
                         colors = NavigationDrawerItemDefaults.colors(
                             selectedContainerColor = Color(0xFFE7DCC8),
                             selectedTextColor = Color(0xFF503727)))
                     NavigationDrawerItem(label = { Text("Detener lectura") }, selected = false,
                         icon = { AppIcon("Cerrar") },
-                        onClick = { audioActive = false; speech?.stop() })
+                        onClick = {
+                            audioActive = false
+                            audioControlsVisible = false
+                            speech?.stop()
+                        })
                     NavigationDrawerItem(label = { Text("Elegir voz") }, selected = false,
                         icon = { AppIcon("Ajustes") },
                         onClick = { showVoicePicker = true })
@@ -942,6 +958,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             totalTextPages = pages.size
                             val legacyItem = prefs.getInt("item_$key", 0).coerceIn(0, paragraphs.lastIndex)
                             val savedChar = prefs.getInt("char_$key", positions[legacyItem])
+                            audioCursor = savedChar
                             textPage = pages.indexOfLast { it.startChar <= savedChar }.coerceAtLeast(0)
                             ready = true
                         }
@@ -962,6 +979,14 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 onProgress(percent)
                             }
                         }
+                        fun seekAudio(delta: Int) {
+                            val target = (audioCursor + delta).coerceIn(0, total - 1)
+                            audioCursor = target
+                            prefs.edit().putInt("char_$key", target)
+                                .putInt("percent_$key", (target * 100 / total).coerceIn(0, 99)).apply()
+                            textPage = pages.indexOfLast { it.startChar <= target }.coerceAtLeast(0)
+                            audioSeekRequest++
+                        }
                         val currentPage = textPage.coerceIn(pages.indices)
                         LaunchedEffect(audioAdvance) {
                             if (audioAdvance > 0 && audioActive) {
@@ -969,7 +994,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 else audioActive = false
                             }
                         }
-                        LaunchedEffect(audioActive, currentPage, pages, speechReady, selectedVoiceName) {
+                        LaunchedEffect(audioActive, currentPage, pages, speechReady, selectedVoiceName, audioSeekRequest) {
                             val engine = speech
                             if (!audioActive || !speechReady || engine == null) {
                                 engine?.stop()
@@ -1002,14 +1027,18 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             end: Int, frame: Int) {
                                             val charPosition = (spokenStartChar + start)
                                                 .coerceAtMost(total - 1)
-                                            prefs.edit().putInt("char_$key", charPosition)
-                                                .putInt("percent_$key",
-                                                    (charPosition * 100 / total).coerceIn(0, 99)).apply()
+                                            Handler(Looper.getMainLooper()).post {
+                                                audioCursor = charPosition
+                                                prefs.edit().putInt("char_$key", charPosition)
+                                                    .putInt("percent_$key",
+                                                        (charPosition * 100 / total).coerceIn(0, 99)).apply()
+                                            }
                                         }
                                         override fun onDone(utteranceId: String?) {
                                             Handler(Looper.getMainLooper()).post {
-                                                prefs.edit().putInt("char_$key",
-                                                    pages.getOrNull(currentPage + 1)?.startChar ?: total).apply()
+                                                val nextChar = pages.getOrNull(currentPage + 1)?.startChar ?: total
+                                                audioCursor = nextChar.coerceAtMost(total - 1)
+                                                prefs.edit().putInt("char_$key", nextChar).apply()
                                                 audioAdvance++
                                             }
                                         }
@@ -1027,7 +1056,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         fun turn(delta: Int) {
                             textPage = (textPage + delta).coerceIn(pages.indices)
                         }
-                        Box(Modifier.fillMaxSize().clipToBounds().pointerInput(pages, swipeDistance) {
+                        Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().pointerInput(pages, swipeDistance) {
                             var drag = 0f
                             detectHorizontalDragGestures(onDragStart = { drag = 0f },
                                 onHorizontalDrag = { _, amount -> drag += amount },
@@ -1097,6 +1126,84 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 .clickable { turn(-1) })
                             Box(Modifier.align(Alignment.CenterEnd).width(32.dp).fillMaxHeight()
                                 .clickable { turn(1) })
+                        }
+                    }
+                    if (audioControlsVisible) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                            color = if (dark) Color(0xFF302A25) else Color(0xFFF4EEE4),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                TextButton(
+                                    modifier = Modifier.weight(1f).height(54.dp),
+                                    contentPadding = PaddingValues(0.dp),
+                                    onClick = { seekAudio(-270) }
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        AppIcon("Retroceder", size = 19.dp)
+                                        Text("−15 s", fontSize = 10.sp, maxLines = 1)
+                                    }
+                                }
+                                TextButton(
+                                    modifier = Modifier.weight(1f).height(54.dp),
+                                    contentPadding = PaddingValues(0.dp),
+                                    onClick = {
+                                        audioControlsVisible = true
+                                        audioActive = !audioActive
+                                    }
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        AppIcon(if (audioActive) "Pausar" else "Reproducir", size = 21.dp)
+                                        Text(if (audioActive) "Pausa" else "Play", fontSize = 10.sp)
+                                    }
+                                }
+                                TextButton(
+                                    modifier = Modifier.weight(1f).height(54.dp),
+                                    contentPadding = PaddingValues(0.dp),
+                                    onClick = {
+                                        audioActive = false
+                                        audioControlsVisible = false
+                                        speech?.stop()
+                                    }
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        AppIcon("Detener", size = 19.dp)
+                                        Text("Stop", fontSize = 10.sp)
+                                    }
+                                }
+                                TextButton(
+                                    modifier = Modifier.weight(1f).height(54.dp),
+                                    contentPadding = PaddingValues(0.dp),
+                                    onClick = { seekAudio(270) }
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        AppIcon("Avanzar", size = 19.dp)
+                                        Text("+15 s", fontSize = 10.sp, maxLines = 1)
+                                    }
+                                }
+                                TextButton(
+                                    modifier = Modifier.weight(1.25f).height(54.dp),
+                                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
+                                    onClick = {
+                                        activity?.moveTaskToBack(true)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "La lectura continúa en segundo plano. Pulsa el botón lateral para apagar y bloquear la pantalla.",
+                                            android.widget.Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        AppIcon("Bloquear", size = 19.dp)
+                                        Text("Pantalla", fontSize = 10.sp, maxLines = 1)
+                                    }
+                                }
+                            }
                         }
                     }
                     Text("Página ${textPage + 1} de ${totalTextPages.coerceAtLeast(1)} · $percent % leído",
