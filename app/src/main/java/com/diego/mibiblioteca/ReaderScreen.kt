@@ -634,7 +634,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             drawerShape = androidx.compose.foundation.shape.RoundedCornerShape(
                 topEnd = 24.dp, bottomEnd = 24.dp)
         ) {
-            Column(Modifier.fillMaxHeight().padding(horizontal = 18.dp, vertical = 22.dp)) {
+            Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp, vertical = 22.dp)) {
                 Text("Mi Biblioteca", color = Color(0xFF8A623C),
                     style = MaterialTheme.typography.labelLarge)
                 Text(book.customTitle.ifBlank { book.title }.take(54),
@@ -704,7 +705,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 val chapters = if (document is ReadingDocument.TextDocument)
                     document.paragraphs.withIndex().filter { it.value.heading }
                 else emptyList()
-                LazyColumn(Modifier.weight(1f)) {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 300.dp)) {
                     if (document is ReadingDocument.TextDocument && searchText.isNotBlank()) {
                         val matches = document.paragraphs.withIndex()
                             .filter { it.value.text.contains(searchText, ignoreCase = true) }
@@ -986,13 +987,31 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         "Instala una voz del idioma del libro en los ajustes de voz de Android",
                                         android.widget.Toast.LENGTH_LONG).show()
                                 } else {
-                                    val spoken = pages[currentPage].slices.joinToString(" ") { slice ->
+                                    val pageData = pages[currentPage]
+                                    val fullSpoken = pageData.slices.joinToString(" ") { slice ->
                                         paragraphs[slice.paragraph].text.substring(slice.start, slice.end)
                                     }.trim()
+                                    val savedChar = prefs.getInt("char_$key", pageData.startChar)
+                                    val offsetInPage = (savedChar - pageData.startChar)
+                                        .coerceIn(0, fullSpoken.length)
+                                    val spoken = fullSpoken.substring(offsetInPage)
+                                    val spokenStartChar = pageData.startChar + offsetInPage
                                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                                         override fun onStart(utteranceId: String?) {}
+                                        override fun onRangeStart(utteranceId: String?, start: Int,
+                                            end: Int, frame: Int) {
+                                            val charPosition = (spokenStartChar + start)
+                                                .coerceAtMost(total - 1)
+                                            prefs.edit().putInt("char_$key", charPosition)
+                                                .putInt("percent_$key",
+                                                    (charPosition * 100 / total).coerceIn(0, 99)).apply()
+                                        }
                                         override fun onDone(utteranceId: String?) {
-                                            Handler(Looper.getMainLooper()).post { audioAdvance++ }
+                                            Handler(Looper.getMainLooper()).post {
+                                                prefs.edit().putInt("char_$key",
+                                                    pages.getOrNull(currentPage + 1)?.startChar ?: total).apply()
+                                                audioAdvance++
+                                            }
                                         }
                                         override fun onError(utteranceId: String?) {
                                             Handler(Looper.getMainLooper()).post { audioActive = false }
