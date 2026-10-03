@@ -599,18 +599,22 @@ private fun SelectableParagraph(
             val selectable = this
             setCustomSelectionActionModeCallback(object : ActionMode.Callback {
                 override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-                    menu.add(0, 8001, 0, "Subrayar")
-                    menu.add(0, 8005, 1, "Nota")
-                    menu.add(0, 8010, 2, "Copiar")
-                    menu.add(0, 8011, 3, "Fijar")
-                    menu.add(0, 8002, 4, "Diccionario")
+                    menu.add(0, 8001, 0, "Subrayar").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+                    menu.add(0, 8002, 1, "Diccionario").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+                    menu.add(0, 8005, 2, "Nota").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                    menu.add(0, 8010, 3, "Copiar").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                    menu.add(0, 8011, 4, "Fijar").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
                     return true
                 }
                 override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
                     val selectedStart = selectable.selectionStart.coerceAtLeast(0)
                     val selectedEnd = selectable.selectionEnd.coerceAtMost(selectable.text.length)
-                    val marked = highlights.any { it.paragraph == index &&
-                        it.start < start + selectedEnd && it.end > start + selectedStart }
+                    val selectedFrom = start + selectedStart
+                    val selectedTo = start + selectedEnd
+                    val marked = selectedEnd > selectedStart && highlights.any { highlight ->
+                        highlight.paragraph == index && highlight.start < selectedTo &&
+                            highlight.end > selectedFrom
+                    }
                     menu.findItem(8001)?.title = if (marked) "Quitar subrayado" else "Subrayar"
                     return true
                 }
@@ -822,7 +826,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     }
     val document = state
     BackHandler { if (drawer.isOpen) scope.launch { drawer.close() } else onBack() }
-    ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = false, drawerContent = {
+    ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = drawer.isOpen, drawerContent = {
         ModalDrawerSheet(
             modifier = Modifier.width(320.dp),
             drawerContainerColor = Color(0xFFF8F3E9),
@@ -997,7 +1001,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 titleContentColor = foreground, navigationIconContentColor = foreground,
                 actionIconContentColor = foreground))
     }) { padding ->
-      Box(Modifier.fillMaxSize().pointerInput(document, showReaderTools) {
+      Box(Modifier.fillMaxSize().pointerInput(document, showReaderTools, drawer.isOpen) {
           awaitEachGesture {
               val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
               val start = down.position
@@ -1016,12 +1020,15 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                   val vertical = end.y - start.y
                   val edgeSwipe = start.x <= 28.dp.toPx() &&
                       horizontal >= 72.dp.toPx() && kotlin.math.abs(vertical) < 54.dp.toPx()
+                  val closeDrawerSwipe = drawer.isOpen && horizontal <= -72.dp.toPx() &&
+                      kotlin.math.abs(vertical) < 54.dp.toPx()
                   val centerTap = document is ReadingDocument.TextDocument &&
                       start.x in size.width * 0.30f..size.width * 0.70f &&
                       start.y in size.height * 0.30f..size.height * 0.75f
                   val still = kotlin.math.abs(horizontal) < 14.dp.toPx() &&
                       kotlin.math.abs(vertical) < 14.dp.toPx()
                   if (edgeSwipe) scope.launch { drawer.open() }
+                  else if (closeDrawerSwipe) scope.launch { drawer.close() }
                   else if (centerTap && still && releaseTime - down.uptimeMillis < 350L)
                       showReaderTools = true
               }
