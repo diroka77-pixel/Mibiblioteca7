@@ -1,14 +1,14 @@
-name: Publicar MiBiblioteca v0.75
+name: Publicar MiBiblioteca v0.76
 on:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/publish-v067.yml'
+      - '.github/workflows/publish-v076.yml'
 permissions:
   contents: write
 jobs:
   release:
-    if: github.event.head_commit.message == 'Publicar MiBiblioteca v0.75'
+    if: github.event.head_commit.message == 'Publicar MiBiblioteca v0.76'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,12 +45,12 @@ jobs:
           APK=app/build/outputs/apk/release/app-release.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$APK"
-          cp "$APK" MiBiblioteca-v0.75.apk
-          gh release create v0.75 MiBiblioteca-v0.75.apk \
+          cp "$APK" MiBiblioteca-v0.76.apk
+          gh release create v0.76 MiBiblioteca-v0.76.apk \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "MiBiblioteca v0.75" \
-            --notes "Corrección de reanudación del lector por voz para continuar desde la palabra actual, menú de selección accesible de cinco acciones con alternancia para quitar subrayado, y ficha de diccionario actualizada. Incluye cambios acumulados sobre la 0.74."
+            --title "MiBiblioteca v0.76" \
+            --notes "Mejoras del lector: cerrar el panel deslizando a la izquierda y acceso prioritario a Subrayar/Quitar subrayado y Diccionario. Incluye la interfaz de noticias más compacta y cambios acumulados sobre la versión 0.75."
       - name: Eliminar clave temporal
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
