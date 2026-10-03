@@ -22,6 +22,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.os.Handler
 import android.os.Looper
+import java.util.concurrent.atomic.AtomicInteger
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -98,6 +99,33 @@ private data class ReaderHighlight(val paragraph: Int, val start: Int, val end: 
     val quote: String, val color: String = "amarillo", val note: String = "")
 private data class ReadingSlice(val paragraph: Int, val start: Int, val end: Int, val height: Int)
 private data class ReadingPage(val slices: List<ReadingSlice>, val startChar: Int)
+private data class SpeechPage(val text: String, val sourcePositions: IntArray)
+
+private fun speechPage(page: ReadingPage, paragraphs: List<ReadingParagraph>, positions: IntArray): SpeechPage {
+    val text = StringBuilder()
+    val sourcePositions = ArrayList<Int>()
+    page.slices.forEachIndexed { index, slice ->
+        if (index > 0) {
+            text.append(' ')
+            sourcePositions += positions[slice.paragraph] + slice.start
+        }
+        val part = paragraphs[slice.paragraph].text.substring(slice.start, slice.end)
+        part.forEachIndexed { offset, char ->
+            text.append(char)
+            sourcePositions += positions[slice.paragraph] + slice.start + offset
+        }
+    }
+    return SpeechPage(text.toString(), sourcePositions.toIntArray())
+}
+
+private fun speechOffsetForChar(page: SpeechPage, charPosition: Int): Int {
+    val found = page.sourcePositions.indexOfFirst { it >= charPosition }
+    return if (found < 0) page.text.length else found
+}
+
+private fun speechCharForOffset(page: SpeechPage, offset: Int, total: Int): Int =
+    page.sourcePositions.getOrNull(offset.coerceIn(0, (page.sourcePositions.size - 1).coerceAtLeast(0)))
+        ?.coerceIn(0, (total - 1).coerceAtLeast(0)) ?: 0
 private fun openingParagraph(paragraphs: List<ReadingParagraph>, index: Int): Boolean =
     !paragraphs[index].heading && (index == 0 || paragraphs[index - 1].heading)
 
@@ -585,6 +613,19 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var audioCursor by remember(book.uri) {
         mutableIntStateOf(prefs.getInt("char_$key", 0))
     }
+    val activeSpeechCursor = remember(book.uri) {
+        AtomicInteger(prefs.getInt("char_$key", 0))
+    }
+    fun saveSpeechCursor(position: Int) {
+        val safePosition = position.coerceAtLeast(0)
+        activeSpeechCursor.set(safePosition)
+        audioCursor = safePosition
+        prefs.edit().putInt("char_$key", safePosition).apply()
+    }
+    fun pauseSpeech() {
+        if (audioActive) saveSpeechCursor(activeSpeechCursor.get())
+        audioActive = false
+    }
     var audioSeekRequest by remember(book.uri) { mutableIntStateOf(0) }
     var audioSeekDelta by remember(book.uri) { mutableIntStateOf(0) }
     var audioAdvance by remember(book.uri) { mutableIntStateOf(0) }
@@ -667,7 +708,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         onClick = {
                             if (speechReady) {
                                 audioControlsVisible = true
-                                audioActive = !audioActive
+                                if (audioActive) pauseSpeech() else audioActive = true
                             }
                             scope.launch { drawer.close() }
                         },
@@ -979,7 +1020,15 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 val current = pages[textPage.coerceIn(pages.indices)]
                                 percent = if (textPage >= pages.lastIndex) 100
                                     else (current.startChar * 100 / total).coerceIn(0, 100)
-                                prefs.edit().putInt("char_$key", current.startChar)
+                                val pageEnd = current.slices.lastOrNull()?.let { last ->
+                                    positions[last.paragraph] + last.end
+                                } ?: current.startChar
+                                val savedPosition = audioCursor.takeIf {
+                                    it >= current.startChar && it < pageEnd.coerceAtLeast(current.startChar + 1)
+                                } ?: current.startChar
+                                activeSpeechCursor.set(savedPosition)
+                                audioCursor = savedPosition
+                                prefs.edit().putInt("char_$key", savedPosition)
                                     .putInt("percent_$key", percent).apply()
                                 onProgress(percent)
                             }
@@ -987,9 +1036,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         LaunchedEffect(audioSeekRequest, pages) {
                             if (audioSeekRequest > 0) {
                                 val target = (audioCursor + audioSeekDelta).coerceIn(0, total - 1)
-                                audioCursor = target
-                                prefs.edit().putInt("char_$key", target)
-                                    .putInt("percent_$key", (target * 100 / total).coerceIn(0, 99)).apply()
+                                saveSpeechCursor(target)
+                                prefs.edit().putInt("percent_$key", (target * 100 / total).coerceIn(0, 99)).apply()
                                 textPage = pages.indexOfLast { it.startChar <= target }.coerceAtLeast(0)
                             }
                         }
@@ -1019,20 +1067,19 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         android.widget.Toast.LENGTH_LONG).show()
                                 } else {
                                     val pageData = pages[currentPage]
-                                    val fullSpoken = pageData.slices.joinToString(" ") { slice ->
-                                        paragraphs[slice.paragraph].text.substring(slice.start, slice.end)
-                                    }.trim()
-                                    val savedChar = audioCursor
-                                    val offsetInPage = (savedChar - pageData.startChar)
-                                        .coerceIn(0, fullSpoken.length)
-                                    val spoken = fullSpoken.substring(offsetInPage)
-                                    val spokenStartChar = pageData.startChar + offsetInPage
+                                    val spokenPage = speechPage(pageData, paragraphs, positions)
+                                    val offsetInPage = speechOffsetForChar(spokenPage, audioCursor)
+                                        .coerceIn(0, spokenPage.text.length)
+                                    val spoken = spokenPage.text.substring(offsetInPage)
+                                    val spokenBaseOffset = offsetInPage
+                                    activeSpeechCursor.set(audioCursor)
                                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                                         override fun onStart(utteranceId: String?) {}
                                         override fun onRangeStart(utteranceId: String?, start: Int,
                                             end: Int, frame: Int) {
-                                            val charPosition = (spokenStartChar + start)
-                                                .coerceAtMost(total - 1)
+                                            val charPosition = speechCharForOffset(
+                                                spokenPage, spokenBaseOffset + start, total)
+                                            activeSpeechCursor.set(charPosition)
                                             Handler(Looper.getMainLooper()).post {
                                                 audioCursor = charPosition
                                                 prefs.edit().putInt("char_$key", charPosition)
@@ -1043,8 +1090,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         override fun onDone(utteranceId: String?) {
                                             Handler(Looper.getMainLooper()).post {
                                                 val nextChar = pages.getOrNull(currentPage + 1)?.startChar ?: total
-                                                audioCursor = nextChar.coerceAtMost(total - 1)
-                                                prefs.edit().putInt("char_$key", nextChar).apply()
+                                                saveSpeechCursor(nextChar.coerceAtMost(total - 1))
                                                 audioAdvance++
                                             }
                                         }
@@ -1063,8 +1109,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             val targetPage = (textPage + delta).coerceIn(pages.indices)
                             textPage = targetPage
                             if (audioControlsVisible) {
-                                audioCursor = pages[targetPage].startChar
-                                prefs.edit().putInt("char_$key", audioCursor).apply()
+                                saveSpeechCursor(pages[targetPage].startChar)
                             }
                         }
                         Box(Modifier.fillMaxSize().clipToBounds().pointerInput(pages, swipeDistance) {
@@ -1177,7 +1222,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     modifier = Modifier.weight(1f).height(54.dp),
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = {
-                                        audioActive = false
+                                        pauseSpeech()
                                         audioControlsVisible = false
                                         speech?.stop()
                                     }
