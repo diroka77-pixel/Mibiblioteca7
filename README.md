@@ -1,4 +1,4 @@
-# MiBiblioteca v0.72.0
+# MiBiblioteca v0.73.0
 
 Proyecto Android de MiBiblioteca. El código fuente está en `app/` y GitHub Actions genera la APK de prueba.
 
@@ -12,7 +12,8 @@ El lector respeta las zonas seguras de Android, permite alternar entre tema clar
 - Reanudación desde el último carácter notificado por la voz. Los callbacks se invalidan al pausar o cambiar la velocidad, y las actualizaciones visuales y de almacenamiento se limitan para reducir tirones.
 - Menú de selección simplificado a cinco acciones: subrayar, diccionario, quitar subrayado, nota y más opciones. Las acciones secundarias siguen disponibles en «Más opciones».
 - Control de velocidad de voz ajustable entre 0,5× y 2,0×, guardado entre sesiones y aplicable durante la lectura.
-- Android versionCode 72 y versionName 0.72.0. GitHub Actions genera el artefacto `MiBiblioteca-v0.72-firmada`.
+- Android versionCode 73 y versionName 0.73.0. GitHub Actions genera el artefacto `MiBiblioteca-v0.73-firmada`.
+- Si un motor de voz no informa las palabras leídas, el lector estima la posición por tiempo y velocidad, la ajusta a la palabra actual y reanuda desde ahí. Se mantiene la posición exacta cuando el motor sí envía sus avisos de palabra.
 
 ## Protección de archivos y biblioteca
 

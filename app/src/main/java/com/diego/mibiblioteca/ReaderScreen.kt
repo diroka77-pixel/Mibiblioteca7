@@ -25,6 +25,7 @@ import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -103,6 +104,41 @@ private data class ReaderHighlight(val paragraph: Int, val start: Int, val end: 
 private data class ReadingSlice(val paragraph: Int, val start: Int, val end: Int, val height: Int)
 private data class ReadingPage(val slices: List<ReadingSlice>, val startChar: Int)
 private data class SpeechPage(val text: String, val sourcePositions: IntArray)
+internal fun estimateSpeechWordOffset(text: String, anchorOffset: Int, elapsedMs: Long,
+    rate: Float, charactersPerSecond: Float = 14.5f): Int {
+    val estimated = (anchorOffset + elapsedMs.coerceAtLeast(0L) / 1000f *
+        charactersPerSecond * rate).toInt().coerceIn(0, text.length)
+    var wordStart = estimated.coerceAtMost((text.length - 1).coerceAtLeast(0))
+    while (wordStart > 0 && text[wordStart - 1].isLetterOrDigit()) wordStart--
+    while (wordStart > 0 && !text[wordStart - 1].isWhitespace() &&
+        !text[wordStart - 1].isLetterOrDigit()) wordStart--
+    return wordStart
+}
+
+private class SpeechTimeline(
+    val page: SpeechPage,
+    val pageBaseOffset: Int,
+    val utterance: String,
+    val totalCharacters: Int,
+    rate: Float
+) {
+    val anchorOffset = AtomicInteger(0)
+    val anchorTime = AtomicLong(android.os.SystemClock.uptimeMillis())
+    @Volatile var speechRate: Float = rate
+
+    fun markRange(offset: Int, time: Long) {
+        anchorOffset.set(offset.coerceIn(0, utterance.length))
+        anchorTime.set(time)
+    }
+
+    fun estimateWordPosition(now: Long): Int {
+        // A time estimate fills in when a TTS engine omits onRangeStart.
+        val wordStart = estimateSpeechWordOffset(utterance, anchorOffset.get(),
+            now - anchorTime.get(), speechRate)
+        val absoluteOffset = (pageBaseOffset + wordStart).coerceIn(0, page.text.length)
+        return speechCharForOffset(page, absoluteOffset, totalCharacters)
+    }
+}
 
 private fun speechPage(page: ReadingPage, paragraphs: List<ReadingParagraph>, positions: IntArray): SpeechPage {
     val text = StringBuilder()
@@ -747,6 +783,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     val activeSpeechCursor = remember(book.uri) {
         AtomicInteger(prefs.getInt("char_$key", 0))
     }
+    val activeSpeechTimeline = remember(book.uri) { AtomicReference<SpeechTimeline?>(null) }
     val speechGeneration = remember(book.uri) { AtomicInteger(0) }
     val lastSpeechUiUpdate = remember(book.uri) { AtomicLong(0) }
     fun saveSpeechCursor(position: Int) {
@@ -755,19 +792,27 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         audioCursor = safePosition
         prefs.edit().putInt("char_$key", safePosition).apply()
     }
+    fun currentSpeechPosition(): Int {
+        val exactPosition = activeSpeechCursor.get()
+        val timeline = activeSpeechTimeline.get() ?: return exactPosition
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - timeline.anchorTime.get() <= 300L) return exactPosition
+        return maxOf(exactPosition, timeline.estimateWordPosition(now))
+    }
     fun pauseSpeech() {
         // Ignore callbacks delivered late by the utterance that is being stopped.
         speechGeneration.incrementAndGet()
-        if (audioActive) saveSpeechCursor(activeSpeechCursor.get())
+        if (audioActive) saveSpeechCursor(currentSpeechPosition())
         audioActive = false
     }
     fun changeSpeechRate(delta: Float) {
         if (audioActive) {
             speechGeneration.incrementAndGet()
-            saveSpeechCursor(activeSpeechCursor.get())
+            saveSpeechCursor(currentSpeechPosition())
             speech?.stop()
         }
         speechRate = ((((speechRate + delta) * 10f).toInt()) / 10f).coerceIn(0.5f, 2f)
+        activeSpeechTimeline.get()?.speechRate = speechRate
         prefs.edit().putFloat("speech_rate", speechRate).apply()
     }
     var audioSeekRequest by remember(book.uri) { mutableIntStateOf(0) }
@@ -1224,16 +1269,22 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     val spoken = spokenPage.text.substring(offsetInPage)
                                     val spokenBaseOffset = offsetInPage
                                     val utteranceGeneration = speechGeneration.incrementAndGet()
+                                    val timeline = SpeechTimeline(spokenPage, spokenBaseOffset,
+                                        spoken.take(3900), total, speechRate)
+                                    activeSpeechTimeline.set(timeline)
                                     activeSpeechCursor.set(audioCursor)
                                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                                        override fun onStart(utteranceId: String?) {}
+                                        override fun onStart(utteranceId: String?) {
+                                            timeline.markRange(0, android.os.SystemClock.uptimeMillis())
+                                        }
                                         override fun onRangeStart(utteranceId: String?, start: Int,
                                             end: Int, frame: Int) {
                                             if (speechGeneration.get() != utteranceGeneration) return
+                                            val now = android.os.SystemClock.uptimeMillis()
+                                            timeline.markRange(start, now)
                                             val charPosition = speechCharForOffset(
                                                 spokenPage, spokenBaseOffset + start, total)
                                             activeSpeechCursor.set(charPosition)
-                                            val now = android.os.SystemClock.uptimeMillis()
                                             val previous = lastSpeechUiUpdate.get()
                                             if (now - previous >= 250 &&
                                                 lastSpeechUiUpdate.compareAndSet(previous, now)) {
