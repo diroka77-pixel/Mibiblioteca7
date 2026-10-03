@@ -221,7 +221,7 @@ private suspend fun shareReadingFile(context: Context, book: Book) {
 }
 
 internal fun readerProgressKey(uri: Uri): String = MessageDigest.getInstance("SHA-256")
-    .digest(uri.toString().toByteArray()).joinToString("") { "%02x".format(it) }
+    .digest(uri.toString().toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
 private val readerFileLock = Any()
 
@@ -1285,7 +1285,7 @@ private fun downloadDavefx(context: Context, onProgress: (Int) -> Unit): File {
                 digest.update(buffer, 0, count)
             }
         }
-        return digest.digest().joinToString("") { "%02x".format(it) }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
     if (destination.isFile && checksum(destination) == DAVEFX_SHA256) {
         onProgress(100)
@@ -1306,7 +1306,7 @@ private fun downloadDavefx(context: Context, onProgress: (Int) -> Unit): File {
                 "El servidor de Davefx respondió ${connection.responseCode}."
             }
             val length = connection.contentLengthLong
-            require(length in 50_000_000L..150_000_000L) {
+            require(length == -1L || length in 50_000_000L..150_000_000L) {
                 "El tamaño de la descarga de Davefx no es válido."
             }
             connection.inputStream.use { input ->
@@ -1319,13 +1319,14 @@ private fun downloadDavefx(context: Context, onProgress: (Int) -> Unit): File {
                         copied += count
                         require(copied <= 150_000_000L) { "Descarga demasiado grande." }
                         output.write(buffer, 0, count)
-                        onProgress((copied * 100 / length).toInt().coerceIn(0, 100))
+                        if (length > 0) onProgress((copied * 100 / length).toInt().coerceIn(0, 100))
                     }
                 }
             }
-            require(temp.length() == length && checksum(temp) == DAVEFX_SHA256) {
+            require((length < 0 || temp.length() == length) && checksum(temp) == DAVEFX_SHA256) {
                 "La descarga de Davefx no superó la verificación de integridad."
             }
+            if (destination.exists()) destination.delete()
             require(temp.renameTo(destination)) { "No se pudo preparar el instalador de Davefx." }
             return destination
         } finally { connection.disconnect() }
