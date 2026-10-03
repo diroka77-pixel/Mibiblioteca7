@@ -1,10 +1,19 @@
-# MiBiblioteca
+# MiBiblioteca v0.75.0
 
 Proyecto Android de MiBiblioteca. El código fuente está en `app/` y GitHub Actions genera la APK de prueba.
 
 El lector integrado abre EPUB, PDF, TXT, Markdown, HTML, RTF, DOCX y MOBI clásico (PalmDOC sin comprimir o comprimido). Guarda la posición y el porcentaje por archivo; los datos de lectura se incluyen en el respaldo de la biblioteca. EPUB y DOCX muestran el texto extraído, por lo que imágenes, diseño complejo y algunas notas no se reproducen. Los MOBI con compresión HuffCDIC y AZW3 requieren conversión a EPUB. Los PDF protegidos con contraseña no se abren con el renderizador del sistema.
 
-El lector respeta las zonas seguras de Android, permite alternar entre tema claro y oscuro y ajustar el brillo de lectura. Los bordes y los gestos horizontales avanzan o retroceden una pantalla de texto o una página PDF. El panel lateral incluye capítulos, páginas PDF y subrayados; la selección de texto permite resaltar, compartir una cita o consultar una palabra en el DLE. Los subrayados se guardan por archivo y se incluyen en el respaldo.
+El lector respeta las zonas seguras de Android, permite alternar entre tema claro y oscuro y ajustar el brillo de lectura. Los bordes y los gestos horizontales avanzan o retroceden una pantalla de texto o una página PDF. El panel lateral incluye capítulos, páginas PDF y subrayados; la selección de texto permite resaltar, compartir una cita o consultar el diccionario del DLE/RAE con Wikcionario como alternativa. Los subrayados se guardan por archivo y se incluyen en el respaldo.
+
+## Cambios de esta versión
+
+- Diccionario integrado con definiciones RAE mediante una API comunitaria y Wikcionario como alternativa, caché local de 30 días y enlace directo a la entrada oficial. El servicio comunitario limita el uso gratuito anónimo a 100 consultas diarias.
+- Reanudación desde el rango que el motor TTS está pronunciando, guardado por bloques de hasta 900 caracteres. La pausa conserva esa posición y el progreso de página no la sobrescribe.
+- Menú de selección de cinco acciones: Subrayar (al volver a tocarlo quita la marca), Nota, Copiar, Fijar y Diccionario.
+- Control de velocidad de voz ajustable entre 0,5× y 2,0×, guardado entre sesiones y aplicable durante la lectura.
+- Android versionCode 75 y versionName 0.75.0. GitHub Actions genera el artefacto `MiBiblioteca-v0.75-firmada`.
+- La ficha de diccionario muestra la palabra, un botón para pronunciarla, resultados de Wikcionario/RAE y acceso al diccionario español de Android cuando la consulta en línea no da resultados.
 
 ## Protección de archivos y biblioteca
 
