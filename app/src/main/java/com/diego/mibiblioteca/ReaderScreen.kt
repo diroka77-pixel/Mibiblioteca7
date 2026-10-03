@@ -584,11 +584,15 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var audioAdvance by remember(book.uri) { mutableIntStateOf(0) }
     var showVoicePicker by remember { mutableStateOf(false) }
     var selectedVoiceName by remember { mutableStateOf(prefs.getString("voice_name", "").orEmpty()) }
-    DisposableEffect(context, book.uri) {
+    DisposableEffect(context, book.uri, selectedVoiceName) {
         var engine: TextToSpeech? = null
-        engine = TextToSpeech(context) { status ->
+        speechReady = false
+        engine = TextToSpeech(context, { status ->
             speechReady = status == TextToSpeech.SUCCESS
-        }
+            if (status != TextToSpeech.SUCCESS && selectedVoiceName == "davefx")
+                android.widget.Toast.makeText(context, "No se pudo iniciar Davefx. Revisa la instalación de la voz.",
+                    android.widget.Toast.LENGTH_LONG).show()
+        }, if (selectedVoiceName == "davefx") DAVEFX_ENGINE else null)
         speech = engine
         onDispose {
             audioActive = false
@@ -653,7 +657,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         onClick = { audioActive = false; speech?.stop() })
                     NavigationDrawerItem(label = { Text("Elegir voz") }, selected = false,
                         icon = { AppIcon("Ajustes") },
-                        onClick = { if (speechReady) showVoicePicker = true })
+                        onClick = { showVoicePicker = true })
                 }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 Text("APARIENCIA", color = Color(0xFF785940),
@@ -968,7 +972,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 val locale = if (book.language.startsWith("en", true))
                                     java.util.Locale.ENGLISH else java.util.Locale.forLanguageTag("es-ES")
                                 val availability = engine.setLanguage(locale)
-                                 val chosenVoice = engine.voices?.firstOrNull { it.name == selectedVoiceName }
+                                 val chosenVoice = engine.voices?.firstOrNull {
+                                     selectedVoiceName != "davefx" && it.name == selectedVoiceName }
                                  if (chosenVoice != null && chosenVoice.locale.language == locale.language)
                                      engine.voice = chosenVoice
                                 if (availability < TextToSpeech.LANG_AVAILABLE) {
@@ -1091,6 +1096,20 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
                     Text("Voces sin conexión instaladas en el dispositivo",
                         style = MaterialTheme.typography.bodySmall)
+                    RadioVoiceOption("Davefx · español de España",
+                        selectedVoiceName == "davefx") {
+                        if (hasDavefxEngine(context)) {
+                            selectedVoiceName = "davefx"
+                            prefs.edit().putString("voice_name", "davefx").apply()
+                            showVoicePicker = false
+                        } else {
+                            context.startActivity(Intent(Intent.ACTION_VIEW,
+                                Uri.parse(DAVEFX_DOWNLOAD_PAGE)))
+                        }
+                    }
+                    if (!hasDavefxEngine(context)) Text(
+                        "Para usar Davefx, instala su motor de voz desde la página oficial y vuelve aquí.",
+                        style = MaterialTheme.typography.bodySmall)
                     RadioVoiceOption("Predeterminada", selectedVoiceName.isBlank()) {
                         selectedVoiceName = ""; prefs.edit().remove("voice_name").apply()
                         showVoicePicker = false
@@ -1188,4 +1207,14 @@ private fun RadioVoiceOption(label: String, selected: Boolean, onClick: () -> Un
         RadioButton(selected = selected, onClick = onClick)
         Text(label, modifier = Modifier.padding(start = 8.dp), maxLines = 2)
     }
+}
+
+private const val DAVEFX_ENGINE = "com.k2fsa.sherpa.onnx.tts.engine"
+private const val DAVEFX_DOWNLOAD_PAGE = "https://k2-fsa.github.io/sherpa/onnx/tts/apk-engine.html"
+
+private fun hasDavefxEngine(context: Context): Boolean = try {
+    context.packageManager.getPackageInfo(DAVEFX_ENGINE, 0)
+    true
+} catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+    false
 }
