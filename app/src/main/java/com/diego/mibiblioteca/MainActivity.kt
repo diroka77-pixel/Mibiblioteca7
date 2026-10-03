@@ -974,13 +974,66 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     readEpub(context, Uri.fromFile(target), name,
                         target.length(), target.lastModified())
                 }
-                books = (books.filterNot { it.uri == imported.uri } + imported)
+                prefs.edit().putString("source_uri_" + imported.uri.toString().hashCode(), source.toString()).apply()
+                books = (books.filterNot { it.uri == imported.uri } + imported.copy(status = ReadingStatus.READING))
                     .sortedBy { it.title.lowercase() }
+                recordOpen(imported.uri)
                 saveBooks()
                 importedBookUri = imported.uri
-                message = "EPUB añadido a Mi Biblioteca"
+                message = "EPUB añadido a Mi Biblioteca · puedes subirlo a Drive desde su ficha"
             } catch (e: Exception) {
                 message = "No se pudo importar el EPUB: ${e.localizedMessage ?: "archivo no válido"}"
+            }
+        }
+    }
+
+    fun uploadImportedToDrive(book: Book) {
+        val tree = prefs.getString(folderKey, null)?.let(Uri::parse)
+        if (tree == null) { message = "Selecciona primero tu carpeta de libros en Drive."; return }
+        if (book.uri.scheme != "file") { message = "Este libro ya está en la biblioteca de Drive."; return }
+        viewModelScope.launch {
+            try {
+                val newUri = withContext(Dispatchers.IO) {
+                    val context = getApplication<Application>()
+                    val source = File(requireNotNull(book.uri.path))
+                    require(source.exists()) { "No se encuentra la copia local del EPUB" }
+                    val root = DocumentFile.fromTreeUri(context, tree)
+                        ?: error("La carpeta de Drive no está disponible")
+                    val preferred = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), "_")
+                        .trim().ifBlank { source.nameWithoutExtension } + ".epub"
+                    val target = root.findFile(preferred)
+                        ?: root.createFile("application/epub+zip", preferred)
+                        ?: error("No se pudo crear el EPUB en Drive")
+                    context.contentResolver.openOutputStream(target.uri, "w")?.use { output ->
+                        source.inputStream().use { input -> input.copyLimited(output, FileLimits.BOOK_BYTES) }
+                    } ?: error("Drive no permite escribir en la carpeta seleccionada")
+                    target.uri
+                }
+                val oldUri = book.uri
+                val oldKey = readerProgressKey(oldUri)
+                val newKey = readerProgressKey(newUri)
+                val readerEditor = readerPrefs.edit()
+                listOf("percent", "item", "offset", "page", "char", "audio_page", "audio_offset").forEach { field ->
+                    if (readerPrefs.contains("${field}_$oldKey"))
+                        readerEditor.putInt("${field}_$newKey", readerPrefs.getInt("${field}_$oldKey", 0))
+                }
+                if (readerPrefs.contains("highlights_$oldKey"))
+                    readerEditor.putString("highlights_$newKey", readerPrefs.getString("highlights_$oldKey", "[]"))
+                readerEditor.apply()
+                prefs.edit()
+                    .putString("source_uri_" + newUri.toString().hashCode(),
+                        prefs.getString("source_uri_" + oldUri.toString().hashCode(), oldUri.toString()))
+                    .putLong("opened_" + newUri.toString().hashCode(),
+                        prefs.getLong("opened_" + oldUri.toString().hashCode(), System.currentTimeMillis()))
+                    .apply()
+                val progress = readingPercent(oldUri)
+                books = books.map { if (it.uri == oldUri) book.copy(uri = newUri) else it }
+                readingPercents = readingPercents - oldUri + (newUri to progress)
+                importedBookUri = newUri
+                saveBooks()
+                message = "EPUB subido a Drive sin perder tu progreso de lectura."
+            } catch (e: Exception) {
+                message = "No se pudo subir a Drive: ${e.localizedMessage ?: "error de escritura"}"
             }
         }
     }
@@ -2542,7 +2595,8 @@ private fun openCasaDelLibro(context: Context) {
                 { vm.setGoodreadsUrl(shown.uri, it) }, { vm.toggleWantToRead(shown.uri) },
                 vm.detailMessage, shown.uri in vm.reviewPending,
                 { vm.confirmBookDetails(shown.uri) },
-                { title, author, saga, order -> vm.editIdentity(shown.uri, title, author, saga, order) })
+                { title, author, saga, order -> vm.editIdentity(shown.uri, title, author, saga, order) },
+                { vm.uploadImportedToDrive(shown) })
         } else {
     ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = drawerState.isOpen,
         drawerContent = {
@@ -2703,25 +2757,26 @@ private fun openCasaDelLibro(context: Context) {
         containerColor = Parchment,
         topBar = {
             Column(Modifier.fillMaxWidth().background(Mahogany).statusBarsPadding()) {
-                Row(Modifier.fillMaxWidth().height(60.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.fillMaxWidth().height(60.dp)) {
                     IconButton(onClick = { scope.launch { drawerState.open() } },
-                        modifier = Modifier.semantics { contentDescription = "Abrir menú" }) {
+                        modifier = Modifier.align(Alignment.CenterStart)
+                            .semantics { contentDescription = "Abrir menú" }) {
                         Icon(Icons.Outlined.Menu, "Abrir menú", tint = Color.White)
                     }
-                    Text("Mi Biblioteca", color = Color.White, fontSize = 14.sp,
-                        fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.width(10.dp))
-                    Box(Modifier.size(40.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-                        Image(painterResource(R.drawable.ic_bookshelf_foreground),
-                            "Estantería de libros", modifier = Modifier.size(30.dp))
+                    Row(Modifier.align(Alignment.Center),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center) {
+                        Box(Modifier.size(40.dp)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center) {
+                            Image(painterResource(R.drawable.ic_bookshelf_foreground),
+                                "Estantería de libros", modifier = Modifier.size(30.dp))
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Text("Mi Biblioteca", color = Color.White, fontSize = 16.sp,
+                            fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold)
                     }
-                    Spacer(Modifier.width(10.dp))
-                    Text("By Diroka77", color = Color.White, fontSize = 14.sp,
-                        fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.width(40.dp))
                 }
                 OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
                     tab = "Biblioteca"; vm.qualityFilter = "Ninguno"
@@ -3261,7 +3316,8 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     replaceCover: (Uri) -> Unit,
     saveGoodreadsUrl: (String) -> Unit, toggleWant: () -> Unit, detailMessage: String?,
     needsReview: Boolean, confirmDetails: () -> Unit,
-    editIdentity: (String, String, String, String) -> Unit
+    editIdentity: (String, String, String, String) -> Unit,
+    uploadToDrive: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -3403,6 +3459,12 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                     onOpened(); setStatus(ReadingStatus.READING); openBook()
                 }, modifier = Modifier.fillMaxWidth()) {
                     ActionLabel("Leer este libro", "Leer")
+                }
+                if (book.uri.scheme == "file") {
+                    LibraryActionButton(onClick = uploadToDrive, modifier = Modifier.fillMaxWidth()) {
+                        ActionLabel("Subir a mi carpeta de Drive", "Sincronizar")
+                    }
+                    Spacer(Modifier.height(8.dp))
                 }
                 LibraryActionButton(onClick = {
                     val safeName = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), " ").trim().take(90)
