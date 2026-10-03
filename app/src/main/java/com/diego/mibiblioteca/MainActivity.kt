@@ -461,6 +461,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun saveBooks() {
         val snapshot = books.toList()
+        val publishAfterSave = !syncing
         val revision = ++saveVersion
         prefs.edit().putLong("local_revision", System.currentTimeMillis()).apply()
         catalogSaveJob = viewModelScope.launch {
@@ -485,7 +486,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     prefs.edit().putString("books_cache", array.toString()).apply()
                 }
             }
-            if (revision == saveVersion) saveCloud()
+            if (revision == saveVersion && publishAfterSave) saveCloud()
             } catch (e: Exception) {
                 detailMessage = "No se pudo guardar el catálogo local: ${e.localizedMessage}"
             }
