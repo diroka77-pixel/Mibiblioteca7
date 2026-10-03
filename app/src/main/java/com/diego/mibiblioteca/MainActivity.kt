@@ -50,10 +50,9 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.layout.ContentScale
@@ -1970,7 +1969,7 @@ private val Paper = Color.White
 private val Teal = Color(0xFF5C9F94)
 
 private val libraryColors = lightColorScheme(
-    primary = Teal, onPrimary = Paper, secondary = Brass,
+    primary = Teal, onPrimary = Ink, secondary = Brass,
     background = Parchment, onBackground = Ink, surface = Paper, onSurface = Ink,
     surfaceVariant = Color(0xFFECE0C8)
 )
@@ -2227,9 +2226,9 @@ private fun openCasaDelLibro(context: Context) {
         border = androidx.compose.foundation.BorderStroke(1.dp,
             if (selected) Color.White.copy(alpha = 0.8f) else accent.copy(alpha = 0.8f)),
         colors = FilterChipDefaults.filterChipColors(
-            containerColor = accent, labelColor = Color.White,
-            iconColor = Color.White, selectedLeadingIconColor = Color.White,
-            selectedContainerColor = accent, selectedLabelColor = Color.White))
+            containerColor = accent, labelColor = Ink,
+            iconColor = Ink, selectedLeadingIconColor = Ink,
+            selectedContainerColor = accent, selectedLabelColor = Ink))
 }
 
 @Composable private fun LibraryActionButton(
@@ -2238,7 +2237,7 @@ private fun openCasaDelLibro(context: Context) {
 ) {
     Button(onClick = onClick, modifier = modifier, enabled = enabled,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White),
+        colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Ink),
         content = content)
 }
 
@@ -2788,11 +2787,6 @@ private fun openCasaDelLibro(context: Context) {
             onGoodreads = { openGoodreads(context) },
             onGoogle = { openGoogleAi(context) })
         Box(Modifier.fillMaxWidth().weight(1f)) {
-        androidx.compose.animation.AnimatedContent(
-            targetState = tab,
-            transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(100)) },
-            label = "library-tab-transition"
-        ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().graphicsLayer {
                 translationX = pageMotion.value * density
@@ -3031,7 +3025,6 @@ private fun openCasaDelLibro(context: Context) {
                 }
             }
         }
-            }
         if (tab == "Biblioteca" && !showWishList) {
             LibraryScrollHandle(listState, Modifier.align(Alignment.CenterEnd))
         }
@@ -3453,7 +3446,8 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
                     ActionLabel(if (moreActionsExpanded) "Menos opciones" else "Más opciones", "Más", 12.sp)
                 }
-                androidx.compose.animation.AnimatedVisibility(visible = moreActionsExpanded) {
+                AnimatedVisibility(visible = moreActionsExpanded,
+                    enter = fadeIn(tween(160)), exit = fadeOut(tween(120))) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             LibraryActionButton(onClick = recoverCover, enabled = !coverSearching,
