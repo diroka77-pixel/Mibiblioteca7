@@ -1283,13 +1283,19 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         val targetPage = pages.indexOfLast {
                                             it.startChar <= charPosition
                                         }.coerceAtLeast(0)
-                                        TextButton(onClick = {
-                                            textPage = targetPage
-                                            saveSpeechCursor(charPosition)
-                                            showReaderTools = false
-                                        }, modifier = Modifier.fillMaxWidth()) {
-                                            Text("Marcador ${index + 1} · página ${targetPage + 1}",
-                                                modifier = Modifier.weight(1f))
+                                        Row(Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically) {
+                                            TextButton(onClick = {
+                                                textPage = targetPage
+                                                saveSpeechCursor(charPosition)
+                                                showReaderTools = false
+                                            }, modifier = Modifier.weight(1f)) {
+                                                Text("Marcador ${index + 1} · página ${targetPage + 1}",
+                                                    modifier = Modifier.fillMaxWidth())
+                                            }
+                                            IconButton(onClick = { toggleBookmark(charPosition) }) {
+                                                AppIcon("Borrar", "Eliminar marcador")
+                                            }
                                         }
                                     }
                                     HorizontalDivider()
