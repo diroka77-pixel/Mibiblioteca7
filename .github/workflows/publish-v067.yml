@@ -47,6 +47,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$APK"
           cp "$APK" MiBiblioteca-v0.76.apk
           if gh release view v0.76 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/v0.76" -f sha="$GITHUB_SHA" -F force=true
             gh release upload v0.76 MiBiblioteca-v0.76.apk --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create v0.76 MiBiblioteca-v0.76.apk \
