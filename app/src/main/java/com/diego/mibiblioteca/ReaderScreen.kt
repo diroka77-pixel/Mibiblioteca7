@@ -582,6 +582,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var speechReady by remember { mutableStateOf(false) }
     var audioActive by remember(book.uri) { mutableStateOf(false) }
     var audioAdvance by remember(book.uri) { mutableIntStateOf(0) }
+    var audioPage by remember(book.uri) { mutableIntStateOf(prefs.getInt("audio_page_$key", -1)) }
+    var audioOffset by remember(book.uri) { mutableIntStateOf(prefs.getInt("audio_offset_$key", 0)) }
     var showVoicePicker by remember { mutableStateOf(false) }
     var davefxDownloading by remember { mutableStateOf(false) }
     var davefxReadyFile by remember { mutableStateOf<File?>(null) }
@@ -962,13 +964,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             }
                         }
                         val currentPage = textPage.coerceIn(pages.indices)
-                        LaunchedEffect(audioAdvance) {
-                            if (audioAdvance > 0 && audioActive) {
-                                if (textPage < pages.lastIndex) textPage++
-                                else audioActive = false
-                            }
-                        }
-                        LaunchedEffect(audioActive, currentPage, pages, speechReady, selectedVoiceName) {
+                        LaunchedEffect(audioActive, currentPage, pages, speechReady,
+                            selectedVoiceName, audioAdvance) {
                             val engine = speech
                             if (!audioActive || !speechReady || engine == null) {
                                 engine?.stop()
@@ -976,32 +973,73 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 val locale = if (book.language.startsWith("en", true))
                                     java.util.Locale.ENGLISH else java.util.Locale.forLanguageTag("es-ES")
                                 val availability = engine.setLanguage(locale)
-                                 val chosenVoice = engine.voices?.firstOrNull {
-                                     selectedVoiceName != "davefx" && it.name == selectedVoiceName }
-                                 if (chosenVoice != null && chosenVoice.locale.language == locale.language)
-                                     engine.voice = chosenVoice
+                                val chosenVoice = engine.voices?.firstOrNull {
+                                    selectedVoiceName != "davefx" && it.name == selectedVoiceName }
+                                if (chosenVoice != null && chosenVoice.locale.language == locale.language)
+                                    engine.voice = chosenVoice
                                 if (availability < TextToSpeech.LANG_AVAILABLE) {
                                     audioActive = false
                                     android.widget.Toast.makeText(context,
                                         "Instala una voz del idioma del libro en los ajustes de voz de Android",
                                         android.widget.Toast.LENGTH_LONG).show()
                                 } else {
-                                    val spoken = pages[currentPage].slices.joinToString(" ") { slice ->
+                                    val fullPageText = pages[currentPage].slices.joinToString(" ") { slice ->
                                         paragraphs[slice.paragraph].text.substring(slice.start, slice.end)
                                     }.trim()
+                                    if (audioPage != currentPage) {
+                                        audioPage = currentPage
+                                        audioOffset = 0
+                                        prefs.edit().putInt("audio_page_$key", currentPage)
+                                            .putInt("audio_offset_$key", 0).apply()
+                                    }
+                                    val baseOffset = audioOffset.coerceIn(0, fullPageText.length)
+                                    val spoken = fullPageText.drop(baseOffset).take(3900)
                                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                                         override fun onStart(utteranceId: String?) {}
+                                        override fun onRangeStart(utteranceId: String?, start: Int, end: Int,
+                                            frame: Int) {
+                                            val exact = (baseOffset + start).coerceIn(0, fullPageText.length)
+                                            Handler(Looper.getMainLooper()).post {
+                                                audioOffset = exact
+                                                prefs.edit().putInt("audio_page_$key", currentPage)
+                                                    .putInt("audio_offset_$key", exact).apply()
+                                            }
+                                        }
                                         override fun onDone(utteranceId: String?) {
-                                            Handler(Looper.getMainLooper()).post { audioAdvance++ }
+                                            Handler(Looper.getMainLooper()).post {
+                                                val nextOffset = (baseOffset + spoken.length)
+                                                    .coerceAtMost(fullPageText.length)
+                                                if (nextOffset < fullPageText.length) {
+                                                    audioOffset = nextOffset
+                                                    prefs.edit().putInt("audio_page_$key", currentPage)
+                                                        .putInt("audio_offset_$key", nextOffset).apply()
+                                                    audioAdvance++
+                                                } else if (textPage < pages.lastIndex) {
+                                                    audioOffset = 0
+                                                    audioPage = currentPage + 1
+                                                    prefs.edit().putInt("audio_page_$key", currentPage + 1)
+                                                        .putInt("audio_offset_$key", 0).apply()
+                                                    textPage++
+                                                } else {
+                                                    audioOffset = fullPageText.length
+                                                    prefs.edit().putInt("audio_page_$key", currentPage)
+                                                        .putInt("audio_offset_$key", audioOffset).apply()
+                                                    audioActive = false
+                                                }
+                                            }
                                         }
                                         override fun onError(utteranceId: String?) {
                                             Handler(Looper.getMainLooper()).post { audioActive = false }
                                         }
                                     })
                                     if (spoken.isNotBlank())
-                                        engine.speak(spoken.take(3900), TextToSpeech.QUEUE_FLUSH,
-                                            null, "page_$currentPage")
-                                    else audioAdvance++
+                                        engine.speak(spoken, TextToSpeech.QUEUE_FLUSH, null,
+                                            "page_${currentPage}_${baseOffset}")
+                                    else if (textPage < pages.lastIndex) {
+                                        audioOffset = 0
+                                        audioPage = currentPage + 1
+                                        textPage++
+                                    } else audioActive = false
                                 }
                             }
                         }
