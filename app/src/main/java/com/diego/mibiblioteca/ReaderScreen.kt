@@ -17,12 +17,14 @@ import android.util.TypedValue
 import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
+import android.widget.PopupMenu
 import android.widget.TextView
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -212,31 +214,79 @@ private fun saveHighlights(context: Context, key: String, highlights: List<Reade
         .putString("highlights_$key", array.toString()).apply()
 }
 
-private fun dictionaryDefinitions(word: String): List<String> {
+private data class DictionaryDefinition(val source: String, val text: String)
+
+private fun dictionaryDefinitions(context: Context, word: String): List<DictionaryDefinition> {
     val normalized = word.trim().replace(Regex("\\s+"), " ")
         .trim('¿', '¡', '.', ',', ';', ':', '!', '?', '«', '»', '"', '\'')
     if (normalized.isBlank()) return emptyList()
     val encoded = java.net.URLEncoder.encode(normalized, "UTF-8")
+    val cache = context.getSharedPreferences("reader_dictionary", Context.MODE_PRIVATE)
+    val cacheKey = "entry_${normalized.lowercase(java.util.Locale.ROOT)}"
+    val now = System.currentTimeMillis()
+    cache.getString(cacheKey, null)?.let { raw -> runCatching {
+        val saved = JSONObject(raw)
+        if (now - saved.optLong("time") < 30L * 24 * 60 * 60 * 1000) {
+            val array = saved.getJSONArray("items")
+            return (0 until array.length()).mapNotNull { i -> array.optJSONObject(i)?.let {
+                DictionaryDefinition(it.optString("source"), it.optString("text"))
+            } }.filter { it.text.isNotBlank() }
+        }
+    } }
     fun request(url: String): String? = try {
         val connection = URL(url).openConnection() as HttpURLConnection
-        connection.connectTimeout = 7000
-        connection.readTimeout = 9000
-        connection.setRequestProperty("User-Agent", "MiBiblioteca/0.71 (lector; GitHub diroka77-pixel)")
+        connection.connectTimeout = 4500
+        connection.readTimeout = 5500
+        connection.setRequestProperty("User-Agent", "MiBiblioteca/0.72 (Android reader)")
+        connection.setRequestProperty("Accept", "application/json")
         try { connection.inputStream.bufferedReader().use { it.readText() } }
         finally { connection.disconnect() }
     } catch (_: Exception) { null }
+
+    // Consult the DLE data service first; keep Wiktionary as an independent fallback.
+    val rae = request("https://rae-api.com/api/words/$encoded")?.let { raw -> runCatching {
+        val root = JSONObject(raw)
+        val data = root.optJSONObject("data") ?: JSONObject()
+        val meanings = data.optJSONArray("meanings") ?: JSONArray()
+        buildList {
+            for (i in 0 until meanings.length()) {
+                val senses = meanings.optJSONObject(i)?.optJSONArray("senses") ?: continue
+                for (j in 0 until senses.length()) {
+                    val sense = senses.optJSONObject(j) ?: continue
+                    val definition = sense.optString("description").trim()
+                    if (definition.length >= 4) {
+                        val category = sense.optString("category").takeIf { it.isNotBlank() }
+                        add(DictionaryDefinition("RAE API comunitaria", if (category == null) definition
+                            else "${category.replaceFirstChar { it.uppercase() }} · $definition"))
+                    }
+                }
+            }
+        }.distinctBy { it.text }.take(8)
+    }.getOrNull() }.orEmpty()
+    if (rae.isNotEmpty()) {
+        val array = JSONArray().apply { rae.forEach { put(JSONObject()
+            .put("source", it.source).put("text", it.text)) } }
+        cache.edit().putString(cacheKey, JSONObject().put("time", now).put("items", array).toString()).apply()
+        return rae
+    }
 
     val parsed = request("https://es.wiktionary.org/w/api.php?action=parse&format=json&prop=text&page=$encoded")
         ?.let { raw -> runCatching {
             Jsoup.parse(JSONObject(raw).getJSONObject("parse").getJSONObject("text").getString("*"))
                 .select(".mw-parser-output > ol > li, .mw-parser-output ol > li")
-                .map { it.text().trim() }.filter { it.length in 8..400 }.distinct().take(4)
+                .map { it.text().trim() }.filter { it.length in 8..400 }.distinct().take(6)
+                .map { DictionaryDefinition("Wikcionario", it) }
         }.getOrNull() }.orEmpty()
-    if (parsed.isNotEmpty()) return parsed
+    if (parsed.isNotEmpty()) {
+        val array = JSONArray().apply { parsed.forEach { put(JSONObject()
+            .put("source", it.source).put("text", it.text)) } }
+        cache.edit().putString(cacheKey, JSONObject().put("time", now).put("items", array).toString()).apply()
+        return parsed
+    }
 
     val fallback = request("https://es.wiktionary.org/w/api.php?action=query&format=json&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=$encoded")
         ?: return emptyList()
-    return runCatching {
+    val extracted = runCatching {
         val pages = JSONObject(fallback).getJSONObject("query").getJSONObject("pages")
         val page = pages.keys().asSequence().map { pages.getJSONObject(it) }
             .firstOrNull { !it.has("missing") } ?: return emptyList()
@@ -244,8 +294,14 @@ private fun dictionaryDefinitions(word: String): List<String> {
             .filter { line -> line.length in 12..400 && !line.startsWith("==") &&
                 !line.startsWith("Etimología") && !line.startsWith("Pronunciación") &&
                 !line.startsWith("Sinónimos") }
-            .distinct().take(4).toList()
+            .distinct().take(6).map { DictionaryDefinition("Wikcionario", it) }.toList()
     }.getOrDefault(emptyList())
+    if (extracted.isNotEmpty()) {
+        val array = JSONArray().apply { extracted.forEach { put(JSONObject()
+            .put("source", it.source).put("text", it.text)) } }
+        cache.edit().putString(cacheKey, JSONObject().put("time", now).put("items", array).toString()).apply()
+    }
+    return extracted
 }
 
 private suspend fun shareReadingFile(context: Context, book: Book) {
@@ -505,12 +561,14 @@ private fun SelectableParagraph(
     paragraph: ReadingParagraph, index: Int, start: Int, end: Int, size: Float, foreground: Color,
     dark: Boolean, opening: Boolean, highlights: List<ReaderHighlight>,
     onHighlight: (ReaderHighlight) -> Unit, onNote: (ReaderHighlight) -> Unit,
+    onRemoveHighlight: (Int, Int, Int) -> Boolean,
     onLookup: (String) -> Unit, onTranslate: (String) -> Unit, onSpeak: (String) -> Unit,
     onSearch: (String) -> Unit, onSaveToNotebook: (String) -> Unit,
     onBookmarkChar: (Int, Int) -> Unit
 ) {
     val action by rememberUpdatedState(onHighlight)
     val noteAction by rememberUpdatedState(onNote)
+    val removeHighlightAction by rememberUpdatedState(onRemoveHighlight)
     val lookupAction by rememberUpdatedState(onLookup)
     val translateAction by rememberUpdatedState(onTranslate)
     val speakAction by rememberUpdatedState(onSpeak)
@@ -525,51 +583,69 @@ private fun SelectableParagraph(
             val selectable = this
             setCustomSelectionActionModeCallback(object : ActionMode.Callback {
                 override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-                    menu.add(0, 8001, 0, "Subrayar amarillo")
-                    menu.add(0, 8004, 1, "Subrayar azul")
-                    menu.add(0, 8005, 2, "Nota")
-                    menu.add(0, 8010, 3, "Copiar")
-                    menu.add(0, 8011, 4, "Fijar página")
-                    menu.add(0, 8002, 5, "Diccionario")
-                    menu.add(0, 8003, 6, "Compartir")
-                    menu.add(0, 8006, 7, "Traducir")
-                    menu.add(0, 8007, 8, "Escuchar")
-                    menu.add(0, 8008, 9, "Buscar en el libro")
-                    menu.add(0, 8009, 10, "Guardar en libreta")
+                    menu.add(0, 8001, 0, "Subrayar")
+                    menu.add(0, 8002, 1, "Diccionario")
+                    menu.add(0, 8012, 2, "Quitar subrayado")
+                    menu.add(0, 8005, 3, "Nota")
+                    menu.add(0, 8013, 4, "Más opciones")
                     return true
                 }
                 override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
                 override fun onDestroyActionMode(mode: ActionMode) = Unit
                 override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
-                    if (item.itemId !in 8001..8011) return false
+                    if (item.itemId !in setOf(8001, 8002, 8005, 8012, 8013)) return false
                     val selectedStart = selectable.selectionStart.coerceAtLeast(0)
                     val selectedEnd = selectable.selectionEnd.coerceAtMost(selectable.text.length)
                     if (selectedEnd <= selectedStart) return false
                     val quote = selectable.text.subSequence(selectedStart, selectedEnd).toString().trim()
                     if (quote.isBlank()) return false
                     when (item.itemId) {
-                        8001, 8004 -> action(ReaderHighlight(index, start + selectedStart,
-                            start + selectedEnd, quote, if (item.itemId == 8004) "azul" else "amarillo"))
+                        8001 -> action(ReaderHighlight(index, start + selectedStart,
+                            start + selectedEnd, quote, "amarillo"))
                         8005 -> noteAction(ReaderHighlight(index, start + selectedStart,
                             start + selectedEnd, quote))
+                        8012 -> if (!removeHighlightAction(index, start + selectedStart,
+                            start + selectedEnd)) android.widget.Toast.makeText(context,
+                                "No hay subrayado en la selección", android.widget.Toast.LENGTH_SHORT).show()
                         8002 -> {
                             val word = quote.split(Regex("\\s+")).first().trim('¿', '¡', '.', ',', ';',
                                 ':', '!', '?', '«', '»', '"', '\'')
                             if (word.isNotBlank()) lookupAction(word)
                         }
-                        8003 -> context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"; putExtra(Intent.EXTRA_TEXT, quote)
-                        }, "Compartir cita"))
-                        8006 -> translateAction(quote)
-                        8007 -> speakAction(quote)
-                        8008 -> searchAction(quote)
-                        8009 -> notebookAction("«$quote»")
-                        8010 -> {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
-                                as android.content.ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("Texto del libro", quote))
+                        8013 -> {
+                            PopupMenu(context, selectable).apply {
+                                menu.add(0, 8004, 0, "Subrayar azul")
+                                menu.add(0, 8003, 1, "Compartir")
+                                menu.add(0, 8006, 2, "Traducir")
+                                menu.add(0, 8007, 3, "Escuchar")
+                                menu.add(0, 8008, 4, "Buscar en el libro")
+                                menu.add(0, 8009, 5, "Guardar en libreta")
+                                menu.add(0, 8010, 6, "Copiar")
+                                menu.add(0, 8011, 7, "Fijar página")
+                                setOnMenuItemClickListener { extra ->
+                                    when (extra.itemId) {
+                                        8004 -> action(ReaderHighlight(index, start + selectedStart,
+                                            start + selectedEnd, quote, "azul"))
+                                        8003 -> context.startActivity(Intent.createChooser(
+                                            Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"; putExtra(Intent.EXTRA_TEXT, quote)
+                                            }, "Compartir cita"))
+                                        8006 -> translateAction(quote)
+                                        8007 -> speakAction(quote)
+                                        8008 -> searchAction(quote)
+                                        8009 -> notebookAction("«$quote»")
+                                        8010 -> {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                                as android.content.ClipboardManager
+                                            clipboard.setPrimaryClip(ClipData.newPlainText("Texto del libro", quote))
+                                        }
+                                        8011 -> bookmarkAction(index, start + selectedStart)
+                                    }
+                                    true
+                                }
+                                show()
+                            }
                         }
-                        8011 -> bookmarkAction(index, start + selectedStart)
                     }
                     mode.finish()
                     return true
@@ -665,10 +741,14 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var audioCursor by remember(book.uri) {
         mutableIntStateOf(prefs.getInt("char_$key", 0))
     }
+    var speechRate by remember(book.uri) {
+        mutableStateOf(prefs.getFloat("speech_rate", 1f).coerceIn(0.5f, 2f))
+    }
     val activeSpeechCursor = remember(book.uri) {
         AtomicInteger(prefs.getInt("char_$key", 0))
     }
     val speechGeneration = remember(book.uri) { AtomicInteger(0) }
+    val lastSpeechUiUpdate = remember(book.uri) { AtomicLong(0) }
     fun saveSpeechCursor(position: Int) {
         val safePosition = position.coerceAtLeast(0)
         activeSpeechCursor.set(safePosition)
@@ -680,6 +760,15 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         speechGeneration.incrementAndGet()
         if (audioActive) saveSpeechCursor(activeSpeechCursor.get())
         audioActive = false
+    }
+    fun changeSpeechRate(delta: Float) {
+        if (audioActive) {
+            speechGeneration.incrementAndGet()
+            saveSpeechCursor(activeSpeechCursor.get())
+            speech?.stop()
+        }
+        speechRate = ((((speechRate + delta) * 10f).toInt()) / 10f).coerceIn(0.5f, 2f)
+        prefs.edit().putFloat("speech_rate", speechRate).apply()
     }
     var audioSeekRequest by remember(book.uri) { mutableIntStateOf(0) }
     var audioSeekDelta by remember(book.uri) { mutableIntStateOf(0) }
@@ -1109,7 +1198,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 else audioActive = false
                             }
                         }
-                        LaunchedEffect(audioActive, currentPage, pages, speechReady, selectedVoiceName, audioSeekRequest) {
+                        LaunchedEffect(audioActive, currentPage, pages, speechReady, selectedVoiceName, audioSeekRequest, speechRate) {
                             val engine = speech
                             if (!audioActive || !speechReady || engine == null) {
                                 engine?.stop()
@@ -1117,6 +1206,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 val locale = if (book.language.startsWith("en", true))
                                     java.util.Locale.ENGLISH else java.util.Locale.forLanguageTag("es-ES")
                                 val availability = engine.setLanguage(locale)
+                                engine.setSpeechRate(speechRate)
                                  val chosenVoice = engine.voices?.firstOrNull {
                                      selectedVoiceName != "davefx" && it.name == selectedVoiceName }
                                  if (chosenVoice != null && chosenVoice.locale.language == locale.language)
@@ -1143,12 +1233,17 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             val charPosition = speechCharForOffset(
                                                 spokenPage, spokenBaseOffset + start, total)
                                             activeSpeechCursor.set(charPosition)
-                                            Handler(Looper.getMainLooper()).post {
-                                                if (speechGeneration.get() != utteranceGeneration) return@post
-                                                audioCursor = charPosition
-                                                prefs.edit().putInt("char_$key", charPosition)
-                                                    .putInt("percent_$key",
-                                                        (charPosition * 100 / total).coerceIn(0, 99)).apply()
+                                            val now = android.os.SystemClock.uptimeMillis()
+                                            val previous = lastSpeechUiUpdate.get()
+                                            if (now - previous >= 250 &&
+                                                lastSpeechUiUpdate.compareAndSet(previous, now)) {
+                                                Handler(Looper.getMainLooper()).post {
+                                                    if (speechGeneration.get() != utteranceGeneration) return@post
+                                                    audioCursor = charPosition
+                                                    prefs.edit().putInt("char_$key", charPosition)
+                                                        .putInt("percent_$key",
+                                                            (charPosition * 100 / total).coerceIn(0, 99)).apply()
+                                                }
                                             }
                                         }
                                         override fun onDone(utteranceId: String?) {
@@ -1225,6 +1320,17 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                 highlights = (highlights + mark).distinct()
                                                 saveHighlights(context, key, highlights)
                                                 onHighlightsChanged()
+                                            }, onRemoveHighlight = { paragraphIndex, from, to ->
+                                                val updated = highlights.filterNot { mark ->
+                                                    mark.paragraph == paragraphIndex && mark.start < to && mark.end > from
+                                                }
+                                                val removed = updated.size != highlights.size
+                                                if (removed) {
+                                                    highlights = updated
+                                                    saveHighlights(context, key, highlights)
+                                                    onHighlightsChanged()
+                                                }
+                                                removed
                                             }, onNote = { mark ->
                                                 pendingNote = mark
                                                 noteDraft = highlights.firstOrNull { h ->
@@ -1361,8 +1467,28 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             color = if (dark) Color(0xFF302A25) else Color(0xFFF4EEE4),
                             shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
                         ) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 3.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally) {
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 2.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                TextButton(onClick = { changeSpeechRate(-0.1f) },
+                                    modifier = Modifier.height(42.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)) {
+                                    Text("−", fontSize = 22.sp, lineHeight = 24.sp)
+                                }
+                                Text("Velocidad · ${String.format(java.util.Locale.ROOT, "%.1f", speechRate)}×",
+                                    fontSize = 13.sp, modifier = Modifier.padding(horizontal = 10.dp))
+                                TextButton(onClick = { changeSpeechRate(0.1f) },
+                                    modifier = Modifier.height(42.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)) {
+                                    Text("+", fontSize = 22.sp, lineHeight = 24.sp)
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceEvenly
                             ) {
@@ -1381,7 +1507,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = {
                                         audioControlsVisible = true
-                                        audioActive = !audioActive
+                                        if (audioActive) pauseSpeech() else audioActive = true
                                     }
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1430,6 +1556,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         Text("Pantalla", fontSize = 10.sp, maxLines = 1)
                                     }
                                 }
+                            }
                             }
                         }
                     }
@@ -1552,8 +1679,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             dismissButton = { TextButton(onClick = { pendingNote = null }) { Text("Cancelar") } })
     }
     dictionaryWord?.let { word ->
-        val definitions by produceState<List<String>?>(null, word) {
-            value = withContext(Dispatchers.IO) { dictionaryDefinitions(word) }
+        val definitions by produceState<List<DictionaryDefinition>?>(null, word) {
+            value = withContext(Dispatchers.IO) { dictionaryDefinitions(context, word) }
         }
         ModalBottomSheet(onDismissRequest = { dictionaryWord = null },
             containerColor = background, contentColor = foreground) {
@@ -1563,21 +1690,29 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 Text(word, fontFamily = FontFamily.Serif, fontSize = 24.sp,
                     fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(14.dp))
-                Text("Diccionario · Wikcionario en castellano", fontWeight = FontWeight.Bold)
+                Text("Definiciones · DLE/RAE y Wikcionario", fontWeight = FontWeight.Bold)
+                Text("La consulta automatizada de la RAE usa un servicio comunitario; también puedes abrir la entrada oficial.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = foreground.copy(alpha = 0.72f))
                 Spacer(Modifier.height(8.dp))
                 when {
                     definitions == null -> CircularProgressIndicator(Modifier.size(24.dp))
-                    definitions!!.isEmpty() -> Text("No se encontró una definición para esta palabra.")
+                    definitions!!.isEmpty() -> Text("No se encontró una definición. Prueba otra forma de la palabra o consulta la RAE.")
                     else -> definitions!!.forEachIndexed { i, definition ->
-                        Text("${i + 1}. $definition", modifier = Modifier.padding(bottom = 10.dp),
-                            fontSize = 15.sp, lineHeight = 22.sp)
+                        Column(Modifier.padding(bottom = 12.dp)) {
+                            if (i == 0 || definitions!![i - 1].source != definition.source)
+                                Text(definition.source, fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = foreground.copy(alpha = 0.72f))
+                            Text("${i + 1}. ${definition.text}", fontSize = 15.sp, lineHeight = 22.sp)
+                        }
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = {
                         saveNotebookEntry("«$word» — " +
-                            (definitions?.firstOrNull() ?: "palabra consultada en el diccionario"))
+                            (definitions?.firstOrNull()?.text ?: "palabra consultada en el diccionario"))
                     }) { Text("Guardar en mi libreta") }
                     TextButton(onClick = {
                         try { context.startActivity(Intent(Intent.ACTION_VIEW,
