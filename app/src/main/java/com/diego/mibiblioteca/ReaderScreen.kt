@@ -54,6 +54,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -486,7 +487,8 @@ private fun SelectableParagraph(
     dark: Boolean, opening: Boolean, highlights: List<ReaderHighlight>,
     onHighlight: (ReaderHighlight) -> Unit, onNote: (ReaderHighlight) -> Unit,
     onLookup: (String) -> Unit, onTranslate: (String) -> Unit, onSpeak: (String) -> Unit,
-    onSearch: (String) -> Unit
+    onSearch: (String) -> Unit, onSaveToNotebook: (String) -> Unit,
+    onBookmarkChar: (Int, Int) -> Unit
 ) {
     val action by rememberUpdatedState(onHighlight)
     val noteAction by rememberUpdatedState(onNote)
@@ -494,6 +496,8 @@ private fun SelectableParagraph(
     val translateAction by rememberUpdatedState(onTranslate)
     val speakAction by rememberUpdatedState(onSpeak)
     val searchAction by rememberUpdatedState(onSearch)
+    val notebookAction by rememberUpdatedState(onSaveToNotebook)
+    val bookmarkAction by rememberUpdatedState(onBookmarkChar)
     AndroidView(modifier = Modifier.fillMaxWidth(), factory = { context ->
         TextView(context).apply {
             setTextIsSelectable(true)
@@ -505,17 +509,20 @@ private fun SelectableParagraph(
                     menu.add(0, 8001, 0, "Subrayar amarillo")
                     menu.add(0, 8004, 1, "Subrayar azul")
                     menu.add(0, 8005, 2, "Nota")
-                    menu.add(0, 8002, 3, "Diccionario")
-                    menu.add(0, 8003, 4, "Compartir")
-                    menu.add(0, 8006, 5, "Traducir")
-                    menu.add(0, 8007, 6, "Escuchar")
-                    menu.add(0, 8008, 7, "Buscar en el libro")
+                    menu.add(0, 8010, 3, "Copiar")
+                    menu.add(0, 8011, 4, "Fijar página")
+                    menu.add(0, 8002, 5, "Diccionario")
+                    menu.add(0, 8003, 6, "Compartir")
+                    menu.add(0, 8006, 7, "Traducir")
+                    menu.add(0, 8007, 8, "Escuchar")
+                    menu.add(0, 8008, 9, "Buscar en el libro")
+                    menu.add(0, 8009, 10, "Guardar en libreta")
                     return true
                 }
                 override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
                 override fun onDestroyActionMode(mode: ActionMode) = Unit
                 override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
-                    if (item.itemId !in 8001..8008) return false
+                    if (item.itemId !in 8001..8011) return false
                     val selectedStart = selectable.selectionStart.coerceAtLeast(0)
                     val selectedEnd = selectable.selectionEnd.coerceAtMost(selectable.text.length)
                     if (selectedEnd <= selectedStart) return false
@@ -537,6 +544,13 @@ private fun SelectableParagraph(
                         8006 -> translateAction(quote)
                         8007 -> speakAction(quote)
                         8008 -> searchAction(quote)
+                        8009 -> notebookAction("«$quote»")
+                        8010 -> {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Texto del libro", quote))
+                        }
+                        8011 -> bookmarkAction(index, start + selectedStart)
                     }
                     mode.finish()
                     return true
@@ -598,6 +612,25 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     val swipeDistance = with(LocalDensity.current) { 64.dp.toPx() }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     var jumpToItem by remember(book.uri) { mutableIntStateOf(-1) }
+    var showReaderTools by rememberSaveable(book.uri) { mutableStateOf(false) }
+    var notebook by remember(book.uri) { mutableStateOf(prefs.getString("notebook_$key", "").orEmpty()) }
+    var bookmarkChars by remember(book.uri) {
+        mutableStateOf(prefs.getString("bookmarks_$key", "").orEmpty()
+            .split(",").mapNotNull(String::toIntOrNull).distinct())
+    }
+    fun saveNotebookEntry(entry: String) {
+        val clean = entry.trim()
+        if (clean.isNotBlank()) {
+            notebook = listOf(notebook.trim(), clean).filter(String::isNotBlank).joinToString("\n\n")
+            prefs.edit().putString("notebook_$key", notebook).apply()
+        }
+    }
+    fun toggleBookmark(charPosition: Int) {
+        val position = charPosition.coerceAtLeast(0)
+        bookmarkChars = if (position in bookmarkChars) bookmarkChars - position
+            else bookmarkChars + position
+        prefs.edit().putString("bookmarks_$key", bookmarkChars.joinToString(",")).apply()
+    }
     var highlights by remember(book.uri) {
         mutableStateOf(readHighlights(prefs.getString("highlights_$key", "[]")))
     }
@@ -679,7 +712,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     }
     val document = state
     BackHandler { if (drawer.isOpen) scope.launch { drawer.close() } else onBack() }
-    ModalNavigationDrawer(drawerState = drawer, drawerContent = {
+    ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = false, drawerContent = {
         ModalDrawerSheet(
             modifier = Modifier.width(320.dp),
             drawerContainerColor = Color(0xFFF8F3E9),
@@ -854,7 +887,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 titleContentColor = foreground, navigationIconContentColor = foreground,
                 actionIconContentColor = foreground))
     }) { padding ->
-      Box(Modifier.fillMaxSize().pointerInput(document) {
+      Box(Modifier.fillMaxSize().pointerInput(document, showReaderTools) {
           awaitEachGesture {
               val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
               val start = down.position
@@ -869,12 +902,18 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
               }
               if (released && (document is ReadingDocument.TextDocument ||
                   document is ReadingDocument.PdfDocument)) {
-                  val center = start.x in size.width * 0.32f..size.width * 0.68f &&
-                      start.y in size.height * 0.30f..size.height * 0.70f
-                  val still = kotlin.math.abs(end.x - start.x) < 14.dp.toPx() &&
-                      kotlin.math.abs(end.y - start.y) < 14.dp.toPx()
-                  if (center && still && releaseTime - down.uptimeMillis < 350L)
-                      scope.launch { drawer.open() }
+                  val horizontal = end.x - start.x
+                  val vertical = end.y - start.y
+                  val edgeSwipe = start.x <= 28.dp.toPx() &&
+                      horizontal >= 72.dp.toPx() && kotlin.math.abs(vertical) < 54.dp.toPx()
+                  val centerTap = document is ReadingDocument.TextDocument &&
+                      start.x in size.width * 0.30f..size.width * 0.70f &&
+                      start.y in size.height * 0.30f..size.height * 0.75f
+                  val still = kotlin.math.abs(horizontal) < 14.dp.toPx() &&
+                      kotlin.math.abs(vertical) < 14.dp.toPx()
+                  if (edgeSwipe) scope.launch { drawer.open() }
+                  else if (centerTap && still && releaseTime - down.uptimeMillis < 350L)
+                      showReaderTools = true
               }
           }
       }) {
@@ -1174,6 +1213,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             }, onSearch = { quote ->
                                                 searchText = quote.take(80)
                                                 scope.launch { drawer.open() }
+                                            }, onSaveToNotebook = ::saveNotebookEntry,
+                                            onBookmarkChar = { paragraphIndex, charInParagraph ->
+                                                toggleBookmark(positions[paragraphIndex] + charInParagraph)
                                             })
                                     }
                                 }
@@ -1182,6 +1224,105 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 .clickable { turn(-1) })
                             Box(Modifier.align(Alignment.CenterEnd).width(32.dp).fillMaxHeight()
                                 .clickable { turn(1) })
+                        }
+                        if (showReaderTools) {
+                            var requestedPage by remember(currentPage) {
+                                mutableFloatStateOf(currentPage.toFloat())
+                            }
+                            var directPage by remember(currentPage) {
+                                mutableStateOf((currentPage + 1).toString())
+                            }
+                            ModalBottomSheet(onDismissRequest = { showReaderTools = false },
+                                containerColor = if (dark) Color(0xFF302A25) else Color(0xFFF8F3E9),
+                                contentColor = foreground) {
+                                Column(Modifier.fillMaxWidth().heightIn(max = 620.dp)
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text(book.customTitle.ifBlank { book.title }.take(60),
+                                        fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                                        fontSize = 20.sp, maxLines = 2)
+                                    Text("Página ${currentPage + 1} de ${pages.size} · $percent %",
+                                        color = foreground.copy(alpha = 0.75f))
+                                    Slider(value = requestedPage, onValueChange = { requestedPage = it },
+                                        valueRange = 0f..pages.lastIndex.toFloat().coerceAtLeast(0f),
+                                        onValueChangeFinished = {
+                                            val target = requestedPage.toInt().coerceIn(pages.indices)
+                                            textPage = target
+                                            saveSpeechCursor(pages[target].startChar)
+                                            showReaderTools = false
+                                        })
+                                    Row(verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedTextField(directPage, { directPage = it.filter(Char::isDigit) },
+                                            modifier = Modifier.weight(1f), singleLine = true,
+                                            label = { Text("Ir a la página") })
+                                        Button(onClick = {
+                                            val target = (directPage.toIntOrNull() ?: 1)
+                                                .coerceIn(1, pages.size) - 1
+                                            textPage = target
+                                            saveSpeechCursor(pages[target].startChar)
+                                            showReaderTools = false
+                                        }) { Text("Ir") }
+                                    }
+                                    HorizontalDivider()
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text("Marcas de página", fontWeight = FontWeight.Bold)
+                                            Text("Guarda este punto para volver después.",
+                                                fontSize = 12.sp, color = foreground.copy(alpha = 0.72f))
+                                        }
+                                        FilledTonalButton(onClick = {
+                                            toggleBookmark(pages[currentPage].startChar)
+                                        }) {
+                                            Text(if (pages[currentPage].startChar in bookmarkChars)
+                                                "Quitar marca" else "Poner marca")
+                                        }
+                                    }
+                                    bookmarkChars.forEachIndexed { index, charPosition ->
+                                        val targetPage = pages.indexOfLast {
+                                            it.startChar <= charPosition
+                                        }.coerceAtLeast(0)
+                                        Row(Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically) {
+                                            TextButton(onClick = {
+                                                textPage = targetPage
+                                                saveSpeechCursor(charPosition)
+                                                showReaderTools = false
+                                            }, modifier = Modifier.weight(1f)) {
+                                                Text("Marcador ${index + 1} · página ${targetPage + 1}",
+                                                    modifier = Modifier.fillMaxWidth())
+                                            }
+                                            IconButton(onClick = { toggleBookmark(charPosition) }) {
+                                                AppIcon("Borrar", "Eliminar marcador")
+                                            }
+                                        }
+                                    }
+                                    HorizontalDivider()
+                                    Text("Libreta de este libro", fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Serif, fontSize = 17.sp)
+                                    OutlinedTextField(notebook, { notebook = it },
+                                        modifier = Modifier.fillMaxWidth(), minLines = 4,
+                                        label = { Text("Notas, palabras y frases guardadas") })
+                                    Button(onClick = {
+                                        prefs.edit().putString("notebook_$key", notebook).apply()
+                                        showReaderTools = false
+                                    }, modifier = Modifier.fillMaxWidth()) { Text("Guardar en la libreta") }
+                                    if (highlights.isNotEmpty()) {
+                                        Text("Subrayados y notas", fontWeight = FontWeight.Bold)
+                                        highlights.takeLast(12).asReversed().forEach { mark ->
+                                            TextButton(onClick = {
+                                                jumpToItem = mark.paragraph
+                                                showReaderTools = false
+                                            }, modifier = Modifier.fillMaxWidth()) {
+                                                Text(mark.quote.take(100) +
+                                                    mark.note.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty(),
+                                                    maxLines = 2, modifier = Modifier.fillMaxWidth())
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     if (audioControlsVisible) {
@@ -1402,12 +1543,19 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             fontSize = 15.sp, lineHeight = 22.sp)
                     }
                 }
-                TextButton(onClick = {
-                    try { context.startActivity(Intent(Intent.ACTION_VIEW,
-                        Uri.parse("https://dle.rae.es/" +
-                            java.net.URLEncoder.encode(word, "UTF-8")))) }
-                    catch (_: Exception) {}
-                }) { Text("Consultar también en la RAE") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = {
+                        saveNotebookEntry("«$word» — " +
+                            (definitions?.firstOrNull() ?: "palabra consultada en el diccionario"))
+                    }) { Text("Guardar en mi libreta") }
+                    TextButton(onClick = {
+                        try { context.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://dle.rae.es/" +
+                                java.net.URLEncoder.encode(word, "UTF-8")))) }
+                        catch (_: Exception) {}
+                    }) { Text("Consultar RAE") }
+                }
             }
         }
     }
@@ -1427,6 +1575,11 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     translation == null -> CircularProgressIndicator(Modifier.size(24.dp))
                     translation!!.isBlank() -> Text("No se pudo traducir este fragmento.")
                     else -> Text(translation!!, fontSize = 17.sp, lineHeight = 24.sp)
+                }
+                if (!translation.isNullOrBlank()) {
+                    TextButton(onClick = {
+                        saveNotebookEntry("Frase: «${quote.take(300)}»\nTraducción: ${translation.orEmpty()}")
+                    }) { Text("Guardar frase en mi libreta") }
                 }
             }
         }
