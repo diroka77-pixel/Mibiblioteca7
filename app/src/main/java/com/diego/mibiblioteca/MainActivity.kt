@@ -50,6 +50,9 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.layout.ContentScale
@@ -1963,10 +1966,10 @@ private val Mahogany = Color(0xFF49352A)
 private val Brass = Color(0xFFAD8248)
 private val Parchment = Color(0xFFF7F6F2)
 private val Paper = Color.White
-private val Teal = Color(0xFF176C66)
+private val Teal = Color(0xFF5C9F94)
 
 private val libraryColors = lightColorScheme(
-    primary = Teal, onPrimary = Paper, secondary = Brass,
+    primary = Teal, onPrimary = Ink, secondary = Brass,
     background = Parchment, onBackground = Ink, surface = Paper, onSurface = Ink,
     surfaceVariant = Color(0xFFECE0C8)
 )
@@ -2223,9 +2226,9 @@ private fun openCasaDelLibro(context: Context) {
         border = androidx.compose.foundation.BorderStroke(1.dp,
             if (selected) Color.White.copy(alpha = 0.8f) else accent.copy(alpha = 0.8f)),
         colors = FilterChipDefaults.filterChipColors(
-            containerColor = accent, labelColor = Color.White,
-            iconColor = Color.White, selectedLeadingIconColor = Color.White,
-            selectedContainerColor = accent, selectedLabelColor = Color.White))
+            containerColor = accent, labelColor = Ink,
+            iconColor = Ink, selectedLeadingIconColor = Ink,
+            selectedContainerColor = accent, selectedLabelColor = Ink))
 }
 
 @Composable private fun LibraryActionButton(
@@ -2234,7 +2237,7 @@ private fun openCasaDelLibro(context: Context) {
 ) {
     Button(onClick = onClick, modifier = modifier, enabled = enabled,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White),
+        colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Ink),
         content = content)
 }
 
@@ -3282,6 +3285,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     val scope = rememberCoroutineScope()
     var confirmDelete by remember { mutableStateOf(false) }
     var sectionMenu by remember { mutableStateOf(false) }
+    var moreActionsExpanded by rememberSaveable(book.uri) { mutableStateOf(false) }
     var editInfo by remember { mutableStateOf(false) }
     var editIdentityDialog by remember { mutableStateOf(false) }
     var titleDraft by remember { mutableStateOf("") }
@@ -3419,38 +3423,49 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 }, modifier = Modifier.fillMaxWidth()) {
                     ActionLabel("Leer este libro", "Leer")
                 }
-                LibraryActionButton(onClick = {
-                    val safeName = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), " ").trim().take(90)
-                    val extension = (if (book.uri.scheme == "file") book.uri.lastPathSegment
-                        else androidx.documentfile.provider.DocumentFile.fromSingleUri(context, book.uri)?.name)
-                        ?.substringAfterLast('.', "epub")?.lowercase().orEmpty()
-                    exportPicker.launch((safeName.ifBlank { "Libro" }) + "." +
-                        extension.takeIf { it in setOf("epub", "pdf", "mobi", "azw", "azw3", "txt", "html", "htm", "rtf", "docx", "md") }.orEmpty().ifBlank { "epub" })
-                }, modifier = Modifier.fillMaxWidth(), enabled = !exportingEpub) {
-                    ActionLabel(if (exportingEpub) "Guardando archivo…" else "Descargar archivo de Drive", "Descargar")
-                }
-                    Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LibraryActionButton(onClick = {
+                        val safeName = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), " ").trim().take(90)
+                        val extension = (if (book.uri.scheme == "file") book.uri.lastPathSegment
+                            else androidx.documentfile.provider.DocumentFile.fromSingleUri(context, book.uri)?.name)
+                            ?.substringAfterLast('.', "epub")?.lowercase().orEmpty()
+                        exportPicker.launch((safeName.ifBlank { "Libro" }) + "." +
+                            extension.takeIf { it in setOf("epub", "pdf", "mobi", "azw", "azw3", "txt", "html", "htm", "rtf", "docx", "md") }.orEmpty().ifBlank { "epub" })
+                    }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), enabled = !exportingEpub) {
+                        ActionLabel(if (exportingEpub) "Guardando…" else "Descargar", "Descargar", 12.sp)
+                    }
                     LibraryActionButton(onClick = {
                         titleDraft = displayTitle(book); authorDraft = displayAuthor(book)
                         sagaDraft = book.saga; orderDraft = book.sagaOrder
                         editIdentityDialog = true
-                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                        ActionLabel("Editar título y autor", "Editar")
+                    }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                        ActionLabel("Editar datos", "Editar", 12.sp)
                     }
-                    Spacer(Modifier.height(14.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        LibraryActionButton(onClick = recoverCover, enabled = !coverSearching,
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                            ActionLabel(if (coverSearching) "Recuperando…" else "Recuperar portada", "Buscar", 12.sp)
+                }
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(onClick = { moreActionsExpanded = !moreActionsExpanded },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
+                    ActionLabel(if (moreActionsExpanded) "Menos opciones" else "Más opciones", "Más", 12.sp)
+                }
+                AnimatedVisibility(visible = moreActionsExpanded,
+                    enter = fadeIn(tween(160)), exit = fadeOut(tween(120))) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            LibraryActionButton(onClick = recoverCover, enabled = !coverSearching,
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                                ActionLabel(if (coverSearching) "Recuperando…" else "Recuperar portada", "Buscar", 11.sp)
+                            }
+                            LibraryActionButton(onClick = { coverPicker.launch("image/*") },
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                                ActionLabel("Cambiar portada", "Portada", 11.sp)
+                            }
                         }
-                        LibraryActionButton(onClick = { coverPicker.launch("image/*") },
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                            ActionLabel("Cambiar portada", "Portada", 12.sp)
+                        LibraryTextButton(onClick = { searchCoverImages(context, book) }) {
+                            ActionLabel("Ver imágenes en Google", "Buscar", 12.sp)
                         }
                     }
-                    LibraryTextButton(onClick = { searchCoverImages(context, book) }) {
-                        ActionLabel("Ver imágenes en Google", "Buscar", 12.sp)
-                    }
+                }
                 }
             }
             item {
