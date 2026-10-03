@@ -488,7 +488,7 @@ private fun SelectableParagraph(
     onHighlight: (ReaderHighlight) -> Unit, onNote: (ReaderHighlight) -> Unit,
     onLookup: (String) -> Unit, onTranslate: (String) -> Unit, onSpeak: (String) -> Unit,
     onSearch: (String) -> Unit, onSaveToNotebook: (String) -> Unit,
-    onBookmarkChar: (Int) -> Unit
+    onBookmarkChar: (Int, Int) -> Unit
 ) {
     val action by rememberUpdatedState(onHighlight)
     val noteAction by rememberUpdatedState(onNote)
@@ -550,7 +550,7 @@ private fun SelectableParagraph(
                                 as android.content.ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("Texto del libro", quote))
                         }
-                        8011 -> bookmarkAction(start + selectedStart)
+                        8011 -> bookmarkAction(index, start + selectedStart)
                     }
                     mode.finish()
                     return true
@@ -1214,7 +1214,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                 searchText = quote.take(80)
                                                 scope.launch { drawer.open() }
                                             }, onSaveToNotebook = ::saveNotebookEntry,
-                                            onBookmarkChar = ::toggleBookmark)
+                                            onBookmarkChar = { paragraphIndex, charInParagraph ->
+                                                toggleBookmark(positions[paragraphIndex] + charInParagraph)
+                                            })
                                     }
                                 }
                             }
