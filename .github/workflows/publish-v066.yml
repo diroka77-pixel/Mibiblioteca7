@@ -1,0 +1,56 @@
+name: Publicar MiBiblioteca v0.66
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v066.yml'
+permissions:
+  contents: write
+jobs:
+  release:
+    if: github.event.head_commit.message == 'Publicar MiBiblioteca v0.66'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Instalar SDK 35
+        run: |
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Restaurar firma permanente
+        env:
+          KEYSTORE_B64: ${{ secrets.MIBIBLIOTECA_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.MIBIBLIOTECA_KEYSTORE_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_B64"
+          test -n "$KEYSTORE_PASSWORD"
+          umask 077
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/mibiblioteca.p12"
+          keytool -list -keystore "$RUNNER_TEMP/mibiblioteca.p12" -storepass:env KEYSTORE_PASSWORD -alias mibiblioteca >/dev/null
+      - name: Probar y compilar APK firmada
+        env:
+          MIBIBLIOTECA_KEYSTORE_PATH: ${{ runner.temp }}/mibiblioteca.p12
+          MIBIBLIOTECA_KEYSTORE_PASSWORD: ${{ secrets.MIBIBLIOTECA_KEYSTORE_PASSWORD }}
+        run: gradle :app:testDebugUnitTest :app:assembleRelease --no-daemon
+      - name: Verificar y publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$APK"
+          cp "$APK" MiBiblioteca-v0.66.apk
+          gh release create v0.66 MiBiblioteca-v0.66.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target b22d76903af656813a04a813fdcd1eeb232bd9e9 \
+            --title "MiBiblioteca v0.66" \
+            --notes "Lectura en voz alta y selector de voces dentro del menú lateral del EPUB. Menús laterales renovados. Davefx funciona sin conexión mediante el motor Android oficial de Sherpa ONNX, que se instala por separado: https://k2-fsa.github.io/sherpa/onnx/tts/apk-engine.html . Desde Elegir voz, selecciona Davefx después de instalarlo."
+      - name: Eliminar clave temporal
+        if: always()
+        run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
