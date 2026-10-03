@@ -2643,11 +2643,6 @@ private fun openCasaDelLibro(context: Context) {
                     Text("EXPLORAR", color = Teal,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
-                    NavigationDrawerItem(label = { Text("Favoritos") }, selected = vm.onlyFavorites && tab == "Biblioteca",
-                        icon = { AppIcon("Favoritos") }, onClick = {
-                            switchTab("Biblioteca"); vm.query = ""; vm.onlyFavorites = true
-                            scope.launch { drawerState.close() }
-                        })
                     NavigationDrawerItem(label = { Text("Quiero leer") }, selected = showWishList,
                         icon = { AppIcon("Pendientes") }, onClick = {
                             switchTab("Biblioteca"); showWishList = true
@@ -2970,13 +2965,7 @@ private fun openCasaDelLibro(context: Context) {
                                     AppIcon("Cerrar", "Ocultar noticia", tint = Mahogany)
                                 }
                             }
-                            if (picture != null) {
-                                HorizontalDivider(color = Brass.copy(alpha = 0.22f))
-                                Image(picture!!.asImageBitmap(), contentDescription = null,
-                                    modifier = Modifier.fillMaxWidth().height(202.dp),
-                                    contentScale = if (news.source == "Casa del Libro")
-                                        ContentScale.Fit else ContentScale.Crop)
-                            }
+
                         }
                     }
                 }

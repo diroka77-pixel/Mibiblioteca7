@@ -46,11 +46,15 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$APK"
           cp "$APK" MiBiblioteca-v0.76.apk
-          gh release create v0.76 MiBiblioteca-v0.76.apk \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "MiBiblioteca v0.76" \
-            --notes "Mejoras del lector: cerrar el panel deslizando a la izquierda y acceso prioritario a Subrayar/Quitar subrayado y Diccionario. Incluye la interfaz de noticias más compacta y cambios acumulados sobre la versión 0.75."
+          if gh release view v0.76 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v0.76 MiBiblioteca-v0.76.apk --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create v0.76 MiBiblioteca-v0.76.apk \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "MiBiblioteca v0.76" \
+              --notes "Mejoras del lector: cerrar el panel deslizando a la izquierda y acceso prioritario a Subrayar/Quitar subrayado y Diccionario. Incluye la interfaz de noticias más compacta y cambios acumulados sobre la versión 0.75."
+          fi
       - name: Eliminar clave temporal
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
