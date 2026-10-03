@@ -17,7 +17,9 @@ import android.util.TypedValue
 import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
-import android.widget.PopupMenu
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.ExpandMore
 import android.widget.TextView
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
@@ -103,9 +105,25 @@ private data class ReadingSlice(val paragraph: Int, val start: Int, val end: Int
 private data class ReadingPage(val slices: List<ReadingSlice>, val startChar: Int)
 private data class SpeechPage(val text: String, val sourcePositions: IntArray)
 internal data class SpeechChunk(val start: Int, val text: String)
-internal fun speechWordChunks(text: String): List<SpeechChunk> =
-    Regex("\\S+\\s*").findAll(text).map { SpeechChunk(it.range.first, it.value) }.toList()
-
+internal fun speechWordChunks(text: String, maxChars: Int = 900): List<SpeechChunk> {
+    if (text.isBlank()) return emptyList()
+    val limit = maxChars.coerceAtLeast(120)
+    val chunks = mutableListOf<SpeechChunk>()
+    var from = 0
+    while (from < text.length) {
+        val hardEnd = (from + limit).coerceAtMost(text.length)
+        val end = if (hardEnd == text.length) hardEnd else {
+            val boundary = text.lastIndexOf(' ', hardEnd - 1).takeIf { it > from }
+                ?: text.indexOf(' ', hardEnd).takeIf { it >= 0 }
+                ?: hardEnd
+            boundary
+        }
+        val content = text.substring(from, end)
+        if (content.isNotBlank()) chunks += SpeechChunk(from, content)
+        from = if (end < text.length && text[end].isWhitespace()) end + 1 else end
+    }
+    return chunks
+}
 private fun speechPage(page: ReadingPage, paragraphs: List<ReadingParagraph>, positions: IntArray): SpeechPage {
     val text = StringBuilder()
     val sourcePositions = ArrayList<Int>()
@@ -572,10 +590,6 @@ private fun SelectableParagraph(
     val noteAction by rememberUpdatedState(onNote)
     val removeHighlightAction by rememberUpdatedState(onRemoveHighlight)
     val lookupAction by rememberUpdatedState(onLookup)
-    val translateAction by rememberUpdatedState(onTranslate)
-    val speakAction by rememberUpdatedState(onSpeak)
-    val searchAction by rememberUpdatedState(onSearch)
-    val notebookAction by rememberUpdatedState(onSaveToNotebook)
     val bookmarkAction by rememberUpdatedState(onBookmarkChar)
     AndroidView(modifier = Modifier.fillMaxWidth(), factory = { context ->
         TextView(context).apply {
@@ -586,67 +600,47 @@ private fun SelectableParagraph(
             setCustomSelectionActionModeCallback(object : ActionMode.Callback {
                 override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
                     menu.add(0, 8001, 0, "Subrayar")
-                    menu.add(0, 8002, 1, "Diccionario")
-                    menu.add(0, 8012, 2, "Quitar subrayado")
-                    menu.add(0, 8005, 3, "Nota")
-                    menu.add(0, 8013, 4, "Más opciones")
+                    menu.add(0, 8005, 1, "Nota")
+                    menu.add(0, 8010, 2, "Copiar")
+                    menu.add(0, 8011, 3, "Fijar")
+                    menu.add(0, 8002, 4, "Diccionario")
                     return true
                 }
-                override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
+                override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+                    val selectedStart = selectable.selectionStart.coerceAtLeast(0)
+                    val selectedEnd = selectable.selectionEnd.coerceAtMost(selectable.text.length)
+                    val marked = highlights.any { it.paragraph == index &&
+                        it.start < start + selectedEnd && it.end > start + selectedStart }
+                    menu.findItem(8001)?.title = if (marked) "Quitar subrayado" else "Subrayar"
+                    return true
+                }
                 override fun onDestroyActionMode(mode: ActionMode) = Unit
                 override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
-                    if (item.itemId !in setOf(8001, 8002, 8005, 8012, 8013)) return false
+                    if (item.itemId !in setOf(8001, 8002, 8005, 8010, 8011)) return false
                     val selectedStart = selectable.selectionStart.coerceAtLeast(0)
                     val selectedEnd = selectable.selectionEnd.coerceAtMost(selectable.text.length)
                     if (selectedEnd <= selectedStart) return false
                     val quote = selectable.text.subSequence(selectedStart, selectedEnd).toString().trim()
                     if (quote.isBlank()) return false
                     when (item.itemId) {
-                        8001 -> action(ReaderHighlight(index, start + selectedStart,
-                            start + selectedEnd, quote, "amarillo"))
+                        8001 -> {
+                            val removed = removeHighlightAction(index, start + selectedStart,
+                                start + selectedEnd)
+                            if (!removed) action(ReaderHighlight(index, start + selectedStart,
+                                start + selectedEnd, quote, "amarillo"))
+                        }
                         8005 -> noteAction(ReaderHighlight(index, start + selectedStart,
                             start + selectedEnd, quote))
-                        8012 -> if (!removeHighlightAction(index, start + selectedStart,
-                            start + selectedEnd)) android.widget.Toast.makeText(context,
-                                "No hay subrayado en la selección", android.widget.Toast.LENGTH_SHORT).show()
+                        8010 -> {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Texto del libro", quote))
+                        }
+                        8011 -> bookmarkAction(index, start + selectedStart)
                         8002 -> {
                             val word = quote.split(Regex("\\s+")).first().trim('¿', '¡', '.', ',', ';',
                                 ':', '!', '?', '«', '»', '"', '\'')
                             if (word.isNotBlank()) lookupAction(word)
-                        }
-                        8013 -> {
-                            PopupMenu(context, selectable).apply {
-                                menu.add(0, 8004, 0, "Subrayar azul")
-                                menu.add(0, 8003, 1, "Compartir")
-                                menu.add(0, 8006, 2, "Traducir")
-                                menu.add(0, 8007, 3, "Escuchar")
-                                menu.add(0, 8008, 4, "Buscar en el libro")
-                                menu.add(0, 8009, 5, "Guardar en libreta")
-                                menu.add(0, 8010, 6, "Copiar")
-                                menu.add(0, 8011, 7, "Fijar página")
-                                setOnMenuItemClickListener { extra ->
-                                    when (extra.itemId) {
-                                        8004 -> action(ReaderHighlight(index, start + selectedStart,
-                                            start + selectedEnd, quote, "azul"))
-                                        8003 -> context.startActivity(Intent.createChooser(
-                                            Intent(Intent.ACTION_SEND).apply {
-                                                type = "text/plain"; putExtra(Intent.EXTRA_TEXT, quote)
-                                            }, "Compartir cita"))
-                                        8006 -> translateAction(quote)
-                                        8007 -> speakAction(quote)
-                                        8008 -> searchAction(quote)
-                                        8009 -> notebookAction("«$quote»")
-                                        8010 -> {
-                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
-                                                as android.content.ClipboardManager
-                                            clipboard.setPrimaryClip(ClipData.newPlainText("Texto del libro", quote))
-                                        }
-                                        8011 -> bookmarkAction(index, start + selectedStart)
-                                    }
-                                    true
-                                }
-                                show()
-                            }
                         }
                     }
                     mode.finish()
@@ -761,8 +755,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     }
     fun pauseSpeech() {
         // Ignore callbacks delivered late by the utterance that is being stopped.
-        speechGeneration.incrementAndGet()
         if (audioActive) saveSpeechCursor(currentSpeechPosition())
+        speechGeneration.incrementAndGet()
+        speech?.stop()
         audioActive = false
     }
     fun changeSpeechRate(delta: Float) {
@@ -1174,16 +1169,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 val current = pages[textPage.coerceIn(pages.indices)]
                                 percent = if (textPage >= pages.lastIndex) 100
                                     else (current.startChar * 100 / total).coerceIn(0, 100)
-                                val pageEnd = current.slices.lastOrNull()?.let { last ->
-                                    positions[last.paragraph] + last.end
-                                } ?: current.startChar
-                                val savedPosition = audioCursor.takeIf {
-                                    it >= current.startChar && it < pageEnd.coerceAtLeast(current.startChar + 1)
-                                } ?: current.startChar
-                                activeSpeechCursor.set(savedPosition)
-                                audioCursor = savedPosition
-                                prefs.edit().putInt("char_$key", savedPosition)
-                                    .putInt("percent_$key", percent).apply()
+                                prefs.edit().putInt("percent_$key", percent).apply()
                                 onProgress(percent)
                             }
                         }
@@ -1196,10 +1182,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             }
                         }
                         val currentPage = textPage.coerceIn(pages.indices)
-                        LaunchedEffect(audioAdvance) {
+                        LaunchedEffect(audioAdvance, pages) {
                             if (audioAdvance > 0 && audioActive) {
-                                if (textPage < pages.lastIndex) textPage++
-                                else audioActive = false
+                                if (textPage < pages.lastIndex) {
+                                    textPage++
+                                    saveSpeechCursor(pages[textPage].startChar)
+                                } else audioActive = false
                             }
                         }
                         LaunchedEffect(audioActive, currentPage, pages, speechReady, selectedVoiceName, audioSeekRequest, speechRate) {
@@ -1228,27 +1216,39 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     val spoken = spokenPage.text.substring(offsetInPage)
                                     val spokenBaseOffset = offsetInPage
                                     val utteranceGeneration = speechGeneration.incrementAndGet()
-                                    val maxLength = minOf(spoken.length, 3900)
-                                    val safeLength = if (maxLength < spoken.length)
-                                        spoken.lastIndexOf(' ', maxLength).takeIf { it > 0 } ?: maxLength
-                                        else maxLength
-                                    val chunks = speechWordChunks(spoken.take(safeLength))
+                                    val chunks = speechWordChunks(spoken)
                                     fun speakChunk(index: Int, queueMode: Int) {
                                         if (speechGeneration.get() != utteranceGeneration) return
                                         val chunk = chunks.getOrNull(index) ?: return
-                                        val wordPosition = speechCharForOffset(spokenPage,
-                                            spokenBaseOffset + chunk.start, total)
-                                        activeSpeechCursor.set(wordPosition)
-                                        audioCursor = wordPosition
-                                        prefs.edit().putInt("char_$key", wordPosition)
-                                            .putInt("percent_$key", (wordPosition * 100 / total).coerceIn(0, 99))
-                                            .apply()
                                         val result = engine.speak(chunk.text, queueMode, null,
                                             "page_${currentPage}_generation_${utteranceGeneration}_chunk_$index")
                                         if (result == TextToSpeech.ERROR) audioActive = false
                                     }
                                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                                         override fun onStart(utteranceId: String?) {}
+                                        override fun onRangeStart(utteranceId: String?, start: Int, end: Int,
+                                            frame: Int) {
+                                            if (speechGeneration.get() != utteranceGeneration) return
+                                            val chunkIndex = utteranceId?.substringAfterLast('_')?.toIntOrNull()
+                                                ?: return
+                                            val chunk = chunks.getOrNull(chunkIndex) ?: return
+                                            val local = start.coerceIn(0, chunk.text.length)
+                                            val absolute = (spokenBaseOffset + chunk.start + local)
+                                                .coerceIn(0, spokenPage.text.length)
+                                            var wordStart = absolute
+                                            while (wordStart > 0 && !spokenPage.text[wordStart - 1].isWhitespace())
+                                                wordStart--
+                                            val sourcePosition = speechCharForOffset(spokenPage, wordStart, total)
+                                            Handler(Looper.getMainLooper()).post {
+                                                if (speechGeneration.get() == utteranceGeneration) {
+                                                    activeSpeechCursor.set(sourcePosition)
+                                                    audioCursor = sourcePosition
+                                                    prefs.edit().putInt("char_$key", sourcePosition)
+                                                        .putInt("percent_$key", (sourcePosition * 100 / total).coerceIn(0, 99))
+                                                        .apply()
+                                                }
+                                            }
+                                        }
                                         override fun onDone(utteranceId: String?) {
                                             if (speechGeneration.get() != utteranceGeneration) return
                                             Handler(Looper.getMainLooper()).post {
@@ -1258,9 +1258,22 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                 if (nextChunk < chunks.size) {
                                                     speakChunk(nextChunk, TextToSpeech.QUEUE_ADD)
                                                 } else {
-                                                    val nextChar = pages.getOrNull(currentPage + 1)?.startChar ?: total
-                                                    saveSpeechCursor(nextChar.coerceAtMost(total - 1))
-                                                    audioAdvance++
+                                                    val nextOffset = spokenBaseOffset +
+                                                        (chunks.lastOrNull()?.let { it.start + it.text.length } ?: 0)
+                                                    if (nextOffset < spokenPage.text.length) {
+                                                        val nextPosition = speechCharForOffset(spokenPage,
+                                                            nextOffset, total)
+                                                        saveSpeechCursor(nextPosition)
+                                                        audioActive = true
+                                                        audioAdvance++
+                                                    } else if (currentPage < pages.lastIndex) {
+                                                        val nextPosition = pages[currentPage + 1].startChar
+                                                        saveSpeechCursor(nextPosition)
+                                                        audioAdvance++
+                                                    } else {
+                                                        saveSpeechCursor(total - 1)
+                                                        audioActive = false
+                                                    }
                                                 }
                                             }
                                         }
@@ -1694,26 +1707,69 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             Column(Modifier.fillMaxWidth().heightIn(max = 460.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(start = 24.dp, end = 24.dp, bottom = 30.dp)) {
-                Text(word, fontFamily = FontFamily.Serif, fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(14.dp))
-                Text("Definiciones · DLE/RAE y Wikcionario", fontWeight = FontWeight.Bold)
-                Text("La consulta automatizada de la RAE usa un servicio comunitario; también puedes abrir la entrada oficial.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = foreground.copy(alpha = 0.72f))
-                Spacer(Modifier.height(8.dp))
-                when {
-                    definitions == null -> CircularProgressIndicator(Modifier.size(24.dp))
-                    definitions!!.isEmpty() -> Text("No se encontró una definición. Prueba otra forma de la palabra o consulta la RAE.")
-                    else -> definitions!!.forEachIndexed { i, definition ->
-                        Column(Modifier.padding(bottom = 12.dp)) {
-                            if (i == 0 || definitions!![i - 1].source != definition.source)
-                                Text(definition.source, fontWeight = FontWeight.SemiBold,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = foreground.copy(alpha = 0.72f))
-                            Text("${i + 1}. ${definition.text}", fontSize = 15.sp, lineHeight = 22.sp)
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = {
+                        speech?.apply {
+                            language = java.util.Locale.forLanguageTag("es-ES")
+                            speak(word, TextToSpeech.QUEUE_FLUSH, null, "dictionary_pronounce")
+                        }
+                    }) { Icon(Icons.Filled.VolumeUp, contentDescription = "Pronunciar $word") }
+                    Text(word, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                }
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(
+                    containerColor = foreground.copy(alpha = 0.06f))) {
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Diccionario", modifier = Modifier.weight(1f),
+                                fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Filled.ExpandMore, contentDescription = "Mostrar definiciones")
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        when {
+                            definitions == null -> Text("Buscando en Wikcionario y la RAE…")
+                            definitions!!.isEmpty() -> Text(
+                                "Para ver definiciones sin conexión, abre el diccionario español de Android o consulta la RAE.")
+                            else -> definitions!!.forEachIndexed { i, definition ->
+                                Column(Modifier.padding(bottom = 12.dp)) {
+                                    if (i == 0 || definitions!![i - 1].source != definition.source)
+                                        Text(definition.source, fontWeight = FontWeight.SemiBold,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = foreground.copy(alpha = 0.72f))
+                                    Text("${i + 1}. ${definition.text}", fontSize = 15.sp, lineHeight = 22.sp)
+                                }
+                            }
+                        }
+                        if (definitions == null || definitions!!.isEmpty()) {
+                            Spacer(Modifier.height(12.dp))
+                            Text("Para ver las definiciones, seleccione un idioma y descargue el diccionario gratuito.",
+                                fontSize = 16.sp, lineHeight = 24.sp)
+                            Spacer(Modifier.height(14.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(modifier = Modifier.weight(1f), onClick = {
+                                    try { context.startActivity(Intent(
+                                        android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) }
+                                    catch (_: Exception) { }
+                                }) { Text("Español") }
+                                FilledIconButton(onClick = {
+                                    try { context.startActivity(Intent(Intent.ACTION_VIEW,
+                                        Uri.parse("https://es.wiktionary.org/wiki/" +
+                                            java.net.URLEncoder.encode(word, "UTF-8")))) }
+                                    catch (_: Exception) { }
+                                }) { Text("↓") }
+                            }
                         }
                     }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Consulta local de Wikcionario y acceso al DLE de la RAE.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = foreground.copy(alpha = 0.72f))
+                when {
+                    definitions == null -> LinearProgressIndicator(Modifier.fillMaxWidth())
+                    else -> Unit
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically) {
