@@ -3029,7 +3029,9 @@ private fun openCasaDelLibro(context: Context) {
             LibraryScrollHandle(listState, Modifier.align(Alignment.CenterEnd))
         }
         }
+        }
       }
+    }
     }
     }
 }
@@ -3542,21 +3544,12 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 }
             }
             item {
-                OutlinedButton(onClick = { openGoodreads(context, book) },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp)) {
-                    ActionLabel("Abrir en Goodreads", "Goodreads")
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = { searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book)) },
-                        modifier = Modifier.weight(1f).heightIn(min = 46.dp)) {
-                        ActionLabel("Google", "Buscar", 12.sp)
-                    }
-                    OutlinedButton(onClick = { confirmDelete = true },
-                        modifier = Modifier.weight(1f).heightIn(min = 46.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                        ActionLabel("Borrar archivo", "Borrar", 12.sp)
-                    }
-                }
+                LibraryActionButton(onClick = { openGoodreads(context, book) },
+                    modifier = Modifier.fillMaxWidth()) { ActionLabel("Abrir este libro en Goodreads", "Goodreads") }
+                LibraryActionButton(onClick = { searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book)) },
+                    modifier = Modifier.fillMaxWidth()) { ActionLabel("Consultar en Google", "Google") }
+                LibraryActionButton(onClick = { confirmDelete = true },
+                    modifier = Modifier.fillMaxWidth()) { ActionLabel("Borrar este archivo de Drive", "Borrar") }
             }
         }
     }
