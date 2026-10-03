@@ -2184,6 +2184,12 @@ private fun openCasaDelLibro(context: Context) {
         "Estado" -> Icons.Outlined.Info
         "Subir" -> Icons.Outlined.KeyboardArrowUp
         "Bajar" -> Icons.Outlined.KeyboardArrowDown
+        "Retroceder" -> Icons.Outlined.FastRewind
+        "Reproducir" -> Icons.Outlined.PlayArrow
+        "Pausar" -> Icons.Outlined.Pause
+        "Detener" -> Icons.Outlined.Stop
+        "Avanzar" -> Icons.Outlined.FastForward
+        "Bloquear" -> Icons.Outlined.Lock
         "Borrar" -> Icons.Outlined.DeleteOutline
         "Añadir" -> Icons.Outlined.Add
         "Portada" -> Icons.Outlined.Image
@@ -2718,22 +2724,15 @@ private fun openCasaDelLibro(context: Context) {
         containerColor = Parchment,
         topBar = {
             Column(Modifier.fillMaxWidth().background(Mahogany).statusBarsPadding()) {
-                Row(Modifier.fillMaxWidth().height(60.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.fillMaxWidth().height(60.dp)) {
                     IconButton(onClick = { scope.launch { drawerState.open() } },
-                        modifier = Modifier.semantics { contentDescription = "Abrir menú" }) {
+                        modifier = Modifier.align(Alignment.CenterStart)
+                            .semantics { contentDescription = "Abrir menú" }) {
                         Icon(Icons.Outlined.Menu, "Abrir menú", tint = Color.White)
                     }
-                    Spacer(Modifier.width(4.dp))
-                    Text("Mi Biblioteca", color = Color.White, fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.width(9.dp))
-                    Box(Modifier.size(38.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-                        Image(painterResource(R.drawable.ic_bookshelf_foreground),
-                            "Estantería de libros", modifier = Modifier.size(29.dp))
-                    }
+                    Text("Mi Biblioteca", modifier = Modifier.align(Alignment.Center),
+                        color = Color.White, fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Serif)
                 }
                 OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
                     tab = "Biblioteca"; vm.qualityFilter = "Ninguno"
@@ -2771,6 +2770,10 @@ private fun openCasaDelLibro(context: Context) {
                   val index = tabs.indexOf(currentTab)
                   val next = index + if (horizontal < 0) 1 else -1
                   if (next in tabs.indices) currentSwitch(tabs[next])
+              } else if (currentTab == "Inicio" && vertical > swipeThreshold * 1.8f &&
+                  listState.firstVisibleItemIndex == 0 &&
+                  listState.firstVisibleItemScrollOffset == 0 && !vm.newsRefreshing) {
+                  vm.refreshLaunchNews(true)
               }
           }
       }) {
