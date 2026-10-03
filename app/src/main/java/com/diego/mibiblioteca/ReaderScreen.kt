@@ -583,6 +583,10 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var audioActive by remember(book.uri) { mutableStateOf(false) }
     var audioAdvance by remember(book.uri) { mutableIntStateOf(0) }
     var showVoicePicker by remember { mutableStateOf(false) }
+    var davefxDownloading by remember { mutableStateOf(false) }
+    var davefxReadyFile by remember { mutableStateOf<File?>(null) }
+    var davefxProgress by remember { mutableIntStateOf(0) }
+    var davefxError by remember { mutableStateOf<String?>(null) }
     var selectedVoiceName by remember { mutableStateOf(prefs.getString("voice_name", "").orEmpty()) }
     DisposableEffect(context, book.uri, selectedVoiceName) {
         var engine: TextToSpeech? = null
@@ -1102,13 +1106,27 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             selectedVoiceName = "davefx"
                             prefs.edit().putString("voice_name", "davefx").apply()
                             showVoicePicker = false
-                        } else {
-                            context.startActivity(Intent(Intent.ACTION_VIEW,
-                                Uri.parse(DAVEFX_DOWNLOAD_PAGE)))
+                        } else if (!davefxDownloading) {
+                            showVoicePicker = false
+                            davefxDownloading = true
+                            davefxProgress = 0
+                            scope.launch {
+                                try {
+                                    davefxReadyFile = withContext(Dispatchers.IO) {
+                                        downloadDavefx(context) { progress ->
+                                            Handler(Looper.getMainLooper()).post {
+                                                davefxProgress = progress
+                                            }
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    davefxError = e.localizedMessage ?: "No se pudo descargar Davefx."
+                                } finally { davefxDownloading = false }
+                            }
                         }
                     }
                     if (!hasDavefxEngine(context)) Text(
-                        "Para usar Davefx, instala su motor de voz desde la página oficial y vuelve aquí.",
+                        "Al elegir Davefx se descargará el motor oficial (87 MB) y podrás instalarlo.",
                         style = MaterialTheme.typography.bodySmall)
                     RadioVoiceOption("Predeterminada", selectedVoiceName.isBlank()) {
                         selectedVoiceName = ""; prefs.edit().remove("voice_name").apply()
@@ -1126,6 +1144,39 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 }
             },
             confirmButton = { TextButton(onClick = { showVoicePicker = false }) { Text("Cerrar") } })
+    }
+    if (davefxDownloading) AlertDialog(onDismissRequest = {},
+        title = { Text("Descargando Davefx") },
+        text = { Column {
+            Text("Motor de voz sin conexión · ${davefxProgress} %")
+            LinearProgressIndicator(progress = { davefxProgress / 100f },
+                modifier = Modifier.fillMaxWidth())
+        } },
+        confirmButton = {})
+    davefxError?.let { error ->
+        AlertDialog(onDismissRequest = { davefxError = null },
+            title = { Text("Descarga interrumpida") },
+            text = { Text(error) },
+            confirmButton = { TextButton(onClick = { davefxError = null }) { Text("Cerrar") } })
+    }
+    davefxReadyFile?.let { file ->
+        AlertDialog(onDismissRequest = { davefxReadyFile = null },
+            title = { Text("Instalar voz Davefx") },
+            text = { Text("Descarga comprobada. Android solicitará permiso para instalar el motor de voz. Después vuelve a Elegir voz y selecciona Davefx.") },
+            confirmButton = { Button(onClick = {
+                if (!context.packageManager.canRequestPackageInstalls()) {
+                    context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + context.packageName)))
+                } else {
+                    try {
+                        installDavefx(context, file)
+                        davefxReadyFile = null
+                    } catch (e: Exception) {
+                        davefxError = e.localizedMessage ?: "No se pudo abrir el instalador."
+                    }
+                }
+            }) { Text("Instalar") } },
+            dismissButton = { TextButton(onClick = { davefxReadyFile = null }) { Text("Más tarde") } })
     }
     pendingNote?.let { selected ->
         AlertDialog(onDismissRequest = { pendingNote = null },
@@ -1210,11 +1261,82 @@ private fun RadioVoiceOption(label: String, selected: Boolean, onClick: () -> Un
 }
 
 private const val DAVEFX_ENGINE = "com.k2fsa.sherpa.onnx.tts.engine"
-private const val DAVEFX_DOWNLOAD_PAGE = "https://k2-fsa.github.io/sherpa/onnx/tts/apk-engine.html"
+private const val DAVEFX_DOWNLOAD_URL =
+    "https://huggingface.co/csukuangfj2/sherpa-onnx-apk/resolve/84b121c256db85d6ebe0015705e647c36f489bc1/tts-engine-new/1.13.1/sherpa-onnx-1.13.1-arm64-v8a-es-tts-engine-vits-piper-es_ES-davefx-medium.apk"
+private const val DAVEFX_SHA256 = "0c41a7ec529761b929e3ef24c588fcc4fe76803a021285d638d8cccb6f205f43"
 
 private fun hasDavefxEngine(context: Context): Boolean = try {
     context.packageManager.getPackageInfo(DAVEFX_ENGINE, 0)
     true
 } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
     false
+}
+
+private fun downloadDavefx(context: Context, onProgress: (Int) -> Unit): File {
+    val directory = File(context.cacheDir, "voices").apply { mkdirs() }
+    val destination = File(directory, "davefx-engine.apk")
+    fun checksum(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+    if (destination.isFile && checksum(destination) == DAVEFX_SHA256) {
+        onProgress(100)
+        return destination
+    }
+    require(context.cacheDir.usableSpace > 200_000_000L) {
+        "Necesitas al menos 200 MB libres para descargar e instalar Davefx."
+    }
+    val temp = File(directory, "davefx-engine.download")
+    try {
+        val connection = (URL(DAVEFX_DOWNLOAD_URL).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 20_000
+            readTimeout = 30_000
+            instanceFollowRedirects = true
+        }
+        try {
+            require(connection.responseCode in 200..299) {
+                "El servidor de Davefx respondió ${connection.responseCode}."
+            }
+            val length = connection.contentLengthLong
+            require(length in 50_000_000L..150_000_000L) {
+                "El tamaño de la descarga de Davefx no es válido."
+            }
+            connection.inputStream.use { input ->
+                temp.outputStream().buffered().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var copied = 0L
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        copied += count
+                        require(copied <= 150_000_000L) { "Descarga demasiado grande." }
+                        output.write(buffer, 0, count)
+                        onProgress((copied * 100 / length).toInt().coerceIn(0, 100))
+                    }
+                }
+            }
+            require(temp.length() == length && checksum(temp) == DAVEFX_SHA256) {
+                "La descarga de Davefx no superó la verificación de integridad."
+            }
+            require(temp.renameTo(destination)) { "No se pudo preparar el instalador de Davefx." }
+            return destination
+        } finally { connection.disconnect() }
+    } finally { temp.delete() }
+}
+
+private fun installDavefx(context: Context, file: File) {
+    val uri = androidx.core.content.FileProvider.getUriForFile(
+        context, context.packageName + ".fileprovider", file)
+    context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, "application/vnd.android.package-archive")
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    })
 }
