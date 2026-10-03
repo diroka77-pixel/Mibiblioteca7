@@ -17,11 +17,15 @@ import android.util.TypedValue
 import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.ExpandMore
 import android.widget.TextView
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.os.Handler
 import android.os.Looper
+import java.util.concurrent.atomic.AtomicInteger
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -53,6 +57,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -98,6 +103,52 @@ private data class ReaderHighlight(val paragraph: Int, val start: Int, val end: 
     val quote: String, val color: String = "amarillo", val note: String = "")
 private data class ReadingSlice(val paragraph: Int, val start: Int, val end: Int, val height: Int)
 private data class ReadingPage(val slices: List<ReadingSlice>, val startChar: Int)
+private data class SpeechPage(val text: String, val sourcePositions: IntArray)
+internal data class SpeechChunk(val start: Int, val text: String)
+internal fun speechWordChunks(text: String, maxChars: Int = 900): List<SpeechChunk> {
+    if (text.isBlank()) return emptyList()
+    val limit = maxChars.coerceAtLeast(120)
+    val chunks = mutableListOf<SpeechChunk>()
+    var from = 0
+    while (from < text.length) {
+        val hardEnd = (from + limit).coerceAtMost(text.length)
+        val end = if (hardEnd == text.length) hardEnd else {
+            val boundary = text.lastIndexOf(' ', hardEnd - 1).takeIf { it > from }
+                ?: text.indexOf(' ', hardEnd).takeIf { it >= 0 }
+                ?: hardEnd
+            boundary
+        }
+        val content = text.substring(from, end)
+        if (content.isNotBlank()) chunks += SpeechChunk(from, content)
+        from = if (end < text.length && text[end].isWhitespace()) end + 1 else end
+    }
+    return chunks
+}
+private fun speechPage(page: ReadingPage, paragraphs: List<ReadingParagraph>, positions: IntArray): SpeechPage {
+    val text = StringBuilder()
+    val sourcePositions = ArrayList<Int>()
+    page.slices.forEachIndexed { index, slice ->
+        if (index > 0) {
+            text.append(' ')
+            sourcePositions += positions[slice.paragraph] + slice.start
+        }
+        val part = paragraphs[slice.paragraph].text.substring(slice.start, slice.end)
+        part.forEachIndexed { offset, char ->
+            text.append(char)
+            sourcePositions += positions[slice.paragraph] + slice.start + offset
+        }
+    }
+    return SpeechPage(text.toString(), sourcePositions.toIntArray())
+}
+
+private fun speechOffsetForChar(page: SpeechPage, charPosition: Int): Int {
+    val found = page.sourcePositions.indexOfFirst { it >= charPosition }
+    return if (found < 0) page.text.length else found
+}
+
+private fun speechCharForOffset(page: SpeechPage, offset: Int, total: Int): Int =
+    page.sourcePositions.getOrNull(offset.coerceIn(0, (page.sourcePositions.size - 1).coerceAtLeast(0)))
+        ?.coerceIn(0, (total - 1).coerceAtLeast(0)) ?: 0
 private fun openingParagraph(paragraphs: List<ReadingParagraph>, index: Int): Boolean =
     !paragraphs[index].heading && (index == 0 || paragraphs[index - 1].heading)
 
@@ -183,41 +234,95 @@ private fun saveHighlights(context: Context, key: String, highlights: List<Reade
         .putString("highlights_$key", array.toString()).apply()
 }
 
-private fun dictionaryDefinitions(word: String): List<String> = try {
-    val cleaned = word.trim().trim('¿', '¡', '.', ',', ';', ':', '!', '?', '«', '»', '"', '\'', '(', ')')
-    val encoded = java.net.URLEncoder.encode(cleaned, "UTF-8")
-    val url = "https://es.wiktionary.org/w/api.php?action=parse&format=json&prop=text&page=" + encoded
-    val connection = URL(url).openConnection() as HttpURLConnection
-    connection.connectTimeout = 7000
-    connection.readTimeout = 9000
-    connection.setRequestProperty("User-Agent", "MiBiblioteca/0.70 (diccionario; contacto: GitHub diroka77-pixel)")
-    val html = try {
-        connection.inputStream.use { stream ->
-            JSONObject(stream.bufferedReader().readText()).getJSONObject("parse")
-                .getJSONObject("text").getString("*")
+private data class DictionaryDefinition(val source: String, val text: String)
+
+private fun dictionaryDefinitions(context: Context, word: String): List<DictionaryDefinition> {
+    val normalized = word.trim().replace(Regex("\\s+"), " ")
+        .trim('¿', '¡', '.', ',', ';', ':', '!', '?', '«', '»', '"', '\'')
+    if (normalized.isBlank()) return emptyList()
+    val encoded = java.net.URLEncoder.encode(normalized, "UTF-8")
+    val cache = context.getSharedPreferences("reader_dictionary", Context.MODE_PRIVATE)
+    val cacheKey = "entry_${normalized.lowercase(java.util.Locale.ROOT)}"
+    val now = System.currentTimeMillis()
+    cache.getString(cacheKey, null)?.let { raw -> runCatching {
+        val saved = JSONObject(raw)
+        if (now - saved.optLong("time") < 30L * 24 * 60 * 60 * 1000) {
+            val array = saved.getJSONArray("items")
+            return (0 until array.length()).mapNotNull { i -> array.optJSONObject(i)?.let {
+                DictionaryDefinition(it.optString("source"), it.optString("text"))
+            } }.filter { it.text.isNotBlank() }
         }
-    } finally { connection.disconnect() }
-    val article = Jsoup.parse(html).selectFirst(".mw-parser-output")
-        ?: Jsoup.parse(html).body()
-    val headings = article.select("h2")
-    val spanishHeading = headings.firstOrNull { heading ->
-        val title = heading.selectFirst(".mw-headline")?.text() ?: heading.text()
-        title.replace(Regex("\\[editar\\]"), "").trim().equals("Español", ignoreCase = true)
+    } }
+    fun request(url: String): String? = try {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 4500
+        connection.readTimeout = 5500
+        connection.setRequestProperty("User-Agent", "MiBiblioteca/0.72 (Android reader)")
+        connection.setRequestProperty("Accept", "application/json")
+        try { connection.inputStream.bufferedReader().use { it.readText() } }
+        finally { connection.disconnect() }
+    } catch (_: Exception) { null }
+
+    // Consult the DLE data service first; keep Wiktionary as an independent fallback.
+    val rae = request("https://rae-api.com/api/words/$encoded")?.let { raw -> runCatching {
+        val root = JSONObject(raw)
+        val data = root.optJSONObject("data") ?: JSONObject()
+        val meanings = data.optJSONArray("meanings") ?: JSONArray()
+        buildList {
+            for (i in 0 until meanings.length()) {
+                val senses = meanings.optJSONObject(i)?.optJSONArray("senses") ?: continue
+                for (j in 0 until senses.length()) {
+                    val sense = senses.optJSONObject(j) ?: continue
+                    val definition = sense.optString("description").trim()
+                    if (definition.length >= 4) {
+                        val category = sense.optString("category").takeIf { it.isNotBlank() }
+                        add(DictionaryDefinition("RAE API comunitaria", if (category == null) definition
+                            else "${category.replaceFirstChar { it.uppercase() }} · $definition"))
+                    }
+                }
+            }
+        }.distinctBy { it.text }.take(8)
+    }.getOrNull() }.orEmpty()
+    if (rae.isNotEmpty()) {
+        val array = JSONArray().apply { rae.forEach { put(JSONObject()
+            .put("source", it.source).put("text", it.text)) } }
+        cache.edit().putString(cacheKey, JSONObject().put("time", now).put("items", array).toString()).apply()
+        return rae
     }
-    val definitions = mutableListOf<String>()
-    if (spanishHeading != null) {
-        var node = spanishHeading.nextElementSibling()
-        while (node != null && node.tagName() != "h2") {
-            if (node.tagName() == "ol")
-                node.children().filter { it.tagName() == "li" }.forEach { definitions += it.text().trim() }
-            node = node.nextElementSibling()
-        }
-    } else {
-        article.select("ol > li").forEach { definitions += it.text().trim() }
+
+    val parsed = request("https://es.wiktionary.org/w/api.php?action=parse&format=json&prop=text&page=$encoded")
+        ?.let { raw -> runCatching {
+            Jsoup.parse(JSONObject(raw).getJSONObject("parse").getJSONObject("text").getString("*"))
+                .select(".mw-parser-output > ol > li, .mw-parser-output ol > li")
+                .map { it.text().trim() }.filter { it.length in 8..400 }.distinct().take(6)
+                .map { DictionaryDefinition("Wikcionario", it) }
+        }.getOrNull() }.orEmpty()
+    if (parsed.isNotEmpty()) {
+        val array = JSONArray().apply { parsed.forEach { put(JSONObject()
+            .put("source", it.source).put("text", it.text)) } }
+        cache.edit().putString(cacheKey, JSONObject().put("time", now).put("items", array).toString()).apply()
+        return parsed
     }
-    definitions.filter { it.length in 8..600 && !it.equals(cleaned, ignoreCase = true) }
-        .distinct().take(5)
-} catch (_: Exception) { emptyList() }
+
+    val fallback = request("https://es.wiktionary.org/w/api.php?action=query&format=json&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=$encoded")
+        ?: return emptyList()
+    val extracted = runCatching {
+        val pages = JSONObject(fallback).getJSONObject("query").getJSONObject("pages")
+        val page = pages.keys().asSequence().map { pages.getJSONObject(it) }
+            .firstOrNull { !it.has("missing") } ?: return emptyList()
+        page.optString("extract").lineSequence().map { it.trim().removePrefix("•").trim() }
+            .filter { line -> line.length in 12..400 && !line.startsWith("==") &&
+                !line.startsWith("Etimología") && !line.startsWith("Pronunciación") &&
+                !line.startsWith("Sinónimos") }
+            .distinct().take(6).map { DictionaryDefinition("Wikcionario", it) }.toList()
+    }.getOrDefault(emptyList())
+    if (extracted.isNotEmpty()) {
+        val array = JSONArray().apply { extracted.forEach { put(JSONObject()
+            .put("source", it.source).put("text", it.text)) } }
+        cache.edit().putString(cacheKey, JSONObject().put("time", now).put("items", array).toString()).apply()
+    }
+    return extracted
+}
 
 private suspend fun shareReadingFile(context: Context, book: Book) {
     val file = withContext(Dispatchers.IO) { localReaderFile(context, book) }
@@ -476,16 +581,16 @@ private fun SelectableParagraph(
     paragraph: ReadingParagraph, index: Int, start: Int, end: Int, size: Float, foreground: Color,
     dark: Boolean, opening: Boolean, highlights: List<ReaderHighlight>,
     onHighlight: (ReaderHighlight) -> Unit, onNote: (ReaderHighlight) -> Unit,
+    onRemoveHighlight: (Int, Int, Int) -> Boolean,
     onLookup: (String) -> Unit, onTranslate: (String) -> Unit, onSpeak: (String) -> Unit,
-    onSearch: (String) -> Unit
+    onSearch: (String) -> Unit, onSaveToNotebook: (String) -> Unit,
+    onBookmarkChar: (Int, Int) -> Unit
 ) {
     val action by rememberUpdatedState(onHighlight)
     val noteAction by rememberUpdatedState(onNote)
+    val removeHighlightAction by rememberUpdatedState(onRemoveHighlight)
     val lookupAction by rememberUpdatedState(onLookup)
-    val translateAction by rememberUpdatedState(onTranslate)
-    val speakAction by rememberUpdatedState(onSpeak)
-    val searchAction by rememberUpdatedState(onSearch)
-    val currentHighlights by rememberUpdatedState(highlights)
+    val bookmarkAction by rememberUpdatedState(onBookmarkChar)
     AndroidView(modifier = Modifier.fillMaxWidth(), factory = { context ->
         TextView(context).apply {
             setTextIsSelectable(true)
@@ -495,44 +600,48 @@ private fun SelectableParagraph(
             setCustomSelectionActionModeCallback(object : ActionMode.Callback {
                 override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
                     menu.add(0, 8001, 0, "Subrayar")
-                    menu.add(0, 8002, 1, "Diccionario")
-                    menu.add(0, 8005, 2, "Nota")
-                    menu.add(0, 8003, 3, "Copiar")
-                    menu.add(0, 8007, 4, "Escuchar")
+                    menu.add(0, 8005, 1, "Nota")
+                    menu.add(0, 8010, 2, "Copiar")
+                    menu.add(0, 8011, 3, "Fijar")
+                    menu.add(0, 8002, 4, "Diccionario")
                     return true
                 }
                 override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
                     val selectedStart = selectable.selectionStart.coerceAtLeast(0)
                     val selectedEnd = selectable.selectionEnd.coerceAtMost(selectable.text.length)
-                    val absStart = start + selectedStart
-                    val absEnd = start + selectedEnd
-                    val alreadyMarked = currentHighlights.any { mark ->
-                        mark.paragraph == index && mark.start < absEnd && absStart < mark.end
-                    }
-                    menu.findItem(8001)?.title = if (alreadyMarked) "Quitar subrayado" else "Subrayar"
+                    val marked = highlights.any { it.paragraph == index &&
+                        it.start < start + selectedEnd && it.end > start + selectedStart }
+                    menu.findItem(8001)?.title = if (marked) "Quitar subrayado" else "Subrayar"
                     return true
                 }
                 override fun onDestroyActionMode(mode: ActionMode) = Unit
                 override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
-                    if (item.itemId !in setOf(8001, 8002, 8003, 8005, 8007)) return false
+                    if (item.itemId !in setOf(8001, 8002, 8005, 8010, 8011)) return false
                     val selectedStart = selectable.selectionStart.coerceAtLeast(0)
                     val selectedEnd = selectable.selectionEnd.coerceAtMost(selectable.text.length)
                     if (selectedEnd <= selectedStart) return false
                     val quote = selectable.text.subSequence(selectedStart, selectedEnd).toString().trim()
                     if (quote.isBlank()) return false
                     when (item.itemId) {
-                        8001 -> action(ReaderHighlight(index, start + selectedStart,
-                            start + selectedEnd, quote))
+                        8001 -> {
+                            val removed = removeHighlightAction(index, start + selectedStart,
+                                start + selectedEnd)
+                            if (!removed) action(ReaderHighlight(index, start + selectedStart,
+                                start + selectedEnd, quote, "amarillo"))
+                        }
                         8005 -> noteAction(ReaderHighlight(index, start + selectedStart,
                             start + selectedEnd, quote))
+                        8010 -> {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Texto del libro", quote))
+                        }
+                        8011 -> bookmarkAction(index, start + selectedStart)
                         8002 -> {
                             val word = quote.split(Regex("\\s+")).first().trim('¿', '¡', '.', ',', ';',
                                 ':', '!', '?', '«', '»', '"', '\'')
                             if (word.isNotBlank()) lookupAction(word)
                         }
-                        8003 -> selectable.context.getSystemService(android.content.ClipboardManager::class.java)
-                            ?.setPrimaryClip(ClipData.newPlainText("Texto seleccionado", quote))
-                        8007 -> speakAction(quote)
                     }
                     mode.finish()
                     return true
@@ -594,6 +703,25 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     val swipeDistance = with(LocalDensity.current) { 64.dp.toPx() }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     var jumpToItem by remember(book.uri) { mutableIntStateOf(-1) }
+    var showReaderTools by rememberSaveable(book.uri) { mutableStateOf(false) }
+    var notebook by remember(book.uri) { mutableStateOf(prefs.getString("notebook_$key", "").orEmpty()) }
+    var bookmarkChars by remember(book.uri) {
+        mutableStateOf(prefs.getString("bookmarks_$key", "").orEmpty()
+            .split(",").mapNotNull(String::toIntOrNull).distinct())
+    }
+    fun saveNotebookEntry(entry: String) {
+        val clean = entry.trim()
+        if (clean.isNotBlank()) {
+            notebook = listOf(notebook.trim(), clean).filter(String::isNotBlank).joinToString("\n\n")
+            prefs.edit().putString("notebook_$key", notebook).apply()
+        }
+    }
+    fun toggleBookmark(charPosition: Int) {
+        val position = charPosition.coerceAtLeast(0)
+        bookmarkChars = if (position in bookmarkChars) bookmarkChars - position
+            else bookmarkChars + position
+        prefs.edit().putString("bookmarks_$key", bookmarkChars.joinToString(",")).apply()
+    }
     var highlights by remember(book.uri) {
         mutableStateOf(readHighlights(prefs.getString("highlights_$key", "[]")))
     }
@@ -605,10 +733,49 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var speech by remember { mutableStateOf<TextToSpeech?>(null) }
     var speechReady by remember { mutableStateOf(false) }
     var audioActive by remember(book.uri) { mutableStateOf(false) }
+    var audioControlsVisible by remember(book.uri) { mutableStateOf(false) }
+    var audioCursor by remember(book.uri) {
+        mutableIntStateOf(prefs.getInt("char_$key", 0))
+    }
+    var speechRate by remember(book.uri) {
+        mutableStateOf(prefs.getFloat("speech_rate", 1f).coerceIn(0.5f, 2f))
+    }
+    val activeSpeechCursor = remember(book.uri) {
+        AtomicInteger(prefs.getInt("char_$key", 0))
+    }
+    val speechGeneration = remember(book.uri) { AtomicInteger(0) }
+    fun saveSpeechCursor(position: Int) {
+        val safePosition = position.coerceAtLeast(0)
+        activeSpeechCursor.set(safePosition)
+        audioCursor = safePosition
+        prefs.edit().putInt("char_$key", safePosition).apply()
+    }
+    fun currentSpeechPosition(): Int {
+        return activeSpeechCursor.get()
+    }
+    fun pauseSpeech() {
+        // Ignore callbacks delivered late by the utterance that is being stopped.
+        if (audioActive) saveSpeechCursor(currentSpeechPosition())
+        speechGeneration.incrementAndGet()
+        speech?.stop()
+        audioActive = false
+    }
+    fun changeSpeechRate(delta: Float) {
+        if (audioActive) {
+            speechGeneration.incrementAndGet()
+            saveSpeechCursor(currentSpeechPosition())
+            speech?.stop()
+        }
+        speechRate = ((((speechRate + delta) * 10f).toInt()) / 10f).coerceIn(0.5f, 2f)
+        prefs.edit().putFloat("speech_rate", speechRate).apply()
+    }
+    var audioSeekRequest by remember(book.uri) { mutableIntStateOf(0) }
+    var audioSeekDelta by remember(book.uri) { mutableIntStateOf(0) }
     var audioAdvance by remember(book.uri) { mutableIntStateOf(0) }
-    var audioPage by remember(book.uri) { mutableIntStateOf(prefs.getInt("audio_page_$key", -1)) }
-    var audioOffset by remember(book.uri) { mutableIntStateOf(prefs.getInt("audio_offset_$key", 0)) }
-    var speechRate by remember { mutableFloatStateOf(prefs.getFloat("speech_rate", 1.0f).coerceIn(0.6f, 1.6f)) }
+    fun requestAudioSeek(delta: Int) {
+        audioSeekDelta = delta
+        audioSeekRequest++
+    }
     var showVoicePicker by remember { mutableStateOf(false) }
     var davefxDownloading by remember { mutableStateOf(false) }
     var davefxReadyFile by remember { mutableStateOf<File?>(null) }
@@ -627,6 +794,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         speech = engine
         onDispose {
             audioActive = false
+            audioControlsVisible = false
             engine?.stop()
             engine?.shutdown()
             speech = null
@@ -654,7 +822,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     }
     val document = state
     BackHandler { if (drawer.isOpen) scope.launch { drawer.close() } else onBack() }
-    ModalNavigationDrawer(drawerState = drawer, drawerContent = {
+    ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = false, drawerContent = {
         ModalDrawerSheet(
             modifier = Modifier.width(320.dp),
             drawerContainerColor = Color(0xFFF8F3E9),
@@ -679,35 +847,27 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     NavigationDrawerItem(
                         label = { Text(if (audioActive) "Pausar lectura" else "Leer en voz alta") },
                         selected = audioActive,
-                        icon = { AppIcon(if (audioActive) "Cerrar" else "Audio") },
-                        onClick = { if (speechReady) audioActive = !audioActive; scope.launch { drawer.close() } },
+                        icon = { AppIcon(if (audioActive) "Pausar" else "Reproducir") },
+                        onClick = {
+                            if (speechReady) {
+                                audioControlsVisible = true
+                                if (audioActive) pauseSpeech() else audioActive = true
+                            }
+                            scope.launch { drawer.close() }
+                        },
                         colors = NavigationDrawerItemDefaults.colors(
                             selectedContainerColor = Color(0xFFE7DCC8),
                             selectedTextColor = Color(0xFF503727)))
                     NavigationDrawerItem(label = { Text("Detener lectura") }, selected = false,
                         icon = { AppIcon("Cerrar") },
-                        onClick = { audioActive = false; speech?.stop() })
+                        onClick = {
+                            pauseSpeech()
+                            audioControlsVisible = false
+                            speech?.stop()
+                        })
                     NavigationDrawerItem(label = { Text("Elegir voz") }, selected = false,
                         icon = { AppIcon("Ajustes") },
                         onClick = { showVoicePicker = true })
-                    Spacer(Modifier.height(8.dp))
-                    Text("Velocidad de voz · " +
-                        String.format(java.util.Locale.ROOT, "%.1f×", speechRate),
-                        fontWeight = FontWeight.SemiBold)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedButton(onClick = {
-                            speechRate = (speechRate - 0.1f).coerceAtLeast(0.6f)
-                            prefs.edit().putFloat("speech_rate", speechRate).apply()
-                        }, enabled = speechRate > 0.6f) { Text("−") }
-                        Text((speechRate * 100).toInt().toString() + "%",
-                            modifier = Modifier.weight(1f),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                        OutlinedButton(onClick = {
-                            speechRate = (speechRate + 0.1f).coerceAtMost(1.6f)
-                            prefs.edit().putFloat("speech_rate", speechRate).apply()
-                        }, enabled = speechRate < 1.6f) { Text("+") }
-                    }
                 }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 Text("APARIENCIA", color = Color(0xFF785940),
@@ -750,7 +910,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 val chapters = if (document is ReadingDocument.TextDocument)
                     document.paragraphs.withIndex().filter { it.value.heading }
                 else emptyList()
-                LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 300.dp)) {
                     if (document is ReadingDocument.TextDocument && searchText.isNotBlank()) {
                         val matches = document.paragraphs.withIndex()
                             .filter { it.value.text.contains(searchText, ignoreCase = true) }
@@ -837,7 +997,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 titleContentColor = foreground, navigationIconContentColor = foreground,
                 actionIconContentColor = foreground))
     }) { padding ->
-      Box(Modifier.fillMaxSize().pointerInput(document) {
+      Box(Modifier.fillMaxSize().pointerInput(document, showReaderTools) {
           awaitEachGesture {
               val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
               val start = down.position
@@ -852,12 +1012,18 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
               }
               if (released && (document is ReadingDocument.TextDocument ||
                   document is ReadingDocument.PdfDocument)) {
-                  val center = start.x in size.width * 0.32f..size.width * 0.68f &&
-                      start.y in size.height * 0.30f..size.height * 0.70f
-                  val still = kotlin.math.abs(end.x - start.x) < 14.dp.toPx() &&
-                      kotlin.math.abs(end.y - start.y) < 14.dp.toPx()
-                  if (center && still && releaseTime - down.uptimeMillis < 350L)
-                      scope.launch { drawer.open() }
+                  val horizontal = end.x - start.x
+                  val vertical = end.y - start.y
+                  val edgeSwipe = start.x <= 28.dp.toPx() &&
+                      horizontal >= 72.dp.toPx() && kotlin.math.abs(vertical) < 54.dp.toPx()
+                  val centerTap = document is ReadingDocument.TextDocument &&
+                      start.x in size.width * 0.30f..size.width * 0.70f &&
+                      start.y in size.height * 0.30f..size.height * 0.75f
+                  val still = kotlin.math.abs(horizontal) < 14.dp.toPx() &&
+                      kotlin.math.abs(vertical) < 14.dp.toPx()
+                  if (edgeSwipe) scope.launch { drawer.open() }
+                  else if (centerTap && still && releaseTime - down.uptimeMillis < 350L)
+                      showReaderTools = true
               }
           }
       }) {
@@ -987,6 +1153,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             totalTextPages = pages.size
                             val legacyItem = prefs.getInt("item_$key", 0).coerceIn(0, paragraphs.lastIndex)
                             val savedChar = prefs.getInt("char_$key", positions[legacyItem])
+                            audioCursor = savedChar
                             textPage = pages.indexOfLast { it.startChar <= savedChar }.coerceAtLeast(0)
                             ready = true
                         }
@@ -1002,100 +1169,132 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 val current = pages[textPage.coerceIn(pages.indices)]
                                 percent = if (textPage >= pages.lastIndex) 100
                                     else (current.startChar * 100 / total).coerceIn(0, 100)
-                                prefs.edit().putInt("char_$key", current.startChar)
-                                    .putInt("percent_$key", percent).apply()
+                                prefs.edit().putInt("percent_$key", percent).apply()
                                 onProgress(percent)
                             }
                         }
+                        LaunchedEffect(audioSeekRequest, pages) {
+                            if (audioSeekRequest > 0) {
+                                val target = (audioCursor + audioSeekDelta).coerceIn(0, total - 1)
+                                saveSpeechCursor(target)
+                                prefs.edit().putInt("percent_$key", (target * 100 / total).coerceIn(0, 99)).apply()
+                                textPage = pages.indexOfLast { it.startChar <= target }.coerceAtLeast(0)
+                            }
+                        }
                         val currentPage = textPage.coerceIn(pages.indices)
-                        LaunchedEffect(audioActive, currentPage, pages, speechReady,
-                            selectedVoiceName, speechRate, audioAdvance) {
+                        LaunchedEffect(audioAdvance, pages) {
+                            if (audioAdvance > 0 && audioActive) {
+                                if (textPage < pages.lastIndex) {
+                                    textPage++
+                                    saveSpeechCursor(pages[textPage].startChar)
+                                } else audioActive = false
+                            }
+                        }
+                        LaunchedEffect(audioActive, currentPage, pages, speechReady, selectedVoiceName, audioSeekRequest, speechRate) {
                             val engine = speech
                             if (!audioActive || !speechReady || engine == null) {
                                 engine?.stop()
                             } else {
-                                engine.setSpeechRate(speechRate)
                                 val locale = if (book.language.startsWith("en", true))
                                     java.util.Locale.ENGLISH else java.util.Locale.forLanguageTag("es-ES")
                                 val availability = engine.setLanguage(locale)
-                                val chosenVoice = engine.voices?.firstOrNull {
-                                    selectedVoiceName != "davefx" && it.name == selectedVoiceName }
-                                if (chosenVoice != null && chosenVoice.locale.language == locale.language)
-                                    engine.voice = chosenVoice
+                                engine.setSpeechRate(speechRate)
+                                 val chosenVoice = engine.voices?.firstOrNull {
+                                     selectedVoiceName != "davefx" && it.name == selectedVoiceName }
+                                 if (chosenVoice != null && chosenVoice.locale.language == locale.language)
+                                     engine.voice = chosenVoice
                                 if (availability < TextToSpeech.LANG_AVAILABLE) {
                                     audioActive = false
                                     android.widget.Toast.makeText(context,
                                         "Instala una voz del idioma del libro en los ajustes de voz de Android",
                                         android.widget.Toast.LENGTH_LONG).show()
                                 } else {
-                                    val fullPageText = pages[currentPage].slices.joinToString(" ") { slice ->
-                                        paragraphs[slice.paragraph].text.substring(slice.start, slice.end)
-                                    }.trim()
-                                    if (audioPage != currentPage) {
-                                        audioPage = currentPage
-                                        audioOffset = 0
-                                        prefs.edit().putInt("audio_page_$key", currentPage)
-                                            .putInt("audio_offset_$key", 0).apply()
+                                    val pageData = pages[currentPage]
+                                    val spokenPage = speechPage(pageData, paragraphs, positions)
+                                    val offsetInPage = speechOffsetForChar(spokenPage, audioCursor)
+                                        .coerceIn(0, spokenPage.text.length)
+                                    val spoken = spokenPage.text.substring(offsetInPage)
+                                    val spokenBaseOffset = offsetInPage
+                                    val utteranceGeneration = speechGeneration.incrementAndGet()
+                                    val chunks = speechWordChunks(spoken)
+                                    fun speakChunk(index: Int, queueMode: Int) {
+                                        if (speechGeneration.get() != utteranceGeneration) return
+                                        val chunk = chunks.getOrNull(index) ?: return
+                                        val result = engine.speak(chunk.text, queueMode, null,
+                                            "page_${currentPage}_generation_${utteranceGeneration}_chunk_$index")
+                                        if (result == TextToSpeech.ERROR) audioActive = false
                                     }
-                                    val baseOffset = audioOffset.coerceIn(0, fullPageText.length)
-                                    val spoken = fullPageText.drop(baseOffset).take(3900)
                                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                                        override fun onStart(utteranceId: String?) {
-                                            Handler(Looper.getMainLooper()).post {
-                                                audioOffset = baseOffset
-                                                prefs.edit().putInt("audio_page_$key", currentPage)
-                                                    .putInt("audio_offset_$key", baseOffset).apply()
-                                            }
-                                        }
+                                        override fun onStart(utteranceId: String?) {}
                                         override fun onRangeStart(utteranceId: String?, start: Int, end: Int,
                                             frame: Int) {
-                                            val exact = (baseOffset + start).coerceIn(0, fullPageText.length)
+                                            if (speechGeneration.get() != utteranceGeneration) return
+                                            val chunkIndex = utteranceId?.substringAfterLast('_')?.toIntOrNull()
+                                                ?: return
+                                            val chunk = chunks.getOrNull(chunkIndex) ?: return
+                                            val local = start.coerceIn(0, chunk.text.length)
+                                            val absolute = (spokenBaseOffset + chunk.start + local)
+                                                .coerceIn(0, spokenPage.text.length)
+                                            var wordStart = absolute
+                                            while (wordStart > 0 && !spokenPage.text[wordStart - 1].isWhitespace())
+                                                wordStart--
+                                            val sourcePosition = speechCharForOffset(spokenPage, wordStart, total)
                                             Handler(Looper.getMainLooper()).post {
-                                                audioOffset = exact
-                                                prefs.edit().putInt("audio_page_$key", currentPage)
-                                                    .putInt("audio_offset_$key", exact).apply()
+                                                if (speechGeneration.get() == utteranceGeneration) {
+                                                    activeSpeechCursor.set(sourcePosition)
+                                                    audioCursor = sourcePosition
+                                                    prefs.edit().putInt("char_$key", sourcePosition)
+                                                        .putInt("percent_$key", (sourcePosition * 100 / total).coerceIn(0, 99))
+                                                        .apply()
+                                                }
                                             }
                                         }
                                         override fun onDone(utteranceId: String?) {
+                                            if (speechGeneration.get() != utteranceGeneration) return
                                             Handler(Looper.getMainLooper()).post {
-                                                val nextOffset = (baseOffset + spoken.length)
-                                                    .coerceAtMost(fullPageText.length)
-                                                if (nextOffset < fullPageText.length) {
-                                                    audioOffset = nextOffset
-                                                    prefs.edit().putInt("audio_page_$key", currentPage)
-                                                        .putInt("audio_offset_$key", nextOffset).apply()
-                                                    audioAdvance++
-                                                } else if (textPage < pages.lastIndex) {
-                                                    audioOffset = 0
-                                                    audioPage = currentPage + 1
-                                                    prefs.edit().putInt("audio_page_$key", currentPage + 1)
-                                                        .putInt("audio_offset_$key", 0).apply()
-                                                    textPage++
+                                                if (speechGeneration.get() != utteranceGeneration) return@post
+                                                val finishedChunk = utteranceId?.substringAfterLast('_')?.toIntOrNull()
+                                                val nextChunk = (finishedChunk ?: (chunks.size - 1)) + 1
+                                                if (nextChunk < chunks.size) {
+                                                    speakChunk(nextChunk, TextToSpeech.QUEUE_ADD)
                                                 } else {
-                                                    audioOffset = fullPageText.length
-                                                    prefs.edit().putInt("audio_page_$key", currentPage)
-                                                        .putInt("audio_offset_$key", audioOffset).apply()
-                                                    audioActive = false
+                                                    val nextOffset = spokenBaseOffset +
+                                                        (chunks.lastOrNull()?.let { it.start + it.text.length } ?: 0)
+                                                    if (nextOffset < spokenPage.text.length) {
+                                                        val nextPosition = speechCharForOffset(spokenPage,
+                                                            nextOffset, total)
+                                                        saveSpeechCursor(nextPosition)
+                                                        audioActive = true
+                                                        audioAdvance++
+                                                    } else if (currentPage < pages.lastIndex) {
+                                                        val nextPosition = pages[currentPage + 1].startChar
+                                                        saveSpeechCursor(nextPosition)
+                                                        audioAdvance++
+                                                    } else {
+                                                        saveSpeechCursor(total - 1)
+                                                        audioActive = false
+                                                    }
                                                 }
                                             }
                                         }
                                         override fun onError(utteranceId: String?) {
-                                            Handler(Looper.getMainLooper()).post { audioActive = false }
+                                            if (speechGeneration.get() != utteranceGeneration) return
+                                            Handler(Looper.getMainLooper()).post {
+                                                if (speechGeneration.get() == utteranceGeneration) audioActive = false
+                                            }
                                         }
                                     })
-                                    if (spoken.isNotBlank())
-                                        engine.speak(spoken, TextToSpeech.QUEUE_FLUSH, null,
-                                            "page_${currentPage}_${baseOffset}")
-                                    else if (textPage < pages.lastIndex) {
-                                        audioOffset = 0
-                                        audioPage = currentPage + 1
-                                        textPage++
-                                    } else audioActive = false
+                                    if (chunks.isNotEmpty()) speakChunk(0, TextToSpeech.QUEUE_FLUSH)
+                                    else audioAdvance++
                                 }
                             }
                         }
                         fun turn(delta: Int) {
-                            textPage = (textPage + delta).coerceIn(pages.indices)
+                            val targetPage = (textPage + delta).coerceIn(pages.indices)
+                            textPage = targetPage
+                            if (audioControlsVisible) {
+                                saveSpeechCursor(pages[targetPage].startChar)
+                            }
                         }
                         Box(Modifier.fillMaxSize().clipToBounds().pointerInput(pages, swipeDistance) {
                             var drag = 0f
@@ -1138,14 +1337,20 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             slice.start, slice.end, fontSize, foreground, dark,
                                             openingParagraph(paragraphs, slice.paragraph), highlights,
                                             onHighlight = { mark ->
-                                                val existing = highlights.filter { old ->
-                                                    old.paragraph == mark.paragraph &&
-                                                        old.start < mark.end && mark.start < old.end
-                                                }
-                                                highlights = if (existing.isNotEmpty()) highlights - existing.toSet()
-                                                    else (highlights + mark).distinct()
+                                                highlights = (highlights + mark).distinct()
                                                 saveHighlights(context, key, highlights)
                                                 onHighlightsChanged()
+                                            }, onRemoveHighlight = { paragraphIndex, from, to ->
+                                                val updated = highlights.filterNot { mark ->
+                                                    mark.paragraph == paragraphIndex && mark.start < to && mark.end > from
+                                                }
+                                                val removed = updated.size != highlights.size
+                                                if (removed) {
+                                                    highlights = updated
+                                                    saveHighlights(context, key, highlights)
+                                                    onHighlightsChanged()
+                                                }
+                                                removed
                                             }, onNote = { mark ->
                                                 pendingNote = mark
                                                 noteDraft = highlights.firstOrNull { h ->
@@ -1164,6 +1369,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             }, onSearch = { quote ->
                                                 searchText = quote.take(80)
                                                 scope.launch { drawer.open() }
+                                            }, onSaveToNotebook = ::saveNotebookEntry,
+                                            onBookmarkChar = { paragraphIndex, charInParagraph ->
+                                                toggleBookmark(positions[paragraphIndex] + charInParagraph)
                                             })
                                     }
                                 }
@@ -1172,6 +1380,204 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 .clickable { turn(-1) })
                             Box(Modifier.align(Alignment.CenterEnd).width(32.dp).fillMaxHeight()
                                 .clickable { turn(1) })
+                        }
+                        if (showReaderTools) {
+                            var requestedPage by remember(currentPage) {
+                                mutableFloatStateOf(currentPage.toFloat())
+                            }
+                            var directPage by remember(currentPage) {
+                                mutableStateOf((currentPage + 1).toString())
+                            }
+                            ModalBottomSheet(onDismissRequest = { showReaderTools = false },
+                                containerColor = if (dark) Color(0xFF302A25) else Color(0xFFF8F3E9),
+                                contentColor = foreground) {
+                                Column(Modifier.fillMaxWidth().heightIn(max = 620.dp)
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text(book.customTitle.ifBlank { book.title }.take(60),
+                                        fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                                        fontSize = 20.sp, maxLines = 2)
+                                    Text("Página ${currentPage + 1} de ${pages.size} · $percent %",
+                                        color = foreground.copy(alpha = 0.75f))
+                                    Slider(value = requestedPage, onValueChange = { requestedPage = it },
+                                        valueRange = 0f..pages.lastIndex.toFloat().coerceAtLeast(0f),
+                                        onValueChangeFinished = {
+                                            val target = requestedPage.toInt().coerceIn(pages.indices)
+                                            textPage = target
+                                            saveSpeechCursor(pages[target].startChar)
+                                            showReaderTools = false
+                                        })
+                                    Row(verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedTextField(directPage, { directPage = it.filter(Char::isDigit) },
+                                            modifier = Modifier.weight(1f), singleLine = true,
+                                            label = { Text("Ir a la página") })
+                                        Button(onClick = {
+                                            val target = (directPage.toIntOrNull() ?: 1)
+                                                .coerceIn(1, pages.size) - 1
+                                            textPage = target
+                                            saveSpeechCursor(pages[target].startChar)
+                                            showReaderTools = false
+                                        }) { Text("Ir") }
+                                    }
+                                    HorizontalDivider()
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text("Marcas de página", fontWeight = FontWeight.Bold)
+                                            Text("Guarda este punto para volver después.",
+                                                fontSize = 12.sp, color = foreground.copy(alpha = 0.72f))
+                                        }
+                                        FilledTonalButton(onClick = {
+                                            toggleBookmark(pages[currentPage].startChar)
+                                        }) {
+                                            Text(if (pages[currentPage].startChar in bookmarkChars)
+                                                "Quitar marca" else "Poner marca")
+                                        }
+                                    }
+                                    bookmarkChars.forEachIndexed { index, charPosition ->
+                                        val targetPage = pages.indexOfLast {
+                                            it.startChar <= charPosition
+                                        }.coerceAtLeast(0)
+                                        Row(Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically) {
+                                            TextButton(onClick = {
+                                                textPage = targetPage
+                                                saveSpeechCursor(charPosition)
+                                                showReaderTools = false
+                                            }, modifier = Modifier.weight(1f)) {
+                                                Text("Marcador ${index + 1} · página ${targetPage + 1}",
+                                                    modifier = Modifier.fillMaxWidth())
+                                            }
+                                            IconButton(onClick = { toggleBookmark(charPosition) }) {
+                                                AppIcon("Borrar", "Eliminar marcador")
+                                            }
+                                        }
+                                    }
+                                    HorizontalDivider()
+                                    Text("Libreta de este libro", fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Serif, fontSize = 17.sp)
+                                    OutlinedTextField(notebook, { notebook = it },
+                                        modifier = Modifier.fillMaxWidth(), minLines = 4,
+                                        label = { Text("Notas, palabras y frases guardadas") })
+                                    Button(onClick = {
+                                        prefs.edit().putString("notebook_$key", notebook).apply()
+                                        showReaderTools = false
+                                    }, modifier = Modifier.fillMaxWidth()) { Text("Guardar en la libreta") }
+                                    if (highlights.isNotEmpty()) {
+                                        Text("Subrayados y notas", fontWeight = FontWeight.Bold)
+                                        highlights.takeLast(12).asReversed().forEach { mark ->
+                                            TextButton(onClick = {
+                                                jumpToItem = mark.paragraph
+                                                showReaderTools = false
+                                            }, modifier = Modifier.fillMaxWidth()) {
+                                                Text(mark.quote.take(100) +
+                                                    mark.note.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty(),
+                                                    maxLines = 2, modifier = Modifier.fillMaxWidth())
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (audioControlsVisible) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                            color = if (dark) Color(0xFF302A25) else Color(0xFFF4EEE4),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 3.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                TextButton(onClick = { changeSpeechRate(-0.1f) },
+                                    modifier = Modifier.height(42.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)) {
+                                    Text("−", fontSize = 22.sp, lineHeight = 24.sp)
+                                }
+                                Text("Velocidad · ${String.format(java.util.Locale.ROOT, "%.1f", speechRate)}×",
+                                    fontSize = 13.sp, modifier = Modifier.padding(horizontal = 10.dp))
+                                TextButton(onClick = { changeSpeechRate(0.1f) },
+                                    modifier = Modifier.height(42.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)) {
+                                    Text("+", fontSize = 22.sp, lineHeight = 24.sp)
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                TextButton(
+                                    modifier = Modifier.weight(1f).height(54.dp),
+                                    contentPadding = PaddingValues(0.dp),
+                                    onClick = { requestAudioSeek(-270) }
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        AppIcon("Retroceder", size = 19.dp)
+                                        Text("−15 s", fontSize = 10.sp, maxLines = 1)
+                                    }
+                                }
+                                TextButton(
+                                    modifier = Modifier.weight(1f).height(54.dp),
+                                    contentPadding = PaddingValues(0.dp),
+                                    onClick = {
+                                        audioControlsVisible = true
+                                        if (audioActive) pauseSpeech() else audioActive = true
+                                    }
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        AppIcon(if (audioActive) "Pausar" else "Reproducir", size = 21.dp)
+                                        Text(if (audioActive) "Pausa" else "Play", fontSize = 10.sp)
+                                    }
+                                }
+                                TextButton(
+                                    modifier = Modifier.weight(1f).height(54.dp),
+                                    contentPadding = PaddingValues(0.dp),
+                                    onClick = {
+                                        pauseSpeech()
+                                        audioControlsVisible = false
+                                        speech?.stop()
+                                    }
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        AppIcon("Detener", size = 19.dp)
+                                        Text("Stop", fontSize = 10.sp)
+                                    }
+                                }
+                                TextButton(
+                                    modifier = Modifier.weight(1f).height(54.dp),
+                                    contentPadding = PaddingValues(0.dp),
+                                    onClick = { requestAudioSeek(270) }
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        AppIcon("Avanzar", size = 19.dp)
+                                        Text("+15 s", fontSize = 10.sp, maxLines = 1)
+                                    }
+                                }
+                                TextButton(
+                                    modifier = Modifier.weight(1.25f).height(54.dp),
+                                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
+                                    onClick = {
+                                        activity?.moveTaskToBack(true)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "La lectura continúa en segundo plano. Pulsa el botón lateral para apagar y bloquear la pantalla.",
+                                            android.widget.Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        AppIcon("Bloquear", size = 19.dp)
+                                        Text("Pantalla", fontSize = 10.sp, maxLines = 1)
+                                    }
+                                }
+                            }
+                            }
                         }
                     }
                     Text("Página ${textPage + 1} de ${totalTextPages.coerceAtLeast(1)} · $percent % leído",
@@ -1293,33 +1699,91 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             dismissButton = { TextButton(onClick = { pendingNote = null }) { Text("Cancelar") } })
     }
     dictionaryWord?.let { word ->
-        val definitions by produceState<List<String>?>(null, word) {
-            value = withContext(Dispatchers.IO) { dictionaryDefinitions(word) }
+        val definitions by produceState<List<DictionaryDefinition>?>(null, word) {
+            value = withContext(Dispatchers.IO) { dictionaryDefinitions(context, word) }
         }
         ModalBottomSheet(onDismissRequest = { dictionaryWord = null },
             containerColor = background, contentColor = foreground) {
             Column(Modifier.fillMaxWidth().heightIn(max = 460.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(start = 24.dp, end = 24.dp, bottom = 30.dp)) {
-                Text(word, fontFamily = FontFamily.Serif, fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(14.dp))
-                Text("Diccionario · Wikcionario en castellano", fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                when {
-                    definitions == null -> CircularProgressIndicator(Modifier.size(24.dp))
-                    definitions!!.isEmpty() -> Text("No se encontró una definición para esta palabra.")
-                    else -> definitions!!.forEachIndexed { i, definition ->
-                        Text("${i + 1}. $definition", modifier = Modifier.padding(bottom = 10.dp),
-                            fontSize = 15.sp, lineHeight = 22.sp)
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = {
+                        speech?.apply {
+                            language = java.util.Locale.forLanguageTag("es-ES")
+                            speak(word, TextToSpeech.QUEUE_FLUSH, null, "dictionary_pronounce")
+                        }
+                    }) { Icon(Icons.Filled.VolumeUp, contentDescription = "Pronunciar $word") }
+                    Text(word, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                }
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(
+                    containerColor = foreground.copy(alpha = 0.06f))) {
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Diccionario", modifier = Modifier.weight(1f),
+                                fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Filled.ExpandMore, contentDescription = "Mostrar definiciones")
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        when {
+                            definitions == null -> Text("Buscando en Wikcionario y la RAE…")
+                            definitions!!.isEmpty() -> Text(
+                                "Para ver definiciones sin conexión, abre el diccionario español de Android o consulta la RAE.")
+                            else -> definitions!!.forEachIndexed { i, definition ->
+                                Column(Modifier.padding(bottom = 12.dp)) {
+                                    if (i == 0 || definitions!![i - 1].source != definition.source)
+                                        Text(definition.source, fontWeight = FontWeight.SemiBold,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = foreground.copy(alpha = 0.72f))
+                                    Text("${i + 1}. ${definition.text}", fontSize = 15.sp, lineHeight = 22.sp)
+                                }
+                            }
+                        }
+                        if (definitions == null || definitions!!.isEmpty()) {
+                            Spacer(Modifier.height(12.dp))
+                            Text("Para ver las definiciones, seleccione un idioma y descargue el diccionario gratuito.",
+                                fontSize = 16.sp, lineHeight = 24.sp)
+                            Spacer(Modifier.height(14.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(modifier = Modifier.weight(1f), onClick = {
+                                    try { context.startActivity(Intent(
+                                        android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) }
+                                    catch (_: Exception) { }
+                                }) { Text("Español") }
+                                FilledIconButton(onClick = {
+                                    try { context.startActivity(Intent(Intent.ACTION_VIEW,
+                                        Uri.parse("https://es.wiktionary.org/wiki/" +
+                                            java.net.URLEncoder.encode(word, "UTF-8")))) }
+                                    catch (_: Exception) { }
+                                }) { Text("↓") }
+                            }
+                        }
                     }
                 }
-                TextButton(onClick = {
-                    try { context.startActivity(Intent(Intent.ACTION_VIEW,
-                        Uri.parse("https://dle.rae.es/" +
-                            java.net.URLEncoder.encode(word, "UTF-8")))) }
-                    catch (_: Exception) {}
-                }) { Text("Consultar también en la RAE") }
+                Spacer(Modifier.height(12.dp))
+                Text("Consulta local de Wikcionario y acceso al DLE de la RAE.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = foreground.copy(alpha = 0.72f))
+                when {
+                    definitions == null -> LinearProgressIndicator(Modifier.fillMaxWidth())
+                    else -> Unit
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = {
+                        saveNotebookEntry("«$word» — " +
+                            (definitions?.firstOrNull()?.text ?: "palabra consultada en el diccionario"))
+                    }) { Text("Guardar en mi libreta") }
+                    TextButton(onClick = {
+                        try { context.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://dle.rae.es/" +
+                                java.net.URLEncoder.encode(word, "UTF-8")))) }
+                        catch (_: Exception) {}
+                    }) { Text("Consultar RAE") }
+                }
             }
         }
     }
@@ -1339,6 +1803,11 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     translation == null -> CircularProgressIndicator(Modifier.size(24.dp))
                     translation!!.isBlank() -> Text("No se pudo traducir este fragmento.")
                     else -> Text(translation!!, fontSize = 17.sp, lineHeight = 24.sp)
+                }
+                if (!translation.isNullOrBlank()) {
+                    TextButton(onClick = {
+                        saveNotebookEntry("Frase: «${quote.take(300)}»\nTraducción: ${translation.orEmpty()}")
+                    }) { Text("Guardar frase en mi libreta") }
                 }
             }
         }
