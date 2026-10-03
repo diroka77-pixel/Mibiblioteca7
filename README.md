@@ -1,4 +1,4 @@
-# MiBiblioteca v0.75.0
+# MiBiblioteca v0.76.0
 
 Proyecto Android de MiBiblioteca. El código fuente está en `app/`. GitHub Actions compila, verifica y publica la APK firmada en GitHub Releases.
 
@@ -6,13 +6,16 @@ El lector integrado abre EPUB, PDF, TXT, Markdown, HTML, RTF, DOCX y MOBI clási
 
 El lector respeta las zonas seguras de Android, permite alternar entre tema claro y oscuro y ajustar el brillo de lectura. Los bordes y los gestos horizontales avanzan o retroceden una pantalla de texto o una página PDF. El panel lateral incluye capítulos, páginas PDF y subrayados; la selección de texto permite resaltar, compartir una cita o consultar el diccionario del DLE/RAE con Wikcionario como alternativa. Los subrayados se guardan por archivo y se incluyen en el respaldo.
 
-## Cambios de la versión 0.75
+## Cambios de la versión 0.76
 
 - Reanudación del lector por voz desde la palabra actual al pausar, en lugar de reiniciar desde el principio de la página.
 - Menú de selección reducido a cinco acciones: subrayar (que también quita el subrayado existente), nota, copiar, fijar y diccionario.
 - Panel de diccionario actualizado con pronunciación, definiciones RAE/Wikcionario y acceso a diccionario español del sistema.
 - Mantiene control de velocidad de voz, consulta de definiciones y mejoras acumuladas en versiones anteriores.
-- Android versionCode 75 y versionName 0.75.0. La APK firmada está en [Releases](https://github.com/diroka77-pixel/Mibiblioteca7/releases/latest).
+- Android versionCode 76 y versionName 0.76.0.
+- Cierre del panel lateral del lector deslizando a la izquierda.
+- Barra de selección con prioridad para «Subrayar/Quitar subrayado» y «Diccionario».
+- Menú lateral simplificado y tarjetas de noticias más compactas, sin imagen repetida. La APK firmada está en [Releases](https://github.com/diroka77-pixel/Mibiblioteca7/releases/latest).
 
 ## Protección de archivos y biblioteca
 
