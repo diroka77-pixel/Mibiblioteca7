@@ -599,11 +599,11 @@ private fun SelectableParagraph(
             val selectable = this
             setCustomSelectionActionModeCallback(object : ActionMode.Callback {
                 override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-                    menu.add(0, 8001, 0, "Subrayar")
-                    menu.add(0, 8005, 1, "Nota")
-                    menu.add(0, 8010, 2, "Copiar")
-                    menu.add(0, 8011, 3, "Fijar")
-                    menu.add(0, 8002, 4, "Diccionario")
+                    menu.add(0, 8001, 0, "Subrayar").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+                    menu.add(0, 8002, 1, "Diccionario").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+                    menu.add(0, 8005, 2, "Nota").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                    menu.add(0, 8010, 3, "Copiar").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                    menu.add(0, 8011, 4, "Fijar").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
                     return true
                 }
                 override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
