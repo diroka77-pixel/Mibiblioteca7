@@ -2387,6 +2387,9 @@ private fun openCasaDelLibro(context: Context) {
     var genreCarousel by rememberSaveable { mutableStateOf("Horizontal") }
     var genrePickerOpen by rememberSaveable { mutableStateOf(false) }
     var genreSearch by rememberSaveable { mutableStateOf("") }
+    var draftGenres by remember { mutableStateOf(emptySet<String>()) }
+    var draftAllGenres by remember { mutableStateOf(true) }
+    val genrePickerListState = rememberLazyListState()
     val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Favoritos") }
     LaunchedEffect(Unit) { if (tab == "Pendientes") tab = "Secciones" }
     var addingSection by remember { mutableStateOf(false) }
@@ -2561,15 +2564,15 @@ private fun openCasaDelLibro(context: Context) {
     }
     fun updateGenreSelection(genre: String, checked: Boolean) {
         if (checked) {
-            if (genreAllSelected) return
-            val next = selectedGenres + genre
-            if (next.containsAll(allGenres)) {
-                genreAllSelected = true
-                selectedGenres = emptySet()
-            } else selectedGenres = next
+            if (draftAllGenres) return
+            val next = draftGenres + genre
+            if (allGenres.isNotEmpty() && next.containsAll(allGenres)) {
+                draftAllGenres = true
+                draftGenres = emptySet()
+            } else draftGenres = next
         } else {
-            selectedGenres = (if (genreAllSelected) allGenres.toSet() else selectedGenres) - genre
-            genreAllSelected = false
+            draftGenres = (if (draftAllGenres) allGenres.toSet() else draftGenres) - genre
+            draftAllGenres = false
         }
     }
     LaunchedEffect(tab, genreOptions) {
@@ -2583,7 +2586,7 @@ private fun openCasaDelLibro(context: Context) {
         }
     }
     LaunchedEffect(genrePickerOpen, genreSearch) {
-        if (genrePickerOpen) genreListState.scrollToItem(0)
+        if (genrePickerOpen) genrePickerListState.scrollToItem(0)
     }
     if (genrePickerOpen) AlertDialog(
         onDismissRequest = { genrePickerOpen = false; genreSearch = "" },
@@ -2610,17 +2613,17 @@ private fun openCasaDelLibro(context: Context) {
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(
-                        onClick = { genreAllSelected = true; selectedGenres = emptySet() },
-                        enabled = !genreAllSelected
+                        onClick = { draftAllGenres = true; draftGenres = emptySet() },
+                        enabled = !draftAllGenres
                     ) { Text("Marcar todos") }
                     TextButton(
-                        onClick = { genreAllSelected = false; selectedGenres = emptySet() },
-                        enabled = genreAllSelected || selectedGenres.isNotEmpty()
+                        onClick = { draftAllGenres = false; draftGenres = emptySet() },
+                        enabled = draftAllGenres || draftGenres.isNotEmpty()
                     ) { Text("Desmarcar todos") }
                 }
-                LazyColumn(state = genreListState, modifier = Modifier.heightIn(max = 320.dp)) {
+                LazyColumn(state = genrePickerListState, modifier = Modifier.heightIn(max = 320.dp)) {
                     items(matchingGenres, key = { it }) { genre ->
-                        val checked = genreAllSelected || genre in selectedGenres
+                        val checked = draftAllGenres || genre in draftGenres
                         Row(
                             Modifier.fillMaxWidth().toggleable(
                                 value = checked, role = Role.Checkbox
@@ -2640,16 +2643,24 @@ private fun openCasaDelLibro(context: Context) {
             }
         },
         confirmButton = {
-            TextButton(onClick = { genrePickerOpen = false; genreSearch = "" }) { Text("Listo") }
+            TextButton(onClick = {
+                genreAllSelected = draftAllGenres
+                selectedGenres = if (draftAllGenres) emptySet() else draftGenres intersect allGenres.toSet()
+                genrePickerOpen = false
+                genreSearch = ""
+            }) { Text("Listo") }
         }
     )
     val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Géneros") "Géneros" else if (tab == "Inicio") "Todos" else vm.groupMode
     val sectionNames = vm.sections
-    val groupingCache = remember(visibleBooks) {
-        mutableMapOf<List<Any>, Map<String, List<Book>>>()
+    // Keep the most recent groups when returning to a tab; new book data clears the cache.
+    val groupingCache = remember(booksSnapshot) {
+        mutableMapOf<List<Any?>, Map<String, List<Book>>>()
     }
-    val groupingKey = remember(groupMode, sectionNames, sortMode) {
-        listOf(groupMode, sectionNames, sortMode, groupMode == "Secciones")
+    val groupingKey = remember(groupMode, sectionNames, sortMode, tab, querySnapshot,
+        statusSnapshot, favoritesSnapshot, sectionSnapshot, qualitySnapshot, reviewSnapshot) {
+        listOf(groupMode, sectionNames, sortMode, tab, querySnapshot, statusSnapshot,
+            favoritesSnapshot, sectionSnapshot, qualitySnapshot, reviewSnapshot)
     }
     val groupedBooks by key(groupingKey, visibleBooks) {
       produceState(groupingCache[groupingKey].orEmpty(), visibleBooks, groupingKey) {
@@ -2658,7 +2669,7 @@ private fun openCasaDelLibro(context: Context) {
             return@produceState
         }
         val booksToGroup = visibleBooks
-        value = withContext(Dispatchers.Default) {
+        val result = withContext(Dispatchers.Default) {
         val titles = if (sortMode !in setOf("Autor", "Recientes") || groupMode == "Sagas")
             booksToGroup.associate { it.uri to displayTitle(it) } else emptyMap()
         val authors = if (groupMode == "Autores" || sortMode == "Autor")
@@ -2701,9 +2712,11 @@ private fun openCasaDelLibro(context: Context) {
                 else -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
             }
         }
-        groupingCache[groupingKey] = result
         result
         }
+        if (groupingCache.size >= 8) groupingCache.clear()
+        groupingCache[groupingKey] = result
+        value = result
       }
     }
     val genreDisplayGroups = remember(groupedBooks, activeGenres, genreAllSelected, tab) {
@@ -3129,6 +3142,8 @@ private fun openCasaDelLibro(context: Context) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             OutlinedButton(onClick = {
                                 genreSearch = ""
+                                draftAllGenres = genreAllSelected
+                                draftGenres = selectedGenres
                                 genrePickerOpen = true
                             }) {
                                 Icon(Icons.Outlined.FilterList, contentDescription = null)
@@ -3492,7 +3507,7 @@ private fun openCasaDelLibro(context: Context) {
         Triple("Google IA", "Google IA", Color(0xFFB96056)) to onGoogle
     )
     Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 2.dp, bottom = 6.dp),
-        horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
         shortcuts.forEachIndexed { index, (item, action) ->
             if (index > 0) Spacer(Modifier.width(8.dp))
             Surface(
@@ -3623,7 +3638,7 @@ private fun openCasaDelLibro(context: Context) {
 }
 
 private val coverBitmapCacheBudgetKb =
-    (Runtime.getRuntime().maxMemory() / 1024L / 16L).toInt().coerceIn(20 * 1024, 48 * 1024)
+    (Runtime.getRuntime().maxMemory() / 1024L / 8L).toInt().coerceIn(20 * 1024, 48 * 1024)
 
 private val coverBitmapCache = object : LruCache<String, Bitmap>(coverBitmapCacheBudgetKb) {
     override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
