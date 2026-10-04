@@ -51,7 +51,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: MiBiblioteca-v0.89-firmada
+          name: MiBiblioteca-v0.90-firmada
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
       - name: Eliminar clave temporal del runner

@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.AnimatedVisibility
@@ -302,6 +303,25 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun readerAnnotationsChanged() { saveCloud() }
     var coverLoading by mutableStateOf<Uri?>(null); private set
+    var offlineDownloadUri by mutableStateOf<Uri?>(null); private set
+    var offlineDownloadPercent by mutableIntStateOf(0); private set
+    var offlineDownloadMessage by mutableStateOf<String?>(null); private set
+    fun downloadForOffline(book: Book) {
+        if (offlineDownloadUri != null) return
+        viewModelScope.launch {
+            offlineDownloadUri = book.uri
+            offlineDownloadPercent = 0
+            offlineDownloadMessage = null
+            try {
+                val filename = saveOfflineBook(getApplication(), book) { percent ->
+                    withContext(Dispatchers.Main) { offlineDownloadPercent = percent }
+                }
+                offlineDownloadMessage = "Guardado en Descargas: $filename"
+            } catch (e: Exception) {
+                offlineDownloadMessage = "No se pudo descargar: ${e.localizedMessage ?: "error de lectura"}"
+            } finally { offlineDownloadUri = null }
+        }
+    }
     var infoLoading by mutableStateOf<Uri?>(null); private set
     var autoInfoLoading by mutableStateOf<Set<Uri>>(emptySet()); private set
     var autoCoverLoading by mutableStateOf<Set<Uri>>(emptySet()); private set
@@ -2391,18 +2411,48 @@ private fun openCasaDelLibro(context: Context) {
     var draftAllGenres by remember { mutableStateOf(true) }
     val genrePickerListState = rememberLazyListState()
     val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Favoritos") }
+    val scope = rememberCoroutineScope()
+    val pageMotion = remember { Animatable(0f) }
+    val pageDrag = remember { mutableFloatStateOf(0f) }
+    val pageWidthPx = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
+    var tabTransitionJob by remember { mutableStateOf<Job?>(null) }
     LaunchedEffect(Unit) { if (tab == "Pendientes") tab = "Secciones" }
     var addingSection by remember { mutableStateOf(false) }
     var sectionName by remember { mutableStateOf("") }
     var sectionToDelete by remember { mutableStateOf<String?>(null) }
     var showWishList by remember { mutableStateOf(false) }
-    fun switchTab(name: String) {
-        tab = name
-        showWishList = false
-        vm.selectedSection = null
-        vm.qualityFilter = "Ninguno"
-        vm.statusFilter = null
-        vm.onlyFavorites = name == "Favoritos"
+    fun switchTab(name: String, showPending: Boolean = false) {
+        tabTransitionJob?.cancel()
+        tabTransitionJob = scope.launch {
+            if (pageDrag.floatValue != 0f) {
+                pageMotion.snapTo(pageDrag.floatValue)
+                pageDrag.floatValue = 0f
+            }
+            if (name == tab) {
+                showWishList = showPending
+                pageMotion.animateTo(0f, tween(160, easing = FastOutSlowInEasing))
+                return@launch
+            }
+            val direction = if (tabs.indexOf(name) > tabs.indexOf(tab)) -1f else 1f
+            val distance = pageWidthPx * 0.32f
+            pageMotion.animateTo(direction * distance, tween(120, easing = FastOutSlowInEasing))
+            tab = name
+            showWishList = showPending
+            vm.selectedSection = null
+            vm.qualityFilter = "Ninguno"
+            vm.statusFilter = null
+            vm.onlyFavorites = name == "Favoritos"
+            pageMotion.snapTo(-direction * distance)
+            pageMotion.animateTo(0f, tween(230, easing = FastOutSlowInEasing))
+        }
+    }
+    fun settlePage() {
+        tabTransitionJob?.cancel()
+        tabTransitionJob = scope.launch {
+            pageMotion.snapTo(pageDrag.floatValue)
+            pageDrag.floatValue = 0f
+            pageMotion.animateTo(0f, tween(170, easing = FastOutSlowInEasing))
+        }
     }
     var bookMenu by remember { mutableStateOf<Book?>(null) }
     var addWishDialog by remember { mutableStateOf(false) }
@@ -2451,7 +2501,7 @@ private fun openCasaDelLibro(context: Context) {
         when {
             selected != null -> selected = null
             showWishList -> showWishList = false
-            else -> { tab = "Inicio"; vm.selectedSection = null; vm.qualityFilter = "Ninguno" }
+            else -> switchTab("Inicio")
         }
     }
     val homeListState = rememberLazyListState()
@@ -2483,9 +2533,7 @@ private fun openCasaDelLibro(context: Context) {
         }
     }
     val swipeThreshold = with(LocalDensity.current) { 40.dp.toPx() }
-    val readingShelfGestureHeight = with(LocalDensity.current) { 500.dp.toPx() }
-    val swipeControlsHeight = with(LocalDensity.current) { 145.dp.toPx() }
-    val scope = rememberCoroutineScope()
+    val swipeControlsHeight = with(LocalDensity.current) { 52.dp.toPx() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var showSyncReport by remember { mutableStateOf(false) }
@@ -2504,11 +2552,6 @@ private fun openCasaDelLibro(context: Context) {
         uri?.let(vm::importBackup)
     }
     val readingBooks = remember(vm.books) { vm.readingBooks() }
-    val pageMotion = remember { Animatable(0f) }
-    LaunchedEffect(tab, vm.selectedSection) {
-        pageMotion.snapTo(3f)
-        pageMotion.animateTo(0f, tween(210, easing = FastOutSlowInEasing))
-    }
     val visibleNews = remember(vm.launchNews, vm.hiddenNewsSources, vm.hiddenNewsUrls) {
         vm.launchNews.filter(vm::isNewsVisible)
     }
@@ -2876,7 +2919,9 @@ private fun openCasaDelLibro(context: Context) {
                 { vm.confirmBookDetails(shown.uri) },
                 { title, author, saga, order -> vm.editIdentity(shown.uri, title, author, saga, order) },
                 shown.uri in vm.genreSearches, { vm.searchGenre(shown.uri) },
-                { vm.updateGenre(shown.uri, it) })
+                { vm.updateGenre(shown.uri, it) },
+                { vm.downloadForOffline(shown) }, vm.offlineDownloadUri == shown.uri,
+                vm.offlineDownloadPercent, vm.offlineDownloadMessage)
         } else {
     ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = drawerState.isOpen,
         drawerContent = {
@@ -2960,7 +3005,7 @@ private fun openCasaDelLibro(context: Context) {
                         modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
                     NavigationDrawerItem(label = { Text("Quiero leer") }, selected = showWishList,
                         icon = { AppIcon("Pendientes") }, onClick = {
-                            switchTab("Biblioteca"); showWishList = true
+                            switchTab("Biblioteca", showPending = true)
                             scope.launch { drawerState.close() }
                         })
                     if (showWishList) LibraryTextButton(onClick = { addWishDialog = true }) { Text("Añadir Goodreads") }
@@ -3087,37 +3132,54 @@ private fun openCasaDelLibro(context: Context) {
         }
     ) { p ->
       val currentTab by rememberUpdatedState(tab)
-      val hasReadingShelf by rememberUpdatedState(readingBooks.isNotEmpty())
       val currentSwitch by rememberUpdatedState<(String) -> Unit>({ switchTab(it) })
-      Box(Modifier.padding(p).fillMaxSize().pointerInput(swipeThreshold) {
+      var startedOnCarousel by remember { mutableStateOf(false) }
+      Box(Modifier.padding(p).fillMaxSize().pointerInput(swipeThreshold, pageWidthPx) {
           awaitEachGesture {
               val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+              startedOnCarousel = false
               val start = down.position
               var end = start
               var childConsumedGesture = false
+              var draggingPage = false
               while (true) {
-                  // Observe after child scrollables: a LazyRow carousel owns its horizontal drag.
+                  // The child carousel receives the down event before we inspect its scroll.
                   val change = awaitPointerEvent(PointerEventPass.Final).changes
                       .firstOrNull { it.id == down.id } ?: break
-                  childConsumedGesture = childConsumedGesture || change.isConsumed
                   end = change.position
                   if (!change.pressed) break
+                  // A card may consume its initial press; only a consumed move owns the drag.
+                  childConsumedGesture = childConsumedGesture ||
+                      (change.isConsumed && change.position != change.previousPosition)
+                  val horizontal = end.x - start.x
+                  val vertical = end.y - start.y
+                  if (childConsumedGesture || startedOnCarousel) {
+                      if (draggingPage) pageDrag.floatValue = 0f
+                      draggingPage = false
+                  } else if (start.y > swipeControlsHeight &&
+                      kotlin.math.abs(horizontal) > swipeThreshold * 0.45f &&
+                      kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.35f) {
+                      draggingPage = true
+                      pageDrag.floatValue = horizontal.coerceIn(-pageWidthPx * 0.32f, pageWidthPx * 0.32f)
+                  }
               }
               val horizontal = end.x - start.x
               val vertical = end.y - start.y
-              val isReadingShelfSwipe = currentTab == "Inicio" && hasReadingShelf &&
-                  start.y in swipeControlsHeight..readingShelfGestureHeight
-              if (!childConsumedGesture && start.y > swipeControlsHeight && !isReadingShelfSwipe &&
-                  kotlin.math.abs(horizontal) > swipeThreshold * 1.45f &&
-                  kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.25f) {
+              if (draggingPage && !childConsumedGesture && !startedOnCarousel &&
+                  kotlin.math.abs(horizontal) > swipeThreshold) {
                   val index = tabs.indexOf(currentTab)
                   val next = index + if (horizontal < 0) 1 else -1
                   if (next in tabs.indices) currentSwitch(tabs[next])
+                  else settlePage()
               } else if (!childConsumedGesture && currentTab == "Inicio" &&
+                  !startedOnCarousel &&
                   vertical > swipeThreshold * 1.8f &&
                   listState.firstVisibleItemIndex == 0 &&
                   listState.firstVisibleItemScrollOffset == 0 && !vm.newsRefreshing) {
+                  if (draggingPage) settlePage()
                   vm.refreshLaunchNews(true)
+              } else if (draggingPage) {
+                  settlePage()
               }
           }
       }) {
@@ -3125,11 +3187,18 @@ private fun openCasaDelLibro(context: Context) {
         QuickAccess(
             onGoodreads = { openGoodreads(context) },
             onGoogle = { openGoogleAi(context) })
+        if (vm.offlineDownloadUri != null) {
+            LinearProgressIndicator(progress = { vm.offlineDownloadPercent / 100f },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), color = Teal)
+            Text("Descargando libro · ${vm.offlineDownloadPercent} %",
+                modifier = Modifier.padding(horizontal = 16.dp), fontSize = 12.sp, color = Mahogany)
+        }
         Box(Modifier.fillMaxWidth().weight(1f)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().graphicsLayer {
-                translationX = pageMotion.value * density
-                alpha = 1f - pageMotion.value / 50f
+                translationX = pageMotion.value + pageDrag.floatValue
+                alpha = (1f - kotlin.math.abs(pageMotion.value + pageDrag.floatValue) / (pageWidthPx * 0.6f))
+                    .coerceIn(0.45f, 1f)
             },
             state = listState,
             contentPadding = PaddingValues(bottom = 24.dp),
@@ -3190,7 +3259,7 @@ private fun openCasaDelLibro(context: Context) {
             }
             if (tab == "Inicio" && readingBooks.isNotEmpty())
                 item(key = "reading-shelf") { ReadingShelf(readingBooks, vm::readingPercent,
-                    onLongPress = { bookMenu = it }) { book ->
+                    onLongPress = { bookMenu = it }, onCarouselTouch = { startedOnCarousel = true }) { book ->
                     readingUri = book.uri.toString()
                     vm.recordOpen(book.uri)
                 } }
@@ -3400,7 +3469,17 @@ private fun openCasaDelLibro(context: Context) {
                     val ordered = group
                     if (tab == "Géneros" && genreCarousel == "Horizontal") {
                         item(key = "genre-carousel:$name", contentType = "genre-carousel") {
-                            LazyRow(modifier = Modifier.fillMaxWidth(),
+                            LazyRow(modifier = Modifier.fillMaxWidth().pointerInput(Unit) {
+                                awaitEachGesture {
+                                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                    startedOnCarousel = true
+                                    var pressed: Boolean
+                                    do {
+                                        pressed = awaitPointerEvent(PointerEventPass.Final)
+                                            .changes.any { it.pressed }
+                                    } while (pressed)
+                                }
+                            },
                                 contentPadding = PaddingValues(horizontal = 8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 items(ordered, key = { "carousel:$name:" + it.uri },
@@ -3506,21 +3585,21 @@ private fun openCasaDelLibro(context: Context) {
         Triple("Goodreads", "Goodreads", Teal) to onGoodreads,
         Triple("Google IA", "Google IA", Color(0xFFB96056)) to onGoogle
     )
-    Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 2.dp, bottom = 6.dp),
-        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically) {
         shortcuts.forEachIndexed { index, (item, action) ->
-            if (index > 0) Spacer(Modifier.width(8.dp))
             Surface(
-                modifier = Modifier.clickable(onClick = action),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                color = Paper.copy(alpha = 0.88f),
-                tonalElevation = 0.dp
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp).clickable(onClick = action),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                color = Color(0xFFEFE6D8), tonalElevation = 1.dp
             ) {
-                Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    AppIcon(item.second, tint = item.third, size = 16.dp)
-                    Text(item.first, fontSize = 11.sp, maxLines = 1,
+                    horizontalArrangement = Arrangement.Center) {
+                    AppIcon(item.second, tint = item.third, size = 21.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(item.first, fontSize = 13.sp, maxLines = 1,
                         color = Mahogany.copy(alpha = 0.85f), textAlign = TextAlign.Center)
                 }
             }
@@ -3530,17 +3609,26 @@ private fun openCasaDelLibro(context: Context) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable private fun ReadingShelf(books: List<Book>, progress: (Uri) -> Int,
-    onLongPress: (Book) -> Unit, onOpen: (Book) -> Unit) {
+    onLongPress: (Book) -> Unit, onCarouselTouch: () -> Unit, onOpen: (Book) -> Unit) {
     Column {
         Text("Continuar leyendo", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
             fontSize = 21.sp, color = Mahogany,
             modifier = Modifier.padding(start = 12.dp, top = 16.dp, bottom = 12.dp))
         BoxWithConstraints(Modifier.fillMaxWidth()) {
         val coverWidth = (maxWidth - 36.dp) / 2
-        LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+        LazyRow(Modifier.fillMaxWidth().pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                onCarouselTouch()
+                var pressed: Boolean
+                do {
+                    pressed = awaitPointerEvent(PointerEventPass.Final).changes.any { it.pressed }
+                } while (pressed)
+            }
+        }, horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(horizontal = 12.dp)) {
             items(books, key = { "reading:" + it.uri }) { book ->
-                Column(Modifier.width(coverWidth).combinedClickable(
+                Column(Modifier.width(coverWidth).height(coverWidth * 1.40f + 104.dp).combinedClickable(
                     onClick = { onOpen(book) }, onLongClick = { onLongPress(book) })) {
                     Card(elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
@@ -3548,7 +3636,7 @@ private fun openCasaDelLibro(context: Context) {
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(displayTitle(book), fontSize = 13.sp, lineHeight = 17.sp,
-                        maxLines = 2, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                        minLines = 2, maxLines = 2, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
                         color = Ink)
                     Text(displayAuthor(book), fontSize = 11.sp, maxLines = 1,
                         color = Mahogany.copy(alpha = 0.75f))
@@ -3615,7 +3703,7 @@ private fun openCasaDelLibro(context: Context) {
     BoxWithConstraints(modifier.combinedClickable(
         onClick = onClick, onLongClick = onLongPress).padding(bottom = 8.dp)) {
         val coverWidth = maxWidth
-        Column(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().height(coverWidth * 1.42f + 104.dp)) {
             Card(elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
                 Cover(book, coverWidth, coverWidth * 1.42f)
@@ -3623,7 +3711,7 @@ private fun openCasaDelLibro(context: Context) {
             Spacer(Modifier.height(7.dp))
             Text(title, fontSize = 13.sp, lineHeight = 17.sp,
                 fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                maxLines = 2, color = Ink)
+                minLines = 2, maxLines = 2, color = Ink)
             Text(author, fontSize = 11.sp, maxLines = 1,
                 color = Mahogany.copy(alpha = 0.75f))
             if (book.status == ReadingStatus.READING) {
@@ -3632,7 +3720,7 @@ private fun openCasaDelLibro(context: Context) {
                     modifier = Modifier.fillMaxWidth(), color = Teal,
                     trackColor = Brass.copy(alpha = 0.15f))
                 Text("$progress %", fontSize = 10.sp, color = Teal)
-            }
+            } else Spacer(Modifier.height(24.dp))
         }
     }
 }
@@ -3644,8 +3732,14 @@ private val coverBitmapCache = object : LruCache<String, Bitmap>(coverBitmapCach
     override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
 }
 
+private fun coverBucket(pixels: Int): Int {
+    val step = if (pixels < 256) 128 else 256
+    return ((pixels.coerceAtLeast(1) + step - 1) / step) * step
+}
+
 private fun coverKey(book: Book, widthPx: Int, heightPx: Int): String =
-    book.uri.toString() + ":" + System.identityHashCode(book.cover) + ":$widthPx:$heightPx"
+    book.uri.toString() + ":" + System.identityHashCode(book.cover) +
+        ":${coverBucket(widthPx)}:${coverBucket(heightPx)}"
 
 private fun decodeCover(book: Book, targetWidthPx: Int, targetHeightPx: Int): Bitmap? {
     val bytes = book.cover ?: return null
@@ -3655,8 +3749,8 @@ private fun decodeCover(book: Book, targetWidthPx: Int, targetHeightPx: Int): Bi
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     // Decode compact previews so switching genre rows does not repeatedly allocate
     // near full-resolution bitmaps. The cover is still upscaled cleanly at card size.
-    val targetWidth = targetWidthPx.coerceAtLeast(1) * 2 / 3
-    val targetHeight = targetHeightPx.coerceAtLeast(1) * 2 / 3
+    val targetWidth = coverBucket(targetWidthPx) * 2 / 3
+    val targetHeight = coverBucket(targetHeightPx) * 2 / 3
     var sample = 1
     while (bounds.outWidth / (sample * 2) >= targetWidth &&
         bounds.outHeight / (sample * 2) >= targetHeight) sample *= 2
@@ -3710,7 +3804,9 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     saveGoodreadsUrl: (String) -> Unit, toggleWant: () -> Unit, detailMessage: String?,
     needsReview: Boolean, confirmDetails: () -> Unit,
     editIdentity: (String, String, String, String) -> Unit,
-    genreSearching: Boolean, searchGenre: () -> Unit, updateGenre: (String) -> Unit
+    genreSearching: Boolean, searchGenre: () -> Unit, updateGenre: (String) -> Unit,
+    downloadForOffline: () -> Unit, offlineDownloading: Boolean,
+    offlineDownloadPercent: Int, offlineDownloadMessage: String?
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -3871,14 +3967,18 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     LibraryActionButton(onClick = {
-                        val safeName = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), " ").trim().take(90)
-                        val extension = (if (book.uri.scheme == "file") book.uri.lastPathSegment
-                            else androidx.documentfile.provider.DocumentFile.fromSingleUri(context, book.uri)?.name)
-                            ?.substringAfterLast('.', "epub")?.lowercase().orEmpty()
-                        exportPicker.launch((safeName.ifBlank { "Libro" }) + "." +
-                            extension.takeIf { it in setOf("epub", "pdf", "mobi", "azw", "azw3", "txt", "html", "htm", "rtf", "docx", "md") }.orEmpty().ifBlank { "epub" })
-                    }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), enabled = !exportingEpub) {
-                        ActionLabel(if (exportingEpub) "Guardando…" else "Descargar", "Descargar", 12.sp)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            downloadForOffline()
+                        } else {
+                            val safeName = displayTitle(book).replace(Regex("""[\\/:*?"<>|]"""), " ").trim().take(90)
+                            val extension = (if (book.uri.scheme == "file") book.uri.lastPathSegment
+                                else androidx.documentfile.provider.DocumentFile.fromSingleUri(context, book.uri)?.name)
+                                ?.substringAfterLast('.', "epub")?.lowercase().orEmpty()
+                            exportPicker.launch((safeName.ifBlank { "Libro" }) + "." +
+                                extension.takeIf { it in setOf("epub", "pdf", "mobi", "azw", "azw3", "txt", "html", "htm", "rtf", "docx", "md") }.orEmpty().ifBlank { "epub" })
+                        }
+                    }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), enabled = !exportingEpub && !offlineDownloading) {
+                        ActionLabel(if (exportingEpub || offlineDownloading) "Descargando…" else "Descargar", "Descargar", 12.sp)
                     }
                     LibraryActionButton(onClick = {
                         titleDraft = displayTitle(book); authorDraft = displayAuthor(book)
@@ -3887,6 +3987,13 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                     }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
                         ActionLabel("Editar datos", "Editar", 12.sp)
                     }
+                }
+                if (offlineDownloading) {
+                    LinearProgressIndicator(progress = { offlineDownloadPercent / 100f },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp), color = Teal)
+                    Text("Descargando en el teléfono · $offlineDownloadPercent %", fontSize = 12.sp)
+                } else if (offlineDownloadMessage != null) {
+                    Text(offlineDownloadMessage, fontSize = 12.sp, color = Mahogany)
                 }
                 Spacer(Modifier.height(6.dp))
                 OutlinedButton(onClick = { moreActionsExpanded = !moreActionsExpanded },
