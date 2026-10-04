@@ -7,6 +7,7 @@ import java.util.zip.ZipFile
 
 internal object FileLimits {
     const val BOOK_BYTES = 256L * 1024 * 1024
+    const val COVER_INPUT_BYTES = 16L * 1024 * 1024
     const val BACKUP_BYTES = 32L * 1024 * 1024
     const val TEXT_BYTES = 16L * 1024 * 1024
     const val INDEX_BYTES = 1024L * 1024
@@ -14,6 +15,17 @@ internal object FileLimits {
     const val CHAPTERS = 2000
     const val ZIP_ENTRIES = 20000
     const val FREE_SPACE = 32L * 1024 * 1024
+}
+
+
+/** Pick a power-of-two sample before decoding untrusted image data. */
+internal fun imageSampleSize(width: Int, height: Int, targetWidth: Int, targetHeight: Int): Int {
+    require(width in 1..30_000 && height in 1..30_000 &&
+        width.toLong() * height <= 100_000_000L) { "La imagen tiene dimensiones excesivas." }
+    require(targetWidth > 0 && targetHeight > 0)
+    var sample = 1
+    while (width / sample > targetWidth || height / sample > targetHeight) sample *= 2
+    return sample
 }
 
 /** Count actual bytes, including streams without a trustworthy declared size. */

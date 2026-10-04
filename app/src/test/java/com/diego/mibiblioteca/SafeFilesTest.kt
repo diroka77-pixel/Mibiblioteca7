@@ -31,6 +31,19 @@ class SafeFilesTest {
         assertEquals(0, output.size())
     }
 
+    @Test fun imageSamplingBoundsDecodedSizeAndRejectsOversizedSources() {
+        assertEquals(1, imageSampleSize(900, 1200, 1800, 2400))
+        val sample = imageSampleSize(8000, 12000, 1800, 2400)
+        assertTrue(8000 / sample <= 1800)
+        assertTrue(12000 / sample <= 2400)
+        assertThrows(IllegalArgumentException::class.java) {
+            imageSampleSize(30000, 30000, 1800, 2400)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            imageSampleSize(0, 1200, 1800, 2400)
+        }
+    }
+
     @Test fun compressedEntryIsLimitedByUncompressedSize() {
         val file = File.createTempFile("safe-epub", ".zip")
         try {
