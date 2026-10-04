@@ -954,15 +954,18 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     val context = getApplication<Application>()
                     val name = DocumentFile.fromSingleUri(context, source)?.name
                         ?: source.lastPathSegment.orEmpty().substringAfterLast('/')
-                    require(name.endsWith(".epub", ignoreCase = true) ||
-                        context.contentResolver.getType(source) == "application/epub+zip") {
-                        "Selecciona un archivo EPUB."
+                    val mime = context.contentResolver.getType(source).orEmpty().substringBefore(';')
+                    val extension = when {
+                        name.endsWith(".epub", ignoreCase = true) || mime == "application/epub+zip" -> "epub"
+                        name.endsWith(".pdf", ignoreCase = true) || mime == "application/pdf" -> "pdf"
+                        else -> error("Mi Biblioteca puede abrir aquí archivos EPUB y PDF.")
                     }
+                    val safeName = name.ifBlank { "Libro.$extension" }
                     val folder = File(context.filesDir, "imported").apply { mkdirs() }
                     val target = File(folder, "book-" + MessageDigest.getInstance("SHA-256")
                         .digest(source.toString().toByteArray()).joinToString("") {
                             "%02x".format(it)
-                        } + ".epub")
+                        } + ".$extension")
                     val partial = File(folder, target.name + ".partial")
                     try {
                         context.contentResolver.openInputStream(source)?.use { input ->
@@ -972,18 +975,23 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         } ?: error("No se pudo leer el archivo")
                         require(partial.length() > 0) { "El archivo está vacío" }
                         if (target.exists()) target.delete()
-                        check(partial.renameTo(target)) { "No se pudo guardar el EPUB" }
+                        check(partial.renameTo(target)) { "No se pudo guardar el libro" }
                     } finally { partial.delete() }
-                    readEpub(context, Uri.fromFile(target), name,
+                    val localUri = Uri.fromFile(target)
+                    if (extension == "epub") readEpub(context, localUri, safeName,
                         target.length(), target.lastModified())
+                    else Book(localUri, cleanCatalogText(safeName),
+                        description = "Documento PDF", sourceSize = target.length(),
+                        sourceModified = target.lastModified())
                 }
                 books = (books.filterNot { it.uri == imported.uri } + imported)
                     .sortedBy { it.title.lowercase() }
                 saveBooks()
                 importedBookUri = imported.uri
-                message = "EPUB añadido a Mi Biblioteca"
+                message = if (imported.uri.lastPathSegment?.endsWith(".pdf", true) == true)
+                    "PDF añadido a Mi Biblioteca" else "EPUB añadido a Mi Biblioteca"
             } catch (e: Exception) {
-                message = "No se pudo importar el EPUB: ${e.localizedMessage ?: "archivo no válido"}"
+                message = "No se pudo abrir el archivo: ${e.localizedMessage ?: "archivo no válido"}"
             }
         }
     }
@@ -2643,6 +2651,11 @@ private fun openCasaDelLibro(context: Context) {
                     Text("EXPLORAR", color = Teal,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
+                    NavigationDrawerItem(label = { Text("Favoritos") }, selected = vm.onlyFavorites && tab == "Biblioteca",
+                        icon = { AppIcon("Favoritos") }, onClick = {
+                            switchTab("Biblioteca"); vm.query = ""; vm.onlyFavorites = true
+                            scope.launch { drawerState.close() }
+                        })
                     NavigationDrawerItem(label = { Text("Quiero leer") }, selected = showWishList,
                         icon = { AppIcon("Pendientes") }, onClick = {
                             switchTab("Biblioteca"); showWishList = true
@@ -2965,7 +2978,13 @@ private fun openCasaDelLibro(context: Context) {
                                     AppIcon("Cerrar", "Ocultar noticia", tint = Mahogany)
                                 }
                             }
-
+                            if (picture != null) {
+                                HorizontalDivider(color = Brass.copy(alpha = 0.22f))
+                                Image(picture!!.asImageBitmap(), contentDescription = null,
+                                    modifier = Modifier.fillMaxWidth().height(202.dp),
+                                    contentScale = if (news.source == "Casa del Libro")
+                                        ContentScale.Fit else ContentScale.Crop)
+                            }
                         }
                     }
                 }
