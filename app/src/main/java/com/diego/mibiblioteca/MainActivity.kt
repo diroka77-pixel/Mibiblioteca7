@@ -2088,6 +2088,7 @@ private fun normalizePath(path: String): String {
 
 private val Ink = Color(0xFF31271F)
 private val Mahogany = Color(0xFF49352A)
+private val HeaderBrown = Color(0xFF765B50)
 private val Brass = Color(0xFFAD8248)
 private val Parchment = Color(0xFFF7F6F2)
 private val Paper = Color.White
@@ -2382,6 +2383,7 @@ private fun openCasaDelLibro(context: Context) {
     var readingUri by rememberSaveable { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableStateOf("Inicio") }
     var selectedGenres by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    var genreAllSelected by rememberSaveable { mutableStateOf(true) }
     var genreCarousel by rememberSaveable { mutableStateOf("Horizontal") }
     var genrePickerOpen by rememberSaveable { mutableStateOf(false) }
     var genreSearch by rememberSaveable { mutableStateOf("") }
@@ -2501,15 +2503,22 @@ private fun openCasaDelLibro(context: Context) {
     val readingBooks = remember(vm.books) { vm.readingBooks() }
     val pageMotion = remember { Animatable(0f) }
     LaunchedEffect(tab, vm.selectedSection) {
-        pageMotion.snapTo(5f)
-        pageMotion.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
+        pageMotion.snapTo(3f)
+        pageMotion.animateTo(0f, tween(210, easing = FastOutSlowInEasing))
     }
     val visibleNews = remember(vm.launchNews, vm.hiddenNewsSources, vm.hiddenNewsUrls) {
         vm.launchNews.filter(vm::isNewsVisible)
     }
     val duplicateSnapshot = vm.books
-    val duplicateGroups by produceState(initialValue = emptyList<List<Book>>(), duplicateSnapshot) {
+    var duplicateScanComplete by remember { mutableStateOf(false) }
+    val scanDuplicatesNow = selected != null || duplicateDialog
+    val duplicateGroups by produceState(
+        initialValue = emptyList<List<Book>>(), duplicateSnapshot, scanDuplicatesNow
+    ) {
+        if (!scanDuplicatesNow) return@produceState
+        duplicateScanComplete = false
         value = withContext(Dispatchers.Default) { findDuplicateGroups(duplicateSnapshot) }
+        duplicateScanComplete = true
     }
     val booksSnapshot = vm.books
     val querySnapshot = vm.query
@@ -2529,11 +2538,12 @@ private fun openCasaDelLibro(context: Context) {
         }
     }
     val visibleBooks = if (tab == "Inicio") emptyList() else filteredBooks
-    val genreOptions by produceState(initialValue = listOf("Todos"), visibleBooks) {
+    val genreSourceBooks = if (tab == "Géneros") visibleBooks else emptyList()
+    val genreOptions by produceState(initialValue = listOf("Todos"), genreSourceBooks) {
         value = withContext(Dispatchers.Default) {
             val known = linkedSetOf<String>()
             var hasUnclassified = false
-            visibleBooks.forEach { book ->
+            genreSourceBooks.forEach { book ->
                 val genres = normalizeBookGenres(book.genre)
                 if (genres.isEmpty()) hasUnclassified = true else known.addAll(genres)
             }
@@ -2542,14 +2552,38 @@ private fun openCasaDelLibro(context: Context) {
         }
     }
     val allGenres = remember(genreOptions) { genreOptions.filterNot { it == "Todos" } }
-    val activeGenres = if (tab == "Géneros") selectedGenres intersect allGenres.toSet() else emptySet()
+    val activeGenres = if (tab == "Géneros" && !genreAllSelected)
+        selectedGenres intersect allGenres.toSet() else emptySet()
     val matchingGenres = remember(allGenres, genreSearch) {
-        if (genreSearch.isBlank()) allGenres
-        else allGenres.filter { it.contains(genreSearch.trim(), ignoreCase = true) }
+        val query = genreSearch.trim()
+        if (query.isBlank()) allGenres
+        else allGenres.filter { it.contains(query, ignoreCase = true) }
+    }
+    fun updateGenreSelection(genre: String, checked: Boolean) {
+        if (checked) {
+            if (genreAllSelected) return
+            val next = selectedGenres + genre
+            if (next.containsAll(allGenres)) {
+                genreAllSelected = true
+                selectedGenres = emptySet()
+            } else selectedGenres = next
+        } else {
+            selectedGenres = (if (genreAllSelected) allGenres.toSet() else selectedGenres) - genre
+            genreAllSelected = false
+        }
     }
     LaunchedEffect(tab, genreOptions) {
-        if (tab == "Géneros" && selectedGenres.isNotEmpty())
+        if (tab == "Géneros" && allGenres.isNotEmpty() &&
+            !genreAllSelected && selectedGenres.isNotEmpty()) {
             selectedGenres = selectedGenres intersect allGenres.toSet()
+            if (selectedGenres.containsAll(allGenres) && allGenres.isNotEmpty()) {
+                selectedGenres = emptySet()
+                genreAllSelected = true
+            }
+        }
+    }
+    LaunchedEffect(genrePickerOpen, genreSearch) {
+        if (genrePickerOpen) genreListState.scrollToItem(0)
     }
     if (genrePickerOpen) AlertDialog(
         onDismissRequest = { genrePickerOpen = false; genreSearch = "" },
@@ -2560,39 +2594,53 @@ private fun openCasaDelLibro(context: Context) {
                     value = genreSearch, onValueChange = { genreSearch = it },
                     modifier = Modifier.fillMaxWidth(), singleLine = true,
                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                    placeholder = { Text("Buscar género") }
+                    trailingIcon = {
+                        if (genreSearch.isNotEmpty()) IconButton(onClick = { genreSearch = "" }) {
+                            Icon(Icons.Outlined.Close, contentDescription = "Borrar búsqueda")
+                        }
+                    },
+                    placeholder = { Text("Escribe para filtrar géneros") }
                 )
-                Spacer(Modifier.height(8.dp))
-                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    if (genreSearch.isBlank()) "${matchingGenres.size} géneros disponibles"
+                    else "${matchingGenres.size} resultados",
+                    modifier = Modifier.padding(start = 12.dp, bottom = 4.dp),
+                    style = MaterialTheme.typography.bodySmall, color = Mahogany
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(
+                        onClick = { genreAllSelected = true; selectedGenres = emptySet() },
+                        enabled = !genreAllSelected
+                    ) { Text("Marcar todos") }
+                    TextButton(
+                        onClick = { genreAllSelected = false; selectedGenres = emptySet() },
+                        enabled = genreAllSelected || selectedGenres.isNotEmpty()
+                    ) { Text("Desmarcar todos") }
+                }
+                LazyColumn(state = genreListState, modifier = Modifier.heightIn(max = 320.dp)) {
                     items(matchingGenres, key = { it }) { genre ->
-                        val checked = selectedGenres.isEmpty() || genre in activeGenres
+                        val checked = genreAllSelected || genre in selectedGenres
                         Row(
                             Modifier.fillMaxWidth().toggleable(
                                 value = checked, role = Role.Checkbox
-                            ) {
-                                selectedGenres = if (selectedGenres.isEmpty()) {
-                                    allGenres.toSet() - genre
-                                } else {
-                                    val next = if (genre in selectedGenres)
-                                        selectedGenres - genre else selectedGenres + genre
-                                    if (next.isEmpty()) selectedGenres else next
-                                }
-                            }.padding(vertical = 2.dp),
+                            ) { updateGenreSelection(genre, !checked) }
+                                .padding(vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Checkbox(checked = checked, onCheckedChange = null)
                             Text(genre, modifier = Modifier.weight(1f))
                         }
                     }
-                    if (matchingGenres.isEmpty()) item { Text("No hay coincidencias.", Modifier.padding(12.dp)) }
+                    if (matchingGenres.isEmpty()) item {
+                        Text("No hay géneros que coincidan con «${genreSearch.trim()}».",
+                            Modifier.padding(12.dp))
+                    }
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = { genrePickerOpen = false; genreSearch = "" }) { Text("Listo") }
-        },
-        dismissButton = {
-            TextButton(onClick = { selectedGenres = emptySet() }) { Text("Mostrar todos") }
         }
     )
     val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Géneros") "Géneros" else if (tab == "Inicio") "Todos" else vm.groupMode
@@ -2658,8 +2706,8 @@ private fun openCasaDelLibro(context: Context) {
         }
       }
     }
-    val genreDisplayGroups = remember(groupedBooks, activeGenres, tab) {
-        if (tab == "Géneros" && activeGenres.isNotEmpty())
+    val genreDisplayGroups = remember(groupedBooks, activeGenres, genreAllSelected, tab) {
+        if (tab == "Géneros" && !genreAllSelected)
             groupedBooks.filterKeys { it in activeGenres }
         else groupedBooks
     }
@@ -2704,7 +2752,15 @@ private fun openCasaDelLibro(context: Context) {
     if (duplicateDialog) AlertDialog(onDismissRequest = { duplicateDialog = false },
         title = { Text("Posibles duplicados") },
         text = { Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
-            duplicateGroups.forEach { group ->
+            if (!duplicateScanComplete) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Comparando libros…")
+                }
+            } else if (duplicateGroups.isEmpty()) {
+                Text("No se han encontrado posibles duplicados.")
+            } else duplicateGroups.forEach { group ->
                 Text(displayTitle(group.first()), fontFamily = FontFamily.Serif,
                     fontWeight = FontWeight.Bold, color = Mahogany)
                 group.forEach { copy ->
@@ -2967,7 +3023,7 @@ private fun openCasaDelLibro(context: Context) {
     Scaffold(
         containerColor = Parchment,
         topBar = {
-            Column(Modifier.fillMaxWidth().background(Mahogany).statusBarsPadding()) {
+            Column(Modifier.fillMaxWidth().background(HeaderBrown).statusBarsPadding()) {
                 Box(Modifier.fillMaxWidth().height(60.dp)) {
                     IconButton(onClick = { scope.launch { drawerState.open() } },
                         modifier = Modifier.align(Alignment.CenterStart)
@@ -3071,14 +3127,20 @@ private fun openCasaDelLibro(context: Context) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedButton(onClick = { genrePickerOpen = true }) {
+                            OutlinedButton(onClick = {
+                                genreSearch = ""
+                                genrePickerOpen = true
+                            }) {
                                 Icon(Icons.Outlined.FilterList, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
-                                Text(if (activeGenres.isEmpty()) "Géneros" else "${activeGenres.size} géneros")
+                                Text(if (genreAllSelected) "Géneros" else "${selectedGenres.size} seleccionados")
                             }
-                            if (activeGenres.isNotEmpty()) {
-                                IconButton(onClick = { selectedGenres = emptySet() }) {
-                                    Icon(Icons.Outlined.Close, contentDescription = "Mostrar todos los géneros")
+                            if (!genreAllSelected) {
+                                IconButton(onClick = {
+                                    genreAllSelected = true
+                                    selectedGenres = emptySet()
+                                }) {
+                                    Icon(Icons.Outlined.Close, contentDescription = "Marcar todos los géneros")
                                 }
                             }
                         }
@@ -3187,8 +3249,8 @@ private fun openCasaDelLibro(context: Context) {
                             DropdownMenuItem(text = { Text("Restaurar respaldo") }, onClick = {
                                 backupMenu = false; backupImport.launch(arrayOf("application/json"))
                             })
-                            if (duplicateGroups.isNotEmpty()) DropdownMenuItem(
-                                text = { Text("Duplicados (${duplicateGroups.size})") },
+                            DropdownMenuItem(
+                                text = { Text("Buscar duplicados") },
                                 onClick = { backupMenu = false; duplicateDialog = true })
                         }
                     }
@@ -3294,6 +3356,11 @@ private fun openCasaDelLibro(context: Context) {
                 item(key = "no-results") {
                     Text(if (vm.onlyFavorites) "Todavía no hay libros favoritos."
                         else "No hay libros con estos filtros.", modifier = Modifier.padding(20.dp))
+                }
+            } else if (tab == "Géneros" && !genreAllSelected && selectedGenres.isEmpty()) {
+                item(key = "no-genres-selected") {
+                    Text("No has marcado ningún género. Abre el filtro y selecciona los que quieras ver.",
+                        modifier = Modifier.padding(20.dp), color = Mahogany)
                 }
             } else if (genreDisplayGroups.isEmpty()) {
                 item(key = "organizing-books") {
@@ -3424,19 +3491,23 @@ private fun openCasaDelLibro(context: Context) {
         Triple("Goodreads", "Goodreads", Teal) to onGoodreads,
         Triple("Google IA", "Google IA", Color(0xFFB96056)) to onGoogle
     )
-    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly) {
-        shortcuts.forEach { (item, action) ->
-            Column(Modifier.weight(1f).clickable(onClick = action),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.size(56.dp).background(item.third,
-                    androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
-                    contentAlignment = Alignment.Center) {
-                    AppIcon(item.second, tint = Color.White, size = 25.dp)
+    Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 2.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+        shortcuts.forEachIndexed { index, (item, action) ->
+            if (index > 0) Spacer(Modifier.width(8.dp))
+            Surface(
+                modifier = Modifier.clickable(onClick = action),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                color = Paper.copy(alpha = 0.88f),
+                tonalElevation = 0.dp
+            ) {
+                Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    AppIcon(item.second, tint = item.third, size = 16.dp)
+                    Text(item.first, fontSize = 11.sp, maxLines = 1,
+                        color = Mahogany.copy(alpha = 0.85f), textAlign = TextAlign.Center)
                 }
-                Spacer(Modifier.height(4.dp))
-                Text(item.first, fontSize = 11.sp, maxLines = 1,
-                    color = Mahogany, textAlign = TextAlign.Center)
             }
         }
     }
