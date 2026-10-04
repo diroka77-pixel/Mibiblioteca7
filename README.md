@@ -1,6 +1,13 @@
-# MiBiblioteca v0.89.0
+# MiBiblioteca v0.90.0
 
-Proyecto Android de MiBiblioteca. Las portadas importadas se limitan antes de decodificarse y Dependabot propone actualizaciones semanales para Gradle y GitHub Actions. Los grupos se conservan al cambiar entre pantallas y cada sección mantiene su propia posición de desplazamiento. La vista de géneros conserva sus grupos al cambiar filtros, permite buscar y seleccionar géneros desde un selector compacto y carga portadas ajustadas al tamaño visible para agilizar la navegación. El filtro de géneros desplaza su propia lista y aplica la selección al terminar; los accesos externos están centrados y se reutilizan grupos y portadas en cambios de pantalla. El código fuente está en `app/`. GitHub Actions compila, verifica y publica la APK firmada en GitHub Releases.
+Proyecto Android de MiBiblioteca. Las portadas importadas se limitan antes de decodificarse y Dependabot propone actualizaciones semanales para Gradle y GitHub Actions. Los grupos se conservan al cambiar entre pantallas y cada sección mantiene su propia posición de desplazamiento. La vista de géneros conserva sus grupos al cambiar filtros, permite buscar y seleccionar géneros desde un selector compacto y carga portadas ajustadas al tamaño visible para agilizar la navegación. El filtro de géneros desplaza su propia lista y aplica la selección al terminar; los accesos externos están centrados y se reutilizan grupos y portadas en cambios de pantalla. El código fuente está en `app/`. GitHub Actions compila, verifica y guarda la APK firmada como artefacto de la ejecución.
+
+## Cambios de la versión 0.90
+
+- El gesto lateral acompaña al dedo al navegar entre pantallas y respeta los carruseles de libros.
+- Las tarjetas reservan una altura estable y las portadas comparten caché entre tamaños próximos.
+- Goodreads y Google IA tienen botones centrados de mayor tamaño.
+- Descargar guarda el libro directamente en Descargas con porcentaje en Android 10 y posteriores. El lector usa esta copia si Drive no está disponible y se ha perdido la caché temporal. En Android 8 y 9 se conserva el selector del sistema.
 
 El lector integrado abre EPUB, PDF, TXT, Markdown, HTML, RTF, DOCX y MOBI clásico (PalmDOC sin comprimir o comprimido). Guarda la posición y el porcentaje por archivo; los datos de lectura se incluyen en el respaldo de la biblioteca. EPUB y DOCX muestran el texto extraído, por lo que imágenes, diseño complejo y algunas notas no se reproducen. Los MOBI con compresión HuffCDIC y AZW3 requieren conversión a EPUB. Los PDF protegidos con contraseña no se abren con el renderizador del sistema.
 
