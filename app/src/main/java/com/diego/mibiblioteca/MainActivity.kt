@@ -2434,8 +2434,8 @@ private fun openCasaDelLibro(context: Context) {
                 return@launch
             }
             val direction = if (tabs.indexOf(name) > tabs.indexOf(tab)) -1f else 1f
-            val distance = pageWidthPx * 0.32f
-            pageMotion.animateTo(direction * distance, tween(120, easing = FastOutSlowInEasing))
+            val distance = pageWidthPx * 0.24f
+            pageMotion.animateTo(direction * distance, tween(110, easing = FastOutSlowInEasing))
             tab = name
             showWishList = showPending
             vm.selectedSection = null
@@ -2443,7 +2443,7 @@ private fun openCasaDelLibro(context: Context) {
             vm.statusFilter = null
             vm.onlyFavorites = name == "Favoritos"
             pageMotion.snapTo(-direction * distance)
-            pageMotion.animateTo(0f, tween(230, easing = FastOutSlowInEasing))
+            pageMotion.animateTo(0f, tween(200, easing = FastOutSlowInEasing))
         }
     }
     fun settlePage() {
@@ -2532,7 +2532,7 @@ private fun openCasaDelLibro(context: Context) {
             restoreListPosition = false
         }
     }
-    val swipeThreshold = with(LocalDensity.current) { 40.dp.toPx() }
+    val swipeThreshold = with(LocalDensity.current) { 36.dp.toPx() }
     val swipeControlsHeight = with(LocalDensity.current) { 52.dp.toPx() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
@@ -3140,38 +3140,36 @@ private fun openCasaDelLibro(context: Context) {
               startedOnCarousel = false
               val start = down.position
               var end = start
-              var childConsumedGesture = false
+              var verticalGesture = false
               var draggingPage = false
               while (true) {
-                  // The child carousel receives the down event before we inspect its scroll.
-                  val change = awaitPointerEvent(PointerEventPass.Final).changes
+                  // Observe before clickable cards consume the movement. A carousel still owns
+                  // its horizontal drag, while a vertical list keeps its own scroll gesture.
+                  val change = awaitPointerEvent(PointerEventPass.Initial).changes
                       .firstOrNull { it.id == down.id } ?: break
                   end = change.position
                   if (!change.pressed) break
-                  // A card may consume its initial press; only a consumed move owns the drag.
-                  childConsumedGesture = childConsumedGesture ||
-                      (change.isConsumed && change.position != change.previousPosition)
                   val horizontal = end.x - start.x
                   val vertical = end.y - start.y
-                  if (childConsumedGesture || startedOnCarousel) {
-                      if (draggingPage) pageDrag.floatValue = 0f
-                      draggingPage = false
-                  } else if (start.y > swipeControlsHeight &&
-                      kotlin.math.abs(horizontal) > swipeThreshold * 0.45f &&
-                      kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.35f) {
+                  if (!draggingPage && kotlin.math.abs(vertical) > swipeThreshold * 0.35f &&
+                      kotlin.math.abs(vertical) > kotlin.math.abs(horizontal) * 1.15f)
+                      verticalGesture = true
+                  if (!verticalGesture && !startedOnCarousel && start.y > swipeControlsHeight &&
+                      (draggingPage || (kotlin.math.abs(horizontal) > swipeThreshold * 0.35f &&
+                          kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.25f))) {
                       draggingPage = true
-                      pageDrag.floatValue = horizontal.coerceIn(-pageWidthPx * 0.32f, pageWidthPx * 0.32f)
+                      pageDrag.floatValue = horizontal.coerceIn(-pageWidthPx * 0.24f, pageWidthPx * 0.24f)
+                      change.consume()
                   }
               }
               val horizontal = end.x - start.x
               val vertical = end.y - start.y
-              if (draggingPage && !childConsumedGesture && !startedOnCarousel &&
-                  kotlin.math.abs(horizontal) > swipeThreshold) {
+              if (draggingPage && kotlin.math.abs(horizontal) > swipeThreshold) {
                   val index = tabs.indexOf(currentTab)
                   val next = index + if (horizontal < 0) 1 else -1
                   if (next in tabs.indices) currentSwitch(tabs[next])
                   else settlePage()
-              } else if (!childConsumedGesture && currentTab == "Inicio" &&
+              } else if (!draggingPage && currentTab == "Inicio" &&
                   !startedOnCarousel &&
                   vertical > swipeThreshold * 1.8f &&
                   listState.firstVisibleItemIndex == 0 &&
@@ -3197,8 +3195,8 @@ private fun openCasaDelLibro(context: Context) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().graphicsLayer {
                 translationX = pageMotion.value + pageDrag.floatValue
-                alpha = (1f - kotlin.math.abs(pageMotion.value + pageDrag.floatValue) / (pageWidthPx * 0.6f))
-                    .coerceIn(0.45f, 1f)
+                alpha = (1f - kotlin.math.abs(pageMotion.value + pageDrag.floatValue) / (pageWidthPx * 0.24f))
+                    .coerceIn(0f, 1f)
             },
             state = listState,
             contentPadding = PaddingValues(bottom = 24.dp),
@@ -3206,9 +3204,8 @@ private fun openCasaDelLibro(context: Context) {
         ) {
             if (tab == "Géneros") item(key = "genre-jump") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                             OutlinedButton(onClick = {
                                 genreSearch = ""
                                 draftAllGenres = genreAllSelected
@@ -3217,7 +3214,8 @@ private fun openCasaDelLibro(context: Context) {
                             }) {
                                 Icon(Icons.Outlined.FilterList, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
-                                Text(if (genreAllSelected) "Géneros" else "${selectedGenres.size} seleccionados")
+                                Text(if (genreAllSelected) "Géneros" else "${selectedGenres.size} seleccionados",
+                                    maxLines = 1)
                             }
                             if (!genreAllSelected) {
                                 IconButton(onClick = {
@@ -3228,16 +3226,20 @@ private fun openCasaDelLibro(context: Context) {
                                 }
                             }
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    }
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.End) {
                             Text("Vista", color = Teal,
                                 style = MaterialTheme.typography.labelMedium,
                                 modifier = Modifier.padding(end = 6.dp))
-                            Row(Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
-                                .background(Color(0xFFEFE6D8)).padding(2.dp)) {
+                            Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                                color = Color(0xFFEFE6D8)) {
+                            Row(Modifier.padding(3.dp)) {
                             IconToggleButton(
                                 checked = genreCarousel == "Horizontal",
                                 onCheckedChange = { if (it) genreCarousel = "Horizontal" },
-                                modifier = Modifier.size(38.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                                modifier = Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)
                                     .background(if (genreCarousel == "Horizontal") Teal else Color.Transparent)
                             ) {
                                 Icon(Icons.Outlined.ViewCarousel, "Carrusel horizontal",
@@ -3246,15 +3248,15 @@ private fun openCasaDelLibro(context: Context) {
                             IconToggleButton(
                                 checked = genreCarousel == "Vertical",
                                 onCheckedChange = { if (it) genreCarousel = "Vertical" },
-                                modifier = Modifier.size(38.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                                modifier = Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)
                                     .background(if (genreCarousel == "Vertical") Teal else Color.Transparent)
                             ) {
                                 Icon(Icons.Outlined.ViewStream, "Vista vertical",
                                     tint = if (genreCarousel == "Vertical") Color.White else Mahogany)
                             }
                             }
+                            }
                         }
-                    }
                 }
             }
             if (tab == "Inicio" && readingBooks.isNotEmpty())
