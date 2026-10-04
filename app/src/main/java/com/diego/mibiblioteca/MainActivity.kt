@@ -2504,19 +2504,12 @@ private fun openCasaDelLibro(context: Context) {
     LaunchedEffect(tab, genreOptions) {
         if (tab == "Géneros") selectedGenres = selectedGenres intersect genreOptions.toSet()
     }
-    val genreFilteredBooks = if (tab == "Géneros" && activeGenres.isNotEmpty())
-        visibleBooks.filter { book ->
-            val genres = normalizeBookGenres(book.genre)
-            activeGenres.any { genre ->
-                if (genre == "Sin clasificar") genres.isEmpty() else genre in genres
-            }
-        } else visibleBooks
     val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Géneros") "Géneros" else if (tab == "Inicio") "Todos" else vm.groupMode
     val sectionNames = vm.sections
-    val groupedBooks by key(tab, genreFilteredBooks, groupMode, sectionNames, sortMode, activeGenres, genreCarousel) {
-      produceState<Map<String, List<Book>>>(emptyMap(), genreFilteredBooks,
-        groupMode, sectionNames, tab, sortMode, activeGenres, genreCarousel) {
-        val booksToGroup = genreFilteredBooks
+    val groupedBooks by key(tab, visibleBooks, groupMode, sectionNames, sortMode) {
+      produceState<Map<String, List<Book>>>(emptyMap(), visibleBooks,
+        groupMode, sectionNames, tab, sortMode) {
+        val booksToGroup = visibleBooks
         value = withContext(Dispatchers.Default) {
         val titles = booksToGroup.associate { it.uri to displayTitle(it) }
         val authors = booksToGroup.associate { it.uri to displayAuthor(it) }
@@ -2525,11 +2518,7 @@ private fun openCasaDelLibro(context: Context) {
         val groups = when (groupMode) {
             "Autores" -> booksToGroup.groupBy { authors.getValue(it.uri) }
             "Sagas" -> booksToGroup.groupBy { it.saga.ifBlank { "Sin saga" } }
-            "Géneros" -> if (activeGenres.isNotEmpty()) activeGenres.associateWith { selected -> booksToGroup.filter { book ->
-                    val bookGenres = normalizeBookGenres(book.genre)
-                    if (selected == "Sin clasificar") bookGenres.isEmpty() else selected in bookGenres
-                } }
-                else booksToGroup.flatMap { book ->
+            "Géneros" -> booksToGroup.flatMap { book ->
                     val genres = normalizeBookGenres(book.genre)
                     (genres.ifEmpty { listOf("Sin clasificar") }).map { name -> name to book }
                 }.groupBy({ it.first }, { it.second })
@@ -2554,6 +2543,11 @@ private fun openCasaDelLibro(context: Context) {
         }
         }
       }
+    }
+    val genreDisplayGroups = remember(groupedBooks, activeGenres, tab) {
+        if (tab == "Géneros" && activeGenres.isNotEmpty())
+            groupedBooks.filterKeys { it in activeGenres }
+        else groupedBooks
     }
     vm.infoCandidate?.let { (uri, found) ->
         var authorDraft by remember(uri, found) { mutableStateOf(found.author) }
@@ -3168,12 +3162,12 @@ private fun openCasaDelLibro(context: Context) {
                     Text(if (vm.onlyFavorites) "Todavía no hay libros favoritos."
                         else "No hay libros con estos filtros.", modifier = Modifier.padding(20.dp))
                 }
-            } else if (groupedBooks.isEmpty()) {
+            } else if (genreDisplayGroups.isEmpty()) {
                 item(key = "organizing-books") {
                     LinearProgressIndicator(Modifier.fillMaxWidth().padding(20.dp), color = Teal)
                 }
             } else {
-                groupedBooks.forEach { (name, group) ->
+                genreDisplayGroups.forEach { (name, group) ->
                     if (name.isNotBlank()) item(key = "group:$name") {
                         Text(name, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
                             color = Mahogany, modifier = Modifier.padding(start = 12.dp, top = 10.dp))
@@ -3417,17 +3411,20 @@ private val coverBitmapCache = object : LruCache<String, Bitmap>(20 * 1024) {
     override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
 }
 
-private fun coverKey(book: Book): String =
-    book.uri.toString() + ":" + System.identityHashCode(book.cover)
+private fun coverKey(book: Book, widthPx: Int, heightPx: Int): String =
+    book.uri.toString() + ":" + System.identityHashCode(book.cover) + ":$widthPx:$heightPx"
 
-private fun decodeCover(book: Book): Bitmap? {
+private fun decodeCover(book: Book, targetWidthPx: Int, targetHeightPx: Int): Bitmap? {
     val bytes = book.cover ?: return null
-    val key = coverKey(book)
+    val key = coverKey(book, targetWidthPx, targetHeightPx)
     synchronized(coverBitmapCache) { coverBitmapCache.get(key) }?.let { return it }
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    val targetWidth = targetWidthPx.coerceAtLeast(1) * 2
+    val targetHeight = targetHeightPx.coerceAtLeast(1) * 2
     var sample = 1
-    while (bounds.outWidth / sample > 600 || bounds.outHeight / sample > 900) sample *= 2
+    while (bounds.outWidth / (sample * 2) >= targetWidth &&
+        bounds.outHeight / (sample * 2) >= targetHeight) sample *= 2
     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
         BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
     synchronized(coverBitmapCache) { coverBitmapCache.put(key, bitmap) }
@@ -3436,13 +3433,17 @@ private fun decodeCover(book: Book): Bitmap? {
 
 @Composable
 private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compose.ui.unit.Dp) {
-    val cached = remember(book.cover, book.uri) {
-        synchronized(coverBitmapCache) { coverBitmapCache.get(coverKey(book)) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val targetWidthPx = with(density) { w.roundToPx() }
+    val targetHeightPx = with(density) { h.roundToPx() }
+    val cacheKey = remember(book.cover, book.uri, targetWidthPx, targetHeightPx) {
+        coverKey(book, targetWidthPx, targetHeightPx)
     }
-    val bmp by produceState<Bitmap?>(cached, book.uri, book.cover) {
+    val cached = remember(cacheKey) { synchronized(coverBitmapCache) { coverBitmapCache.get(cacheKey) } }
+    val bmp by produceState<Bitmap?>(cached, book.uri, book.cover, targetWidthPx, targetHeightPx) {
         value = cached
         if (cached == null && book.cover != null)
-            value = withContext(Dispatchers.Default) { decodeCover(book) }
+            value = withContext(Dispatchers.Default) { decodeCover(book, targetWidthPx, targetHeightPx) }
     }
     Surface(Modifier.width(w).height(h), shape = MaterialTheme.shapes.medium,
         color = Color(0xFFF1EDE6), tonalElevation = 0.dp) {
