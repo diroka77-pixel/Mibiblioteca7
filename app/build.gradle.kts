@@ -38,7 +38,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
-    implementation("androidx.navigation:navigation-compose:2.8.5")
+    implementation("androidx.navigation:navigation-compose:2.10.2")
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("androidx.core:core:1.15.0")
     implementation("androidx.metrics:metrics-performance:1.0.0")
