@@ -2508,18 +2508,25 @@ private fun openCasaDelLibro(context: Context) {
     val sectionSnapshot = vm.selectedSection
     val qualitySnapshot = vm.qualityFilter
     val reviewSnapshot = vm.reviewPending
-    val filteredBooks = remember(booksSnapshot, querySnapshot, statusSnapshot,
-        favoritesSnapshot, sectionSnapshot, qualitySnapshot, reviewSnapshot) {
-        filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
-            sectionSnapshot, qualitySnapshot, reviewSnapshot)
+    val filteredBooks by produceState(
+        initialValue = emptyList<Book>(), booksSnapshot, querySnapshot, statusSnapshot,
+        favoritesSnapshot, sectionSnapshot, qualitySnapshot, reviewSnapshot
+    ) {
+        // Filtering a large library must not block tab-button feedback or list scrolling.
+        value = withContext(Dispatchers.Default) {
+            filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
+                sectionSnapshot, qualitySnapshot, reviewSnapshot)
+        }
     }
     val visibleBooks = if (tab == "Inicio") emptyList() else filteredBooks
-    val genreOptions = remember(visibleBooks) {
-        val known = visibleBooks.flatMap { normalizeBookGenres(it.genre) }
-            .distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
-        listOf("Todos") + known +
-            if (visibleBooks.any { normalizeBookGenres(it.genre).isEmpty() })
-                listOf("Sin clasificar") else emptyList()
+    val genreOptions by produceState(initialValue = listOf("Todos"), visibleBooks) {
+        value = withContext(Dispatchers.Default) {
+            val known = visibleBooks.flatMap { normalizeBookGenres(it.genre) }
+                .distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
+            listOf("Todos") + known +
+                if (visibleBooks.any { normalizeBookGenres(it.genre).isEmpty() })
+                    listOf("Sin clasificar") else emptyList()
+        }
     }
     val activeGenres = if (tab == "Géneros") selectedGenres intersect genreOptions.toSet() else emptySet()
     LaunchedEffect(tab, genreOptions) {
@@ -2945,9 +2952,12 @@ private fun openCasaDelLibro(context: Context) {
               val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
               val start = down.position
               var end = start
+              var childConsumedGesture = false
               while (true) {
-                  val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                  // Observe after child scrollables: a LazyRow carousel owns its horizontal drag.
+                  val change = awaitPointerEvent(PointerEventPass.Final).changes
                       .firstOrNull { it.id == down.id } ?: break
+                  childConsumedGesture = childConsumedGesture || change.isConsumed
                   end = change.position
                   if (!change.pressed) break
               }
@@ -2955,13 +2965,14 @@ private fun openCasaDelLibro(context: Context) {
               val vertical = end.y - start.y
               val isReadingShelfSwipe = currentTab == "Inicio" && hasReadingShelf &&
                   start.y in swipeControlsHeight..readingShelfGestureHeight
-              if (start.y > swipeControlsHeight && !isReadingShelfSwipe &&
+              if (!childConsumedGesture && start.y > swipeControlsHeight && !isReadingShelfSwipe &&
                   kotlin.math.abs(horizontal) > swipeThreshold * 1.45f &&
                   kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.25f) {
                   val index = tabs.indexOf(currentTab)
                   val next = index + if (horizontal < 0) 1 else -1
                   if (next in tabs.indices) currentSwitch(tabs[next])
-              } else if (currentTab == "Inicio" && vertical > swipeThreshold * 1.8f &&
+              } else if (!childConsumedGesture && currentTab == "Inicio" &&
+                  vertical > swipeThreshold * 1.8f &&
                   listState.firstVisibleItemIndex == 0 &&
                   listState.firstVisibleItemScrollOffset == 0 && !vm.newsRefreshing) {
                   vm.refreshLaunchNews(true)
