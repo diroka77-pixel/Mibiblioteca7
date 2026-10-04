@@ -308,6 +308,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var offlineDownloadUri by mutableStateOf<Uri?>(null); private set
     var offlineDownloadPercent by mutableIntStateOf(0); private set
     var offlineDownloadMessage by mutableStateOf<String?>(null); private set
+    var offlineRevision by mutableIntStateOf(0); private set
     fun downloadForOffline(book: Book) {
         if (offlineDownloadUri != null) return
         viewModelScope.launch {
@@ -319,9 +320,19 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     withContext(Dispatchers.Main) { offlineDownloadPercent = percent }
                 }
                 offlineDownloadMessage = "Guardado en Descargas: $filename"
+                offlineRevision++
             } catch (e: Exception) {
                 offlineDownloadMessage = "No se pudo descargar: ${e.localizedMessage ?: "error de lectura"}"
             } finally { offlineDownloadUri = null }
+        }
+    }
+    fun removeOfflineCopy(book: Book) {
+        if (offlineDownloadUri != null) return
+        viewModelScope.launch {
+            val removed = withContext(Dispatchers.IO) { deleteOfflineBook(getApplication(), book) }
+            offlineDownloadMessage = if (removed) "Copia local eliminada. El libro sigue en tu biblioteca."
+                else "No se encontró la copia local en Descargas."
+            offlineRevision++
         }
     }
     var infoLoading by mutableStateOf<Uri?>(null); private set
@@ -2572,6 +2583,10 @@ private fun openCasaDelLibro(context: Context) {
         duplicateScanComplete = true
     }
     val booksSnapshot = vm.books
+    val offlineBookUris = remember(booksSnapshot, vm.offlineRevision) {
+        booksSnapshot.asSequence().filter { offlineBookUri(context, it) != null }
+            .map { it.uri }.toSet()
+    }
     val querySnapshot = vm.query
     val statusSnapshot = vm.statusFilter
     val favoritesSnapshot = vm.onlyFavorites
@@ -2890,6 +2905,13 @@ private fun openCasaDelLibro(context: Context) {
                 option("Abrir ficha", "Libros") { openBookFromList(book) }
                 option("Compartir archivo", "Compartir") { shareBookFile(context, book) }
                 option("Recuperar portada", "Portada") { vm.downloadCover(book) }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    if (book.uri in offlineBookUris)
+                        option("Borrar copia sin conexión", "Borrar") { vm.removeOfflineCopy(book) }
+                    else option("Descargar para leer sin conexión", "Descargar") {
+                        vm.downloadForOffline(book)
+                    }
+                }
                 if (book.status == ReadingStatus.READING)
                     option("Quitar de Estoy leyendo", "Cerrar") { vm.setStatus(book.uri, ReadingStatus.PENDING) }
                 option("Consultar libro con Google IA", "Google IA") {
@@ -2927,7 +2949,8 @@ private fun openCasaDelLibro(context: Context) {
                 shown.uri in vm.genreSearches, { vm.searchGenre(shown.uri) },
                 { vm.updateGenre(shown.uri, it) },
                 { vm.downloadForOffline(shown) }, vm.offlineDownloadUri == shown.uri,
-                vm.offlineDownloadPercent, vm.offlineDownloadMessage)
+                vm.offlineDownloadPercent, vm.offlineDownloadMessage,
+                shown.uri in offlineBookUris, { vm.removeOfflineCopy(shown) })
         } else {
     ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = drawerState.isOpen,
         drawerContent = {
@@ -3267,6 +3290,7 @@ private fun openCasaDelLibro(context: Context) {
             }
             if (tab == "Inicio" && readingBooks.isNotEmpty())
                 item(key = "reading-shelf") { ReadingShelf(readingBooks, vm::readingPercent,
+                    isOffline = { it.uri in offlineBookUris },
                     onLongPress = { bookMenu = it }, onCarouselTouch = { startedOnCarousel = true }) { book ->
                     readingUri = book.uri.toString()
                     vm.recordOpen(book.uri)
@@ -3492,7 +3516,7 @@ private fun openCasaDelLibro(context: Context) {
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 items(ordered, key = { "carousel:$name:" + it.uri },
                                     contentType = { "genre-book" }) { book ->
-                                    BookGalleryCard(book, Modifier.width(148.dp),
+                                    BookGalleryCard(book, Modifier.width(148.dp), book.uri in offlineBookUris,
                                         vm.readingPercent(book.uri), { bookMenu = book }) { openBookFromList(book) }
                                 }
                             }
@@ -3507,12 +3531,12 @@ private fun openCasaDelLibro(context: Context) {
                             val second = ordered.getOrNull(index * 2 + 1)
                             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                BookGalleryCard(first, Modifier.weight(1f),
+                                BookGalleryCard(first, Modifier.weight(1f), first.uri in offlineBookUris,
                                     vm.readingPercent(first.uri), { bookMenu = first }) {
                                     openBookFromList(first)
                                 }
                                 if (second != null) {
-                                    BookGalleryCard(second, Modifier.weight(1f),
+                                    BookGalleryCard(second, Modifier.weight(1f), second.uri in offlineBookUris,
                                         vm.readingPercent(second.uri), { bookMenu = second }) {
                                         openBookFromList(second)
                                     }
@@ -3522,8 +3546,10 @@ private fun openCasaDelLibro(context: Context) {
                         else -> items(ordered, key = { name + ":" + it.uri },
                             contentType = { vm.viewModeFor(vm.selectedSection) }) { book ->
                             if (vm.viewModeFor(vm.selectedSection) == "Compacta")
-                                BookCompactCard(book, { bookMenu = book }) { openBookFromList(book) }
-                            else BookCard(book, { bookMenu = book }) { openBookFromList(book) }
+                                BookCompactCard(book, book.uri in offlineBookUris,
+                                    { bookMenu = book }) { openBookFromList(book) }
+                            else BookCard(book, book.uri in offlineBookUris,
+                                { bookMenu = book }) { openBookFromList(book) }
                         }
                     }
                 }
@@ -3617,6 +3643,7 @@ private fun openCasaDelLibro(context: Context) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable private fun ReadingShelf(books: List<Book>, progress: (Uri) -> Int,
+    isOffline: (Book) -> Boolean,
     onLongPress: (Book) -> Unit, onCarouselTouch: () -> Unit, onOpen: (Book) -> Unit) {
     Column {
         Text("Continuar leyendo", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
@@ -3638,9 +3665,12 @@ private fun openCasaDelLibro(context: Context) {
             items(books, key = { "reading:" + it.uri }) { book ->
                 Column(Modifier.width(coverWidth).height(coverWidth * 1.40f + 104.dp).combinedClickable(
                     onClick = { onOpen(book) }, onLongClick = { onLongPress(book) })) {
-                    Card(elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
-                        Cover(book, coverWidth, coverWidth * 1.40f)
+                    Box {
+                        Card(elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
+                            Cover(book, coverWidth, coverWidth * 1.40f)
+                        }
+                        if (isOffline(book)) OfflineBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(displayTitle(book), fontSize = 13.sp, lineHeight = 17.sp,
@@ -3661,7 +3691,8 @@ private fun openCasaDelLibro(context: Context) {
 }
 
 @OptIn(ExperimentalFoundationApi::class)
-@Composable private fun BookCard(book: Book, onLongPress: () -> Unit, onClick: () -> Unit) {
+@Composable private fun BookCard(book: Book, offline: Boolean,
+    onLongPress: () -> Unit, onClick: () -> Unit) {
     val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
     Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp).combinedClickable(
@@ -3670,7 +3701,10 @@ private fun openCasaDelLibro(context: Context) {
         colors = CardDefaults.cardColors(containerColor = Paper),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Cover(book, 92.dp, 132.dp)
+            Box {
+                Cover(book, 92.dp, 132.dp)
+                if (offline) OfflineBadge(Modifier.align(Alignment.TopEnd).padding(4.dp))
+            }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -3685,14 +3719,18 @@ private fun openCasaDelLibro(context: Context) {
 }
 
 @OptIn(ExperimentalFoundationApi::class)
-@Composable private fun BookCompactCard(book: Book, onLongPress: () -> Unit, onClick: () -> Unit) {
+@Composable private fun BookCompactCard(book: Book, offline: Boolean,
+    onLongPress: () -> Unit, onClick: () -> Unit) {
     val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
     Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp).combinedClickable(
         onClick = onClick, onLongClick = onLongPress),
         colors = CardDefaults.cardColors(containerColor = Paper)) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Cover(book, 50.dp, 72.dp)
+            Box {
+                Cover(book, 50.dp, 72.dp)
+                if (offline) OfflineBadge(Modifier.align(Alignment.TopEnd).padding(2.dp), compact = true)
+            }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, fontSize = 13.sp, lineHeight = 17.sp,
@@ -3705,16 +3743,19 @@ private fun openCasaDelLibro(context: Context) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable private fun BookGalleryCard(book: Book, modifier: Modifier = Modifier,
-    progress: Int, onLongPress: () -> Unit, onClick: () -> Unit) {
+    offline: Boolean, progress: Int, onLongPress: () -> Unit, onClick: () -> Unit) {
     val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
     BoxWithConstraints(modifier.combinedClickable(
         onClick = onClick, onLongClick = onLongPress).padding(bottom = 8.dp)) {
         val coverWidth = maxWidth
         Column(Modifier.fillMaxWidth().height(coverWidth * 1.42f + 104.dp)) {
-            Card(elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
-                Cover(book, coverWidth, coverWidth * 1.42f)
+            Box {
+                Card(elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
+                    Cover(book, coverWidth, coverWidth * 1.42f)
+                }
+                if (offline) OfflineBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
             }
             Spacer(Modifier.height(7.dp))
             Text(title, fontSize = 13.sp, lineHeight = 17.sp,
@@ -3730,6 +3771,16 @@ private fun openCasaDelLibro(context: Context) {
                 Text("$progress %", fontSize = 10.sp, color = Teal)
             } else Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+@Composable private fun OfflineBadge(modifier: Modifier = Modifier, compact: Boolean = false) {
+    Surface(modifier = modifier.semantics { contentDescription = "Disponible sin conexión" },
+        shape = androidx.compose.foundation.shape.CircleShape, color = Teal,
+        shadowElevation = 2.dp) {
+        Icon(Icons.Outlined.DownloadDone, contentDescription = null, tint = Color.White,
+            modifier = Modifier.padding(if (compact) 3.dp else 5.dp)
+                .size(if (compact) 12.dp else 16.dp))
     }
 }
 
@@ -3819,7 +3870,8 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     editIdentity: (String, String, String, String) -> Unit,
     genreSearching: Boolean, searchGenre: () -> Unit, updateGenre: (String) -> Unit,
     downloadForOffline: () -> Unit, offlineDownloading: Boolean,
-    offlineDownloadPercent: Int, offlineDownloadMessage: String?
+    offlineDownloadPercent: Int, offlineDownloadMessage: String?,
+    offlineAvailable: Boolean, removeOfflineCopy: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -3843,6 +3895,12 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
         it?.let(replaceCover)
     }
     var exportingEpub by remember(book.uri) { mutableStateOf(false) }
+    val offlineCopy by produceState<OfflineBookCopy?>(null, book.uri, offlineAvailable,
+        offlineDownloadMessage) {
+        value = if (offlineAvailable) withContext(Dispatchers.IO) {
+            offlineBookCopy(context, book)
+        } else null
+    }
     val exportPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream")) { destination ->
         if (destination != null && !exportingEpub) scope.launch {
@@ -3991,7 +4049,9 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                                 extension.takeIf { it in setOf("epub", "pdf", "mobi", "azw", "azw3", "txt", "html", "htm", "rtf", "docx", "md") }.orEmpty().ifBlank { "epub" })
                         }
                     }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), enabled = !exportingEpub && !offlineDownloading) {
-                        ActionLabel(if (exportingEpub || offlineDownloading) "Descargando…" else "Descargar", "Descargar", 12.sp)
+                        ActionLabel(if (exportingEpub || offlineDownloading) "Descargando…"
+                            else if (offlineAvailable) "Actualizar copia" else "Sin conexión",
+                            "Descargar", 12.sp)
                     }
                     LibraryActionButton(onClick = {
                         titleDraft = displayTitle(book); authorDraft = displayAuthor(book)
@@ -4007,6 +4067,29 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                     Text("Descargando en el teléfono · $offlineDownloadPercent %", fontSize = 12.sp)
                 } else if (offlineDownloadMessage != null) {
                     Text(offlineDownloadMessage, fontSize = 12.sp, color = Mahogany)
+                }
+                if (offlineAvailable) {
+                    Surface(Modifier.fillMaxWidth().padding(top = 8.dp),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                        color = Teal.copy(alpha = 0.12f)) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            OfflineBadge()
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Disponible sin conexión", fontWeight = FontWeight.SemiBold,
+                                    color = Mahogany)
+                                Text(listOfNotNull(
+                                    offlineCopy?.displayName?.takeIf(String::isNotBlank),
+                                    offlineCopy?.sizeBytes?.takeIf { it >= 0L }?.let(::readableSize)
+                                ).joinToString(" · ").ifBlank { "Guardado en Descargas" },
+                                    fontSize = 11.sp, color = Mahogany.copy(alpha = 0.75f), maxLines = 2)
+                            }
+                            TextButton(onClick = removeOfflineCopy, enabled = !offlineDownloading) {
+                                Text("Borrar copia")
+                            }
+                        }
+                    }
                 }
                 Spacer(Modifier.height(6.dp))
                 OutlinedButton(onClick = { moreActionsExpanded = !moreActionsExpanded },
