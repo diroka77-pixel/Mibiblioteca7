@@ -1848,10 +1848,10 @@ private fun fetchGoogleBookInfo(book: Book): Pair<String, String> {
 
 
 private val ignoredGenreLabels = setOf(
-    "otro", "otros", "other", "others", "misc", "miscellaneous",
-    "uncategorized", "uncategorised", "sin clasificar", "desconocido",
-    "unknown", "unspecified"
+    "misc", "miscellaneous", "uncategorized", "uncategorised",
+    "sin clasificar", "desconocido", "unknown", "unspecified"
 )
+private val otherGenreAliases = setOf("altres", "otro", "otros", "other", "others")
 
 private fun normalizeBookGenres(raw: String): List<String> {
     val parts = raw.split(Regex("[,;|/]+|\\s+--\\s+"))
@@ -1860,7 +1860,10 @@ private fun normalizeBookGenres(raw: String): List<String> {
     val normalized = normalizeGenres(parts)
     val custom = parts.filterNot { it.lowercase() in ignoredGenreLabels }
         .filter { normalizeGenres(listOf(it)).isEmpty() }
-        .map { it.replaceFirstChar { c -> if (c.isLowerCase()) c.titlecase() else c.toString() } }
+        .map { part ->
+            if (part.lowercase() in otherGenreAliases) "Otros"
+            else part.replaceFirstChar { c -> if (c.isLowerCase()) c.titlecase() else c.toString() }
+        }
     return (normalized + custom).distinctBy { it.lowercase() }.take(5)
 }
 
@@ -2354,7 +2357,8 @@ private fun openCasaDelLibro(context: Context) {
     var selected by remember { mutableStateOf<Book?>(null) }
     var readingUri by rememberSaveable { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableStateOf("Inicio") }
-    var selectedGenre by rememberSaveable { mutableStateOf("Todos") }
+    var selectedGenres by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    var genreCarousel by rememberSaveable { mutableStateOf("Horizontal") }
     val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Favoritos") }
     LaunchedEffect(Unit) { if (tab == "Pendientes") tab = "Secciones" }
     var addingSection by remember { mutableStateOf(false) }
@@ -2496,20 +2500,22 @@ private fun openCasaDelLibro(context: Context) {
             if (visibleBooks.any { normalizeBookGenres(it.genre).isEmpty() })
                 listOf("Sin clasificar") else emptyList()
     }
-    val activeGenre = if (tab == "Géneros" && selectedGenre in genreOptions) selectedGenre else "Todos"
+    val activeGenres = if (tab == "Géneros") selectedGenres intersect genreOptions.toSet() else emptySet()
     LaunchedEffect(tab, genreOptions) {
-        if (tab == "Géneros" && selectedGenre !in genreOptions) selectedGenre = "Todos"
+        if (tab == "Géneros") selectedGenres = selectedGenres intersect genreOptions.toSet()
     }
-    val genreFilteredBooks = if (tab == "Géneros" && activeGenre != "Todos")
+    val genreFilteredBooks = if (tab == "Géneros" && activeGenres.isNotEmpty())
         visibleBooks.filter { book ->
             val genres = normalizeBookGenres(book.genre)
-            if (activeGenre == "Sin clasificar") genres.isEmpty() else activeGenre in genres
+            activeGenres.any { genre ->
+                if (genre == "Sin clasificar") genres.isEmpty() else genre in genres
+            }
         } else visibleBooks
     val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Géneros") "Géneros" else if (tab == "Inicio") "Todos" else vm.groupMode
     val sectionNames = vm.sections
-    val groupedBooks by key(tab, genreFilteredBooks, groupMode, sectionNames, sortMode, activeGenre) {
+    val groupedBooks by key(tab, genreFilteredBooks, groupMode, sectionNames, sortMode, activeGenres, genreCarousel) {
       produceState<Map<String, List<Book>>>(emptyMap(), genreFilteredBooks,
-        groupMode, sectionNames, tab, sortMode, activeGenre) {
+        groupMode, sectionNames, tab, sortMode, activeGenres, genreCarousel) {
         val booksToGroup = genreFilteredBooks
         value = withContext(Dispatchers.Default) {
         val titles = booksToGroup.associate { it.uri to displayTitle(it) }
@@ -2519,7 +2525,10 @@ private fun openCasaDelLibro(context: Context) {
         val groups = when (groupMode) {
             "Autores" -> booksToGroup.groupBy { authors.getValue(it.uri) }
             "Sagas" -> booksToGroup.groupBy { it.saga.ifBlank { "Sin saga" } }
-            "Géneros" -> if (activeGenre != "Todos") mapOf(activeGenre to booksToGroup)
+            "Géneros" -> if (activeGenres.isNotEmpty()) activeGenres.associateWith { selected -> booksToGroup.filter { book ->
+                    val bookGenres = normalizeBookGenres(book.genre)
+                    if (selected == "Sin clasificar") bookGenres.isEmpty() else selected in bookGenres
+                } }
                 else booksToGroup.flatMap { book ->
                     val genres = normalizeBookGenres(book.genre)
                     (genres.ifEmpty { listOf("Sin clasificar") }).map { name -> name to book }
@@ -2946,13 +2955,31 @@ private fun openCasaDelLibro(context: Context) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (tab == "Géneros") item(key = "genre-jump") {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
-                    Text("SALTAR A UN GÉNERO", color = Teal,
+                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Text("FILTRAR GÉNEROS", color = Teal,
                         style = MaterialTheme.typography.labelMedium)
+                    Text(if (activeGenres.isEmpty()) "Mostrando todos los géneros"
+                        else "Mostrando ${activeGenres.size} género(s)",
+                        color = Mahogany, style = MaterialTheme.typography.bodySmall)
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        genreOptions.forEach { genre ->
-                            CatalogChip(genre, activeGenre == genre) { selectedGenre = genre }
+                        CatalogChip("Todos", activeGenres.isEmpty()) { selectedGenres = emptySet() }
+                        genreOptions.filterNot { it == "Todos" }.forEach { genre ->
+                            CatalogChip(genre, genre in activeGenres) {
+                                selectedGenres = if (genre in selectedGenres)
+                                    selectedGenres - genre else selectedGenres + genre
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("VISTA DE LIBROS", color = Teal,
+                        style = MaterialTheme.typography.labelMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        CatalogChip("Carrusel horizontal", genreCarousel == "Horizontal") {
+                            genreCarousel = "Horizontal"
+                        }
+                        CatalogChip("Lista vertical", genreCarousel == "Vertical") {
+                            genreCarousel = "Vertical"
                         }
                     }
                 }
@@ -3162,7 +3189,19 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                     val ordered = group
-                    when (vm.viewModeFor(vm.selectedSection)) {
+                    if (tab == "Géneros" && genreCarousel == "Horizontal") {
+                        item(key = "genre-carousel:$name", contentType = "genre-carousel") {
+                            LazyRow(modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(horizontal = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                items(ordered, key = { "carousel:$name:" + it.uri },
+                                    contentType = { "genre-book" }) { book ->
+                                    BookGalleryCard(book, Modifier.width(148.dp),
+                                        vm.readingPercent(book.uri), { bookMenu = book }) { openBookFromList(book) }
+                                }
+                            }
+                        }
+                    } else when (vm.viewModeFor(vm.selectedSection)) {
                         "Galería" -> items(ordered.chunked(2), key = { "grid:" + name + ":" + it.first().uri }, contentType = { "gallery" }) { pair ->
                             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
