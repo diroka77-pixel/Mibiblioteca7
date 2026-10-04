@@ -1871,7 +1871,10 @@ private val ignoredGenreLabels = setOf(
 )
 private val otherGenreAliases = setOf("altres", "otro", "otros", "other", "others")
 
+private val normalizedBookGenreCache = object : LruCache<String, List<String>>(512) {}
+
 private fun normalizeBookGenres(raw: String): List<String> {
+    synchronized(normalizedBookGenreCache) { normalizedBookGenreCache.get(raw) }?.let { return it }
     val parts = raw.split(Regex("[,;|/]+|\\s+--\\s+"))
         .map { it.trim().trim('.', ':', ' ') }
         .filter { it.length in 2..64 }
@@ -1882,7 +1885,9 @@ private fun normalizeBookGenres(raw: String): List<String> {
             if (part.lowercase() in otherGenreAliases) "Otros"
             else part.replaceFirstChar { c -> if (c.isLowerCase()) c.titlecase() else c.toString() }
         }
-    return (normalized + custom).distinctBy { it.lowercase() }.take(5)
+    val result = (normalized + custom).distinctBy { it.lowercase() }.take(5)
+    synchronized(normalizedBookGenreCache) { normalizedBookGenreCache.put(raw, result) }
+    return result
 }
 
 private fun fetchOpenLibraryAuthor(book: Book): String = try {
@@ -2615,10 +2620,20 @@ private fun openCasaDelLibro(context: Context) {
         val groups = when (groupMode) {
             "Autores" -> booksToGroup.groupBy { authors.getValue(it.uri) }
             "Sagas" -> booksToGroup.groupBy { it.saga.ifBlank { "Sin saga" } }
-            "Géneros" -> booksToGroup.flatMap { book ->
-                    val genres = normalizeBookGenres(book.genre)
-                    (genres.ifEmpty { listOf("Sin clasificar") }).map { name -> name to book }
-                }.groupBy({ it.first }, { it.second })
+            "Géneros" -> {
+                val genreGroups = linkedMapOf<String, MutableList<Book>>()
+                booksToGroup.forEach { book ->
+                    val labels = normalizeBookGenres(book.genre)
+                    if (labels.isEmpty()) {
+                        genreGroups.getOrPut("Sin clasificar") { mutableListOf() }.add(book)
+                    } else {
+                        labels.forEach { name ->
+                            genreGroups.getOrPut(name) { mutableListOf() }.add(book)
+                        }
+                    }
+                }
+                genreGroups
+            }
             "Secciones" -> booksToGroup.flatMap { book ->
                 bookSections(book).ifEmpty { listOf("Sin sección") }.map { name -> name to book }
             }.groupBy({ it.first }, { it.second })
@@ -3314,14 +3329,25 @@ private fun openCasaDelLibro(context: Context) {
                             }
                         }
                     } else when (vm.viewModeFor(vm.selectedSection)) {
-                        "Galería" -> items(ordered.chunked(2), key = { "grid:" + name + ":" + it.first().uri }, contentType = { "gallery" }) { pair ->
+                        "Galería" -> items(
+                            count = (ordered.size + 1) / 2,
+                            key = { index -> "grid:" + name + ":" + ordered[index * 2].uri },
+                            contentType = { "gallery" }
+                        ) { index ->
+                            val first = ordered[index * 2]
+                            val second = ordered.getOrNull(index * 2 + 1)
                             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                pair.forEach { book ->
-                                    BookGalleryCard(book, Modifier.weight(1f),
-                                        vm.readingPercent(book.uri), { bookMenu = book }) { openBookFromList(book) }
+                                BookGalleryCard(first, Modifier.weight(1f),
+                                    vm.readingPercent(first.uri), { bookMenu = first }) {
+                                    openBookFromList(first)
                                 }
-                                if (pair.size == 1) Spacer(Modifier.weight(1f))
+                                if (second != null) {
+                                    BookGalleryCard(second, Modifier.weight(1f),
+                                        vm.readingPercent(second.uri), { bookMenu = second }) {
+                                        openBookFromList(second)
+                                    }
+                                } else Spacer(Modifier.weight(1f))
                             }
                         }
                         else -> items(ordered, key = { name + ":" + it.uri },
@@ -3541,8 +3567,10 @@ private fun decodeCover(book: Book, targetWidthPx: Int, targetHeightPx: Int): Bi
     synchronized(coverBitmapCache) { coverBitmapCache.get(key) }?.let { return it }
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    val targetWidth = targetWidthPx.coerceAtLeast(1) * 3 / 2
-    val targetHeight = targetHeightPx.coerceAtLeast(1) * 3 / 2
+    // Decode compact previews so switching genre rows does not repeatedly allocate
+    // near full-resolution bitmaps. The cover is still upscaled cleanly at card size.
+    val targetWidth = targetWidthPx.coerceAtLeast(1) * 2 / 3
+    val targetHeight = targetHeightPx.coerceAtLeast(1) * 2 / 3
     var sample = 1
     while (bounds.outWidth / (sample * 2) >= targetWidth &&
         bounds.outHeight / (sample * 2) >= targetHeight) sample *= 2
