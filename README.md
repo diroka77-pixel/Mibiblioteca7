@@ -1,6 +1,12 @@
-# MiBiblioteca v0.94.0
+# MiBiblioteca v0.95.0
 
 Proyecto Android de MiBiblioteca. Las portadas importadas se limitan antes de decodificarse y Dependabot propone actualizaciones semanales para Gradle y GitHub Actions. Los grupos se conservan al cambiar entre pantallas y cada sección mantiene su propia posición de desplazamiento. La vista de géneros conserva sus grupos al cambiar filtros, permite buscar y seleccionar géneros desde un selector compacto y carga portadas ajustadas al tamaño visible para agilizar la navegación. El filtro de géneros desplaza su propia lista y aplica la selección al terminar; los accesos externos están centrados y se reutilizan grupos y portadas en cambios de pantalla. El código fuente está en `app/`. GitHub Actions compila, verifica y guarda la APK firmada como artefacto de la ejecución.
+
+## Cambios de la versión 0.95
+
+- Las acciones de sección y «Quiero leer» de la ficha quedan separadas y alineadas a todo el ancho.
+- El gesto lateral entre pantallas principales funciona también sobre la cabecera, el buscador y la navegación inferior.
+- Los carruseles horizontales y el desplazamiento vertical mantienen la prioridad de sus propios gestos.
 
 ## Cambios de la versión 0.94
 
