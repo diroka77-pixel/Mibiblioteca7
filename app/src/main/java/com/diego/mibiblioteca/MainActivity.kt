@@ -2573,7 +2573,8 @@ private fun openCasaDelLibro(context: Context) {
         }
     }
     LaunchedEffect(tab, genreOptions) {
-        if (tab == "Géneros" && !genreAllSelected && selectedGenres.isNotEmpty()) {
+        if (tab == "Géneros" && allGenres.isNotEmpty() &&
+            !genreAllSelected && selectedGenres.isNotEmpty()) {
             selectedGenres = selectedGenres intersect allGenres.toSet()
             if (selectedGenres.containsAll(allGenres) && allGenres.isNotEmpty()) {
                 selectedGenres = emptySet()
