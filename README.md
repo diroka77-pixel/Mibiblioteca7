@@ -1,10 +1,16 @@
-# MiBiblioteca v0.76.0
+# MiBiblioteca v0.78.0
 
 Proyecto Android de MiBiblioteca. El código fuente está en `app/`. GitHub Actions compila, verifica y publica la APK firmada en GitHub Releases.
 
 El lector integrado abre EPUB, PDF, TXT, Markdown, HTML, RTF, DOCX y MOBI clásico (PalmDOC sin comprimir o comprimido). Guarda la posición y el porcentaje por archivo; los datos de lectura se incluyen en el respaldo de la biblioteca. EPUB y DOCX muestran el texto extraído, por lo que imágenes, diseño complejo y algunas notas no se reproducen. Los MOBI con compresión HuffCDIC y AZW3 requieren conversión a EPUB. Los PDF protegidos con contraseña no se abren con el renderizador del sistema.
 
 El lector respeta las zonas seguras de Android, permite alternar entre tema claro y oscuro y ajustar el brillo de lectura. Los bordes y los gestos horizontales avanzan o retroceden una pantalla de texto o una página PDF. El panel lateral incluye capítulos, páginas PDF y subrayados; la selección de texto permite resaltar, compartir una cita o consultar el diccionario del DLE/RAE con Wikcionario como alternativa. Los subrayados se guardan por archivo y se incluyen en el respaldo.
+
+## Cambios de la versión 0.78
+
+- Agrupación de libros por género; una obra con varias etiquetas aparece en todos sus grupos.
+- Búsqueda puntual en Google Libros y Open Library desde la ficha; géneros editables y guardados en el catálogo y el respaldo.
+- Correcciones del lector para quitar subrayados desde el menú de selección y cerrar el panel lateral con un gesto hacia la izquierda.
 
 ## Cambios de la versión 0.76
 
