@@ -56,6 +56,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -2397,8 +2399,9 @@ private fun openCasaDelLibro(context: Context) {
     color: Color = Teal, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit
 ) {
     Button(onClick = onClick, modifier = modifier, enabled = enabled,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
         colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Ink),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         content = content)
 }
 
@@ -3148,7 +3151,7 @@ private fun openCasaDelLibro(context: Context) {
                         selected = tab == targetTab,
                         onClick = { switchTab(targetTab) },
                         icon = { AppIcon(icon, description = label, size = 22.dp) },
-                        label = { Text(label, maxLines = 1) },
+                        label = { Text(label, maxLines = 1, fontSize = 10.sp) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = Ink,
                             selectedTextColor = Mahogany,
@@ -3624,9 +3627,10 @@ private fun openCasaDelLibro(context: Context) {
         verticalAlignment = Alignment.CenterVertically) {
         shortcuts.forEachIndexed { index, (item, action) ->
             Surface(
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp).clickable(onClick = action),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-                color = Color(0xFFEFE6D8), tonalElevation = 1.dp
+                modifier = Modifier.weight(1f).heightIn(min = 50.dp).clickable(onClick = action),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                color = Paper, tonalElevation = 1.dp,
+                border = androidx.compose.foundation.BorderStroke(1.dp, item.third.copy(alpha = 0.38f))
             ) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -4000,7 +4004,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
             title = { Text("Mi Biblioteca", fontFamily = FontFamily.Serif, color = Paper) },
             navigationIcon = { IconButton(onClick = back) { AppIcon("Volver", "Volver", tint = Paper) } },
             actions = { IconButton(onClick = toggleFavorite) { AppIcon(if (book.favorite) "Favorito" else "Favoritos", "Favorito", tint = Paper) } },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Mahogany)
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = HeaderBrown)
         )
     }) { p ->
         LazyColumn(Modifier.padding(p).fillMaxSize().padding(horizontal = 16.dp),
@@ -4210,12 +4214,26 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 }
             }
             item {
-                LibraryActionButton(onClick = { openGoodreads(context, book) },
-                    modifier = Modifier.fillMaxWidth()) { ActionLabel("Abrir este libro en Goodreads", "Goodreads") }
-                LibraryActionButton(onClick = { searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book)) },
-                    modifier = Modifier.fillMaxWidth()) { ActionLabel("Consultar en Google", "Google") }
-                LibraryActionButton(onClick = { confirmDelete = true },
-                    modifier = Modifier.fillMaxWidth()) { ActionLabel("Borrar este archivo de Drive", "Borrar") }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { openGoodreads(context, book) },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
+                        ActionLabel("Abrir este libro en Goodreads", "Goodreads")
+                    }
+                    OutlinedButton(onClick = {
+                        searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book))
+                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
+                        ActionLabel("Consultar en Google", "Google")
+                    }
+                    OutlinedButton(onClick = { confirmDelete = true },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFB54A42)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF9D332D))) {
+                        ActionLabel("Borrar este archivo de Drive", "Borrar")
+                    }
+                }
             }
         }
     }
@@ -4226,17 +4244,24 @@ private fun BookPanel(title: String, bookKey: String, initiallyExpanded: Boolean
     content: @Composable ColumnScope.() -> Unit) {
     var expanded by rememberSaveable(bookKey, title) { mutableStateOf(initiallyExpanded) }
     Card(colors = CardDefaults.cardColors(containerColor = Paper),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { expanded = !expanded },
                 verticalAlignment = Alignment.CenterVertically) {
                 Text(title, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold,
                     fontSize = 15.sp, color = Mahogany)
-                Text(if (expanded) "⌃" else "⌄", color = Mahogany, fontSize = 20.sp)
+                Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Contraer" else "Ampliar", tint = Mahogany)
             }
-            if (expanded) {
+            AnimatedVisibility(visible = expanded,
+                enter = fadeIn(tween(140)) + expandVertically(tween(180)),
+                exit = shrinkVertically(tween(150)) + fadeOut(tween(110))) {
+                Column {
                 Spacer(Modifier.height(6.dp))
                 content()
+                }
             }
         }
     }
