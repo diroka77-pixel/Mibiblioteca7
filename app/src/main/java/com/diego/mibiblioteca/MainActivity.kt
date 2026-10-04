@@ -55,6 +55,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -2375,6 +2376,8 @@ private fun openCasaDelLibro(context: Context) {
     var tab by rememberSaveable { mutableStateOf("Inicio") }
     var selectedGenres by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var genreCarousel by rememberSaveable { mutableStateOf("Horizontal") }
+    var genrePickerOpen by rememberSaveable { mutableStateOf(false) }
+    var genreSearch by rememberSaveable { mutableStateOf("") }
     val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Favoritos") }
     LaunchedEffect(Unit) { if (tab == "Pendientes") tab = "Secciones" }
     var addingSection by remember { mutableStateOf(false) }
@@ -2491,8 +2494,8 @@ private fun openCasaDelLibro(context: Context) {
     val readingBooks = remember(vm.books) { vm.readingBooks() }
     val pageMotion = remember { Animatable(0f) }
     LaunchedEffect(tab) {
-        pageMotion.snapTo(16f)
-        pageMotion.animateTo(0f, tween(160))
+        pageMotion.snapTo(5f)
+        pageMotion.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
     }
     val visibleNews = remember(vm.launchNews, vm.hiddenNewsSources, vm.hiddenNewsUrls) {
         vm.launchNews.filter(vm::isNewsVisible)
@@ -2521,17 +2524,78 @@ private fun openCasaDelLibro(context: Context) {
     val visibleBooks = if (tab == "Inicio") emptyList() else filteredBooks
     val genreOptions by produceState(initialValue = listOf("Todos"), visibleBooks) {
         value = withContext(Dispatchers.Default) {
-            val known = visibleBooks.flatMap { normalizeBookGenres(it.genre) }
-                .distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
-            listOf("Todos") + known +
-                if (visibleBooks.any { normalizeBookGenres(it.genre).isEmpty() })
-                    listOf("Sin clasificar") else emptyList()
+            val known = linkedSetOf<String>()
+            var hasUnclassified = false
+            visibleBooks.forEach { book ->
+                val genres = normalizeBookGenres(book.genre)
+                if (genres.isEmpty()) hasUnclassified = true else known.addAll(genres)
+            }
+            listOf("Todos") + known.sortedWith(String.CASE_INSENSITIVE_ORDER) +
+                if (hasUnclassified) listOf("Sin clasificar") else emptyList()
         }
     }
-    val activeGenres = if (tab == "Géneros") selectedGenres intersect genreOptions.toSet() else emptySet()
-    LaunchedEffect(tab, genreOptions) {
-        if (tab == "Géneros") selectedGenres = selectedGenres intersect genreOptions.toSet()
+    val allGenres = remember(genreOptions) { genreOptions.filterNot { it == "Todos" } }
+    val activeGenres = if (tab == "Géneros") selectedGenres intersect allGenres.toSet() else emptySet()
+    val matchingGenres = remember(allGenres, genreSearch) {
+        if (genreSearch.isBlank()) allGenres
+        else allGenres.filter { it.contains(genreSearch.trim(), ignoreCase = true) }
     }
+    LaunchedEffect(tab, genreOptions) {
+        if (tab == "Géneros" && selectedGenres.isNotEmpty())
+            selectedGenres = selectedGenres intersect allGenres.toSet()
+    }
+    if (genrePickerOpen) AlertDialog(
+        onDismissRequest = { genrePickerOpen = false; genreSearch = "" },
+        title = { Text("Filtrar géneros") },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = genreSearch, onValueChange = { genreSearch = it },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                    placeholder = { Text("Buscar género") }
+                )
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                    items(matchingGenres, key = { it }) { genre ->
+                        val checked = selectedGenres.isEmpty() || genre in activeGenres
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                selectedGenres = if (selectedGenres.isEmpty()) {
+                                    allGenres.toSet() - genre
+                                } else {
+                                    val next = if (genre in selectedGenres)
+                                        selectedGenres - genre else selectedGenres + genre
+                                    if (next.isEmpty()) selectedGenres else next
+                                }
+                            }.padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(checked = checked, onCheckedChange = { checkedNow ->
+                                selectedGenres = if (checkedNow) {
+                                    if (selectedGenres.isEmpty()) emptySet()
+                                    else selectedGenres + genre
+                                } else if (selectedGenres.isEmpty()) {
+                                    allGenres.toSet() - genre
+                                } else {
+                                    val next = selectedGenres - genre
+                                    if (next.isEmpty()) selectedGenres else next
+                                }
+                            })
+                            Text(genre, modifier = Modifier.weight(1f))
+                        }
+                    }
+                    if (matchingGenres.isEmpty()) item { Text("No hay coincidencias.", Modifier.padding(12.dp)) }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { genrePickerOpen = false; genreSearch = "" }) { Text("Listo") }
+        },
+        dismissButton = {
+            TextButton(onClick = { selectedGenres = emptySet() }) { Text("Mostrar todos") }
+        }
+    )
     val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Géneros") "Géneros" else if (tab == "Inicio") "Todos" else vm.groupMode
     val sectionNames = vm.sections
     val groupingCache = remember(visibleBooks) {
@@ -2987,7 +3051,7 @@ private fun openCasaDelLibro(context: Context) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().graphicsLayer {
                 translationX = pageMotion.value * density
-                alpha = 1f - pageMotion.value / 800f
+                alpha = 1f - pageMotion.value / 50f
             },
             state = listState,
             contentPadding = PaddingValues(bottom = 24.dp),
@@ -2995,28 +3059,26 @@ private fun openCasaDelLibro(context: Context) {
         ) {
             if (tab == "Géneros") item(key = "genre-jump") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    Text("FILTRAR GÉNEROS", color = Teal,
-                        style = MaterialTheme.typography.labelMedium)
-                    Text(if (activeGenres.isEmpty()) "Mostrando todos los géneros"
-                        else "Mostrando ${activeGenres.size} género(s)",
-                        color = Mahogany, style = MaterialTheme.typography.bodySmall)
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CatalogChip("Todos", activeGenres.isEmpty()) { selectedGenres = emptySet() }
-                        genreOptions.filterNot { it == "Todos" }.forEach { genre ->
-                            CatalogChip(genre, genre in activeGenres) {
-                                selectedGenres = if (genre in selectedGenres)
-                                    selectedGenres - genre else selectedGenres + genre
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(6.dp))
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Vista", color = Teal,
-                            style = MaterialTheme.typography.labelMedium)
-                        Row(Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
-                            .background(Color(0xFFEFE6D8)).padding(2.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedButton(onClick = { genrePickerOpen = true }) {
+                                Icon(Icons.Outlined.FilterList, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (activeGenres.isEmpty()) "Géneros" else "${activeGenres.size} géneros")
+                            }
+                            if (activeGenres.isNotEmpty()) {
+                                IconButton(onClick = { selectedGenres = emptySet() }) {
+                                    Icon(Icons.Outlined.Close, contentDescription = "Mostrar todos los géneros")
+                                }
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Vista", color = Teal,
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.padding(end = 6.dp))
+                            Row(Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                                .background(Color(0xFFEFE6D8)).padding(2.dp)) {
                             IconToggleButton(
                                 checked = genreCarousel == "Horizontal",
                                 onCheckedChange = { if (it) genreCarousel = "Horizontal" },
@@ -3034,6 +3096,7 @@ private fun openCasaDelLibro(context: Context) {
                             ) {
                                 Icon(Icons.Outlined.ViewStream, "Vista vertical",
                                     tint = if (genreCarousel == "Vertical") Color.White else Mahogany)
+                            }
                             }
                         }
                     }
