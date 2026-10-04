@@ -370,7 +370,12 @@ internal fun localReaderFile(context: Context, book: Book): File = synchronized(
         return@synchronized file.also { it.setLastModified(System.currentTimeMillis()) }
     val partial = File(folder, "${readerProgressKey(book.uri)}.partial")
     try {
-        context.contentResolver.openInputStream(book.uri)?.use { input ->
+        val source = try { context.contentResolver.openInputStream(book.uri) }
+            catch (_: Exception) { null }
+        val available = source ?: offlineBookUri(context, book)?.let { offline ->
+            context.contentResolver.openInputStream(offline)
+        }
+        available?.use { input ->
             require(folder.usableSpace > FileLimits.FREE_SPACE + book.sourceSize.coerceAtLeast(0)) {
                 "No hay espacio suficiente para abrir el libro."
             }
@@ -379,7 +384,7 @@ internal fun localReaderFile(context: Context, book: Book): File = synchronized(
                     require(folder.usableSpace > FileLimits.FREE_SPACE) { "No queda espacio suficiente en el teléfono." }
                 }
             }
-        } ?: error("No se pudo leer el archivo de Drive")
+        } ?: error("No se pudo leer el archivo de Drive ni la copia de Descargas")
         require(partial.length() > 0) { "El archivo está vacío" }
         if (file.exists()) file.delete()
         check(partial.renameTo(file)) { "No se pudo guardar el archivo temporal" }
