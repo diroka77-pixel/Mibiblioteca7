@@ -32,6 +32,8 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.*
@@ -2493,7 +2495,7 @@ private fun openCasaDelLibro(context: Context) {
     }
     val readingBooks = remember(vm.books) { vm.readingBooks() }
     val pageMotion = remember { Animatable(0f) }
-    LaunchedEffect(tab) {
+    LaunchedEffect(tab, vm.selectedSection) {
         pageMotion.snapTo(5f)
         pageMotion.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
     }
@@ -2560,7 +2562,9 @@ private fun openCasaDelLibro(context: Context) {
                     items(matchingGenres, key = { it }) { genre ->
                         val checked = selectedGenres.isEmpty() || genre in activeGenres
                         Row(
-                            Modifier.fillMaxWidth().clickable {
+                            Modifier.fillMaxWidth().toggleable(
+                                value = checked, role = Role.Checkbox
+                            ) {
                                 selectedGenres = if (selectedGenres.isEmpty()) {
                                     allGenres.toSet() - genre
                                 } else {
@@ -2571,17 +2575,7 @@ private fun openCasaDelLibro(context: Context) {
                             }.padding(vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Checkbox(checked = checked, onCheckedChange = { checkedNow ->
-                                selectedGenres = if (checkedNow) {
-                                    if (selectedGenres.isEmpty()) emptySet()
-                                    else selectedGenres + genre
-                                } else if (selectedGenres.isEmpty()) {
-                                    allGenres.toSet() - genre
-                                } else {
-                                    val next = selectedGenres - genre
-                                    if (next.isEmpty()) selectedGenres else next
-                                }
-                            })
+                            Checkbox(checked = checked, onCheckedChange = null)
                             Text(genre, modifier = Modifier.weight(1f))
                         }
                     }
