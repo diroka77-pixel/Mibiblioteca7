@@ -2088,6 +2088,7 @@ private fun normalizePath(path: String): String {
 
 private val Ink = Color(0xFF31271F)
 private val Mahogany = Color(0xFF49352A)
+private val HeaderBrown = Color(0xFF765B50)
 private val Brass = Color(0xFFAD8248)
 private val Parchment = Color(0xFFF7F6F2)
 private val Paper = Color.White
@@ -2386,7 +2387,6 @@ private fun openCasaDelLibro(context: Context) {
     var genreCarousel by rememberSaveable { mutableStateOf("Horizontal") }
     var genrePickerOpen by rememberSaveable { mutableStateOf(false) }
     var genreSearch by rememberSaveable { mutableStateOf("") }
-    val genreListState = rememberLazyListState()
     val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Favoritos") }
     LaunchedEffect(Unit) { if (tab == "Pendientes") tab = "Secciones" }
     var addingSection by remember { mutableStateOf(false) }
@@ -3023,7 +3023,7 @@ private fun openCasaDelLibro(context: Context) {
     Scaffold(
         containerColor = Parchment,
         topBar = {
-            Column(Modifier.fillMaxWidth().background(Mahogany).statusBarsPadding()) {
+            Column(Modifier.fillMaxWidth().background(HeaderBrown).statusBarsPadding()) {
                 Box(Modifier.fillMaxWidth().height(60.dp)) {
                     IconButton(onClick = { scope.launch { drawerState.open() } },
                         modifier = Modifier.align(Alignment.CenterStart)
@@ -3491,19 +3491,23 @@ private fun openCasaDelLibro(context: Context) {
         Triple("Goodreads", "Goodreads", Teal) to onGoodreads,
         Triple("Google IA", "Google IA", Color(0xFFB96056)) to onGoogle
     )
-    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly) {
-        shortcuts.forEach { (item, action) ->
-            Column(Modifier.weight(1f).clickable(onClick = action),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.size(56.dp).background(item.third,
-                    androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
-                    contentAlignment = Alignment.Center) {
-                    AppIcon(item.second, tint = Color.White, size = 25.dp)
+    Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 2.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+        shortcuts.forEachIndexed { index, (item, action) ->
+            if (index > 0) Spacer(Modifier.width(8.dp))
+            Surface(
+                modifier = Modifier.clickable(onClick = action),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                color = Paper.copy(alpha = 0.88f),
+                tonalElevation = 0.dp
+            ) {
+                Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    AppIcon(item.second, tint = item.third, size = 16.dp)
+                    Text(item.first, fontSize = 11.sp, maxLines = 1,
+                        color = Mahogany.copy(alpha = 0.85f), textAlign = TextAlign.Center)
                 }
-                Spacer(Modifier.height(4.dp))
-                Text(item.first, fontSize = 11.sp, maxLines = 1,
-                    color = Mahogany, textAlign = TextAlign.Center)
             }
         }
     }
