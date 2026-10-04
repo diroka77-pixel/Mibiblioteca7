@@ -271,6 +271,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var qualityFilter by mutableStateOf("Ninguno")
     var bulkInfoLoading by mutableStateOf(false); private set
     var bulkProgress by mutableIntStateOf(0); private set
+    var genreClassifying by mutableStateOf(false); private set
+    var genreProgress by mutableIntStateOf(0); private set
+    var genreTotal by mutableIntStateOf(0); private set
     private var bulkJob: Job? = null
     private var coverRefreshJob: Job? = null
     var coverUpdateRunning by mutableStateOf(false); private set
@@ -940,6 +943,48 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun cancelIncomplete() { bulkJob?.cancel(); bulkInfoLoading = false }
 
+    fun classifyGenres(force: Boolean = false) {
+        if (genreClassifying) return
+        val targets = books.filter { force || it.genre.isBlank() }
+            .filterNot { prefs.getBoolean("manual_genre_" + it.uri, false) }
+        if (targets.isEmpty()) {
+            message = if (books.any { it.genre.isNotBlank() }) "Todos los libros posibles ya están clasificados."
+                else "No hay libros disponibles para clasificar."
+            return
+        }
+        viewModelScope.launch {
+            genreClassifying = true; genreProgress = 0; genreTotal = targets.size
+            var changed = false
+            try {
+                for (target in targets) {
+                    val current = books.firstOrNull { it.uri == target.uri } ?: continue
+                    val result = withContext(Dispatchers.IO) { fetchGenresOnline(current) }
+                    if (result.genres.isNotEmpty()) {
+                        val value = result.genres.joinToString(" · ")
+                        books = books.map { if (it.uri == current.uri) it.copy(genre = value) else it }
+                        prefs.edit().putString("genre_source_" + current.uri, result.source)
+                            .putLong("genre_checked_" + current.uri, System.currentTimeMillis()).apply()
+                        changed = true
+                    }
+                    genreProgress++
+                    if (genreProgress % 10 == 0 && changed) { saveBooks(); changed = false }
+                    delay(180)
+                }
+                if (changed) saveBooks()
+                message = "Clasificación terminada: " + books.count { it.genre.isNotBlank() } + " libros con género."
+            } finally { genreClassifying = false }
+        }
+    }
+
+    fun setGenres(uri: Uri, genres: String) {
+        val normalized = normalizeGenres(listOf(genres))
+        val value = if (normalized.isNotEmpty()) normalized.joinToString(" · ") else genres.trim()
+        books = books.map { if (it.uri == uri) it.copy(genre = value) else it }
+        prefs.edit().putBoolean("manual_genre_" + uri, true)
+            .putString("genre_source_" + uri, "Editado manualmente").apply()
+        saveBooks()
+    }
+
     fun recordOpen(uri: Uri) {
         prefs.edit().putLong("opened_" + uri.toString().hashCode(), System.currentTimeMillis()).apply()
     }
@@ -1411,11 +1456,11 @@ private fun readableSize(size: Long): String = when {
     else -> "${"%.1f".format(java.util.Locale.ROOT, size / 1048576.0)} MB"
 }
 
-private fun displayAuthor(book: Book): String =
+internal fun displayAuthor(book: Book): String =
     cleanCatalogText(book.customAuthor.ifBlank { book.author })
         .takeUnless(::unknownAuthor) ?: "Biblioteca de Diroka77"
 
-private fun displayTitle(book: Book): String {
+internal fun displayTitle(book: Book): String {
     val author = displayAuthor(book)
     var title = cleanCatalogText(book.customTitle.ifBlank { book.title })
         .replace(Regex("""(?i)\b(?:isbn(?:-1[03])?|autor|editorial|publicad[oa]|idioma|formato|páginas|paginas|sinopsis|descripci[oó]n)\s*[:=].*$"""), "")
@@ -1634,7 +1679,7 @@ private fun downloadImage(url: String): ByteArray? {
     finally { connection.disconnect() }
 }
 
-private fun catalogMatch(candidateTitle: String, candidateAuthors: List<String>, book: Book): Boolean =
+internal fun catalogMatch(candidateTitle: String, candidateAuthors: List<String>, book: Book): Boolean =
     coverTitleMatches(displayTitle(book), candidateTitle) &&
         (unknownAuthor(displayAuthor(book)) || candidateAuthors.any {
             coverAuthorMatches(displayAuthor(book), it)
@@ -1728,7 +1773,7 @@ private fun fetchCover(book: Book): ByteArray? {
     return fetchPublicCover(book)
 }
 
-private fun getJson(url: String): JSONObject {
+internal fun getJson(url: String): JSONObject {
     if (url.contains("www.googleapis.com/books") && System.currentTimeMillis() < googleBooksRetryAt)
         throw IllegalStateException("Google Libros ha agotado su cuota temporalmente")
     val connection = URL(url).openConnection() as HttpURLConnection
@@ -2262,7 +2307,7 @@ private fun openCasaDelLibro(context: Context) {
     var selected by remember { mutableStateOf<Book?>(null) }
     var readingUri by rememberSaveable { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableStateOf("Inicio") }
-    val tabs = remember { listOf("Inicio", "Biblioteca", "Secciones", "Favoritos") }
+    val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Favoritos") }
     LaunchedEffect(Unit) { if (tab == "Pendientes") tab = "Secciones" }
     var addingSection by remember { mutableStateOf(false) }
     var sectionName by remember { mutableStateOf("") }
@@ -2396,7 +2441,7 @@ private fun openCasaDelLibro(context: Context) {
             sectionSnapshot, qualitySnapshot, reviewSnapshot)
     }
     val visibleBooks = if (tab == "Inicio") emptyList() else filteredBooks
-    val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Inicio") "Todos" else vm.groupMode
+    val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Géneros") "Géneros" else if (tab == "Inicio") "Todos" else vm.groupMode
     val sectionNames = vm.sections
     val groupedBooks by key(tab, visibleBooks, groupMode, sectionNames, sortMode) {
       produceState<Map<String, List<Book>>>(emptyMap(), visibleBooks,
@@ -2410,6 +2455,10 @@ private fun openCasaDelLibro(context: Context) {
         val groups = when (groupMode) {
             "Autores" -> booksToGroup.groupBy { authors.getValue(it.uri) }
             "Sagas" -> booksToGroup.groupBy { it.saga.ifBlank { "Sin saga" } }
+            "Géneros" -> booksToGroup.flatMap { book ->
+                val genres = book.genre.split('·', ';', '|').map(String::trim).filter(String::isNotBlank)
+                (genres.ifEmpty { listOf("Sin clasificar") }).map { name -> name to book }
+            }.groupBy({ it.first }, { it.second })
             "Secciones" -> booksToGroup.flatMap { book ->
                 bookSections(book).ifEmpty { listOf("Sin sección") }.map { name -> name to book }
             }.groupBy({ it.first }, { it.second })
@@ -2606,6 +2655,11 @@ private fun openCasaDelLibro(context: Context) {
                             icon = { AppIcon("Datos") }, onClick = {
                                 if (vm.bulkInfoLoading) vm.cancelIncomplete() else vm.refreshIncomplete()
                             })
+                        NavigationDrawerItem(
+                            label = { Text(if (vm.genreClassifying)
+                                "Clasificando géneros " + vm.genreProgress + "/" + vm.genreTotal + "…" else "Clasificar biblioteca por géneros") },
+                            selected = false, icon = { Icon(Icons.Outlined.Category, null) },
+                            onClick = { if (!vm.genreClassifying) vm.classifyGenres() })
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         Text("Inicio y noticias", color = Teal, fontWeight = FontWeight.Bold)
                         NavigationDrawerItem(label = { Text("Organizar Inicio") }, selected = false,
@@ -2676,7 +2730,7 @@ private fun openCasaDelLibro(context: Context) {
                         }
                         Text("AGRUPAR POR", color = Teal, style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.padding(top = 14.dp))
-                        listOf("Todos", "Autores", "Sagas", "Secciones").forEach { mode ->
+                        listOf("Todos", "Autores", "Sagas", "Géneros", "Secciones").forEach { mode ->
                             NavigationDrawerItem(label = { Text(mode) }, selected = vm.groupMode == mode,
                                 onClick = { vm.groupMode = mode; scope.launch { drawerState.close() } })
                         }
@@ -2759,6 +2813,7 @@ private fun openCasaDelLibro(context: Context) {
                 listOf(
                     Triple("Inicio", "Inicio", "Inicio"),
                     Triple("Biblioteca", "Libros", "Libros"),
+                    Triple("Géneros", "Géneros", "Géneros"),
                     Triple("Secciones", "Secciones", "Secciones"),
                     Triple("Favoritos", "Favoritos", "Favoritos")
                 ).forEach { (targetTab, label, icon) ->
