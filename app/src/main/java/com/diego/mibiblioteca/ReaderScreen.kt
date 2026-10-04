@@ -802,6 +802,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         }, if (selectedVoiceName == "davefx") DAVEFX_ENGINE else null)
         speech = engine
         onDispose {
+            // Persist the last word reported by Android before shutting the engine down.
+            prefs.edit().putInt("char_$key", activeSpeechCursor.get()).apply()
             audioActive = false
             audioControlsVisible = false
             engine?.stop()
@@ -1304,9 +1306,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         fun turn(delta: Int) {
                             val targetPage = (textPage + delta).coerceIn(pages.indices)
                             textPage = targetPage
-                            if (audioControlsVisible) {
-                                saveSpeechCursor(pages[targetPage].startChar)
-                            }
+                            // Manual page turns must also become the exact resume point. This was
+                            // previously saved only while the audio controls happened to be open.
+                            saveSpeechCursor(pages[targetPage].startChar)
                         }
                         Box(Modifier.fillMaxSize().clipToBounds().pointerInput(pages, swipeDistance) {
                             var drag = 0f

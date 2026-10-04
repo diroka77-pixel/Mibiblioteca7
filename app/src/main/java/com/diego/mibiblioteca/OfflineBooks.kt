@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -13,11 +14,44 @@ import kotlinx.coroutines.withContext
 
 private fun offlineFingerprint(book: Book) = "${book.sourceSize}:${book.sourceModified}"
 
+internal data class OfflineBookCopy(
+    val uri: Uri,
+    val displayName: String,
+    val sizeBytes: Long
+)
+
 internal fun offlineBookUri(context: Context, book: Book): Uri? {
     val key = readerProgressKey(book.uri)
     val prefs = context.getSharedPreferences("offline_books", Context.MODE_PRIVATE)
     if (prefs.getString("stamp_$key", null) != offlineFingerprint(book)) return null
     return prefs.getString("uri_$key", null)?.let(Uri::parse)
+}
+
+internal fun offlineBookCopy(context: Context, book: Book): OfflineBookCopy? {
+    val uri = offlineBookUri(context, book) ?: return null
+    return try {
+        context.contentResolver.query(uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+            OfflineBookCopy(uri,
+                if (nameIndex >= 0) cursor.getString(nameIndex).orEmpty() else "",
+                if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) cursor.getLong(sizeIndex) else -1L)
+        }
+    } catch (_: Exception) { null }
+}
+
+internal fun deleteOfflineBook(context: Context, book: Book): Boolean {
+    val uri = offlineBookUri(context, book) ?: return false
+    val deleted = try { context.contentResolver.delete(uri, null, null) > 0 }
+        catch (_: Exception) { false }
+    if (deleted) {
+        val key = readerProgressKey(book.uri)
+        context.getSharedPreferences("offline_books", Context.MODE_PRIVATE).edit()
+            .remove("uri_$key").remove("stamp_$key").apply()
+    }
+    return deleted
 }
 
 /** Keeps a public copy in Downloads. The catalog still points to the Drive document. */
