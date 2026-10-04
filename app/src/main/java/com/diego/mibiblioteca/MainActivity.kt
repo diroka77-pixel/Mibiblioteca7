@@ -2491,8 +2491,8 @@ private fun openCasaDelLibro(context: Context) {
     val readingBooks = remember(vm.books) { vm.readingBooks() }
     val pageMotion = remember { Animatable(0f) }
     LaunchedEffect(tab) {
-        pageMotion.snapTo(24f)
-        pageMotion.animateTo(0f, tween(190))
+        pageMotion.snapTo(16f)
+        pageMotion.animateTo(0f, tween(160))
     }
     val visibleNews = remember(vm.launchNews, vm.hiddenNewsSources, vm.hiddenNewsUrls) {
         vm.launchNews.filter(vm::isNewsVisible)
@@ -2987,7 +2987,7 @@ private fun openCasaDelLibro(context: Context) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().graphicsLayer {
                 translationX = pageMotion.value * density
-                alpha = 1f - pageMotion.value / 300f
+                alpha = 1f - pageMotion.value / 800f
             },
             state = listState,
             contentPadding = PaddingValues(bottom = 24.dp),
@@ -3010,15 +3010,31 @@ private fun openCasaDelLibro(context: Context) {
                             }
                         }
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Text("VISTA DE LIBROS", color = Teal,
-                        style = MaterialTheme.typography.labelMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CatalogChip("Carrusel horizontal", genreCarousel == "Horizontal") {
-                            genreCarousel = "Horizontal"
-                        }
-                        CatalogChip("Lista vertical", genreCarousel == "Vertical") {
-                            genreCarousel = "Vertical"
+                    Spacer(Modifier.height(6.dp))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Vista", color = Teal,
+                            style = MaterialTheme.typography.labelMedium)
+                        Row(Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                            .background(Color(0xFFEFE6D8)).padding(2.dp)) {
+                            IconToggleButton(
+                                checked = genreCarousel == "Horizontal",
+                                onCheckedChange = { if (it) genreCarousel = "Horizontal" },
+                                modifier = Modifier.size(38.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(if (genreCarousel == "Horizontal") Teal else Color.Transparent)
+                            ) {
+                                Icon(Icons.Outlined.ViewCarousel, "Carrusel horizontal",
+                                    tint = if (genreCarousel == "Horizontal") Color.White else Mahogany)
+                            }
+                            IconToggleButton(
+                                checked = genreCarousel == "Vertical",
+                                onCheckedChange = { if (it) genreCarousel = "Vertical" },
+                                modifier = Modifier.size(38.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(if (genreCarousel == "Vertical") Teal else Color.Transparent)
+                            ) {
+                                Icon(Icons.Outlined.ViewStream, "Vista vertical",
+                                    tint = if (genreCarousel == "Vertical") Color.White else Mahogany)
+                            }
                         }
                     }
                 }
@@ -3452,7 +3468,10 @@ private fun openCasaDelLibro(context: Context) {
     }
 }
 
-private val coverBitmapCache = object : LruCache<String, Bitmap>(20 * 1024) {
+private val coverBitmapCacheBudgetKb =
+    (Runtime.getRuntime().maxMemory() / 1024L / 16L).toInt().coerceIn(20 * 1024, 48 * 1024)
+
+private val coverBitmapCache = object : LruCache<String, Bitmap>(coverBitmapCacheBudgetKb) {
     override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
 }
 
@@ -3465,8 +3484,8 @@ private fun decodeCover(book: Book, targetWidthPx: Int, targetHeightPx: Int): Bi
     synchronized(coverBitmapCache) { coverBitmapCache.get(key) }?.let { return it }
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    val targetWidth = targetWidthPx.coerceAtLeast(1) * 2
-    val targetHeight = targetHeightPx.coerceAtLeast(1) * 2
+    val targetWidth = targetWidthPx.coerceAtLeast(1) * 3 / 2
+    val targetHeight = targetHeightPx.coerceAtLeast(1) * 3 / 2
     var sample = 1
     while (bounds.outWidth / (sample * 2) >= targetWidth &&
         bounds.outHeight / (sample * 2) >= targetHeight) sample *= 2
