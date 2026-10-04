@@ -4,21 +4,8 @@ on:
     branches: [main]
 permissions:
   contents: read
+  actions: read
+  security-events: write
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-      - name: Instalar SDK 35
-        run: |
-          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)
-          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
-      - name: Probar y compilar depuración
-        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+  security-and-tests:
+    uses: ./.github/workflows/validate-security.yml
