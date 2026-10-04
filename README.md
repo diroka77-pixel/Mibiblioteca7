@@ -1,4 +1,4 @@
-# MiBiblioteca v0.79.0
+# MiBiblioteca v0.80.0
 
 Proyecto Android de MiBiblioteca. El código fuente está en `app/`. GitHub Actions compila, verifica y publica la APK firmada en GitHub Releases.
 
