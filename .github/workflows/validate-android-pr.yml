@@ -6,6 +6,18 @@ permissions:
   contents: read
   actions: read
   security-events: write
+  pull-requests: read
 jobs:
   security-and-tests:
     uses: ./.github/workflows/validate-security.yml
+  dependency-review:
+    needs: security-and-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Revisar vulnerabilidades en dependencias nuevas
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
