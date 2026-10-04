@@ -2425,10 +2425,15 @@ private fun openCasaDelLibro(context: Context) {
     }
     val homeListState = rememberLazyListState()
     val libraryListState = rememberLazyListState()
+    val genreListState = rememberLazyListState()
     val sectionsListState = rememberLazyListState()
+    val favoritesListState = rememberLazyListState()
     val listState = when (tab) {
         "Inicio" -> homeListState
         "Biblioteca" -> libraryListState
+        "Géneros" -> genreListState
+        "Secciones" -> sectionsListState
+        "Favoritos" -> favoritesListState
         else -> sectionsListState
     }
     var restoreListPosition by remember { mutableStateOf(false) }
@@ -2506,13 +2511,24 @@ private fun openCasaDelLibro(context: Context) {
     }
     val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Géneros") "Géneros" else if (tab == "Inicio") "Todos" else vm.groupMode
     val sectionNames = vm.sections
-    val groupedBooks by key(tab, visibleBooks, groupMode, sectionNames, sortMode) {
-      produceState<Map<String, List<Book>>>(emptyMap(), visibleBooks,
-        groupMode, sectionNames, tab, sortMode) {
+    val groupingCache = remember(visibleBooks) {
+        mutableMapOf<List<Any>, Map<String, List<Book>>>()
+    }
+    val groupingKey = remember(groupMode, sectionNames, sortMode) {
+        listOf(groupMode, sectionNames, sortMode, groupMode == "Secciones")
+    }
+    val groupedBooks by key(groupingKey, visibleBooks) {
+      produceState(groupingCache[groupingKey].orEmpty(), visibleBooks, groupingKey) {
+        groupingCache[groupingKey]?.let { cached ->
+            value = cached
+            return@produceState
+        }
         val booksToGroup = visibleBooks
         value = withContext(Dispatchers.Default) {
-        val titles = booksToGroup.associate { it.uri to displayTitle(it) }
-        val authors = booksToGroup.associate { it.uri to displayAuthor(it) }
+        val titles = if (sortMode !in setOf("Autor", "Recientes") || groupMode == "Sagas")
+            booksToGroup.associate { it.uri to displayTitle(it) } else emptyMap()
+        val authors = if (groupMode == "Autores" || sortMode == "Autor")
+            booksToGroup.associate { it.uri to displayAuthor(it) } else emptyMap()
         val sagaOrders = if (groupMode == "Sagas") booksToGroup.associate { it.uri to sagaNumber(it) }
             else emptyMap()
         val groups = when (groupMode) {
@@ -2531,7 +2547,7 @@ private fun openCasaDelLibro(context: Context) {
             sectionNames.filter(groups::containsKey) +
                 groups.keys.filterNot { it in sectionNames }.sortedWith(String.CASE_INSENSITIVE_ORDER)
         else groups.keys.sortedWith(String.CASE_INSENSITIVE_ORDER)
-        names.associateWith { name ->
+        val result = names.associateWith { name ->
             val group = groups[name].orEmpty()
             if (groupMode == "Sagas") group.sortedWith(
                 compareBy<Book> { sagaOrders.getValue(it.uri) }.thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
@@ -2541,6 +2557,8 @@ private fun openCasaDelLibro(context: Context) {
                 else -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
             }
         }
+        groupingCache[groupingKey] = result
+        result
         }
       }
     }
