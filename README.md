@@ -1,10 +1,17 @@
-# MiBiblioteca v0.86.0
+# MiBiblioteca v0.87.0
 
 Proyecto Android de MiBiblioteca. Las portadas importadas se limitan antes de decodificarse y Dependabot propone actualizaciones semanales para Gradle y GitHub Actions. Los grupos se conservan al cambiar entre pantallas y cada sección mantiene su propia posición de desplazamiento. La vista de géneros conserva sus grupos al cambiar filtros, permite buscar y seleccionar géneros desde un selector compacto y carga portadas ajustadas al tamaño visible para agilizar la navegación. El código fuente está en `app/`. GitHub Actions compila, verifica y publica la APK firmada en GitHub Releases.
 
 El lector integrado abre EPUB, PDF, TXT, Markdown, HTML, RTF, DOCX y MOBI clásico (PalmDOC sin comprimir o comprimido). Guarda la posición y el porcentaje por archivo; los datos de lectura se incluyen en el respaldo de la biblioteca. EPUB y DOCX muestran el texto extraído, por lo que imágenes, diseño complejo y algunas notas no se reproducen. Los MOBI con compresión HuffCDIC y AZW3 requieren conversión a EPUB. Los PDF protegidos con contraseña no se abren con el renderizador del sistema.
 
 El lector respeta las zonas seguras de Android, permite alternar entre tema claro y oscuro y ajustar el brillo de lectura. Los bordes y los gestos horizontales avanzan o retroceden una pantalla de texto o una página PDF. El panel lateral incluye capítulos, páginas PDF y subrayados; la selección de texto permite resaltar, compartir una cita o consultar el diccionario del DLE/RAE con Wikcionario como alternativa. Los subrayados se guardan por archivo y se incluyen en el respaldo.
+
+## Cambios de la versión 0.87
+
+- La vista de géneros evita crear parejas de todos los libros antes de desplazarse.
+- Las miniaturas se decodifican a una fracción del tamaño visible para acelerar carga y desplazamiento, y mantener más portadas en caché.
+- La agrupación de géneros reduce asignaciones temporales y reutiliza las etiquetas ya normalizadas.
+- Android versionCode 87 y versionName 0.87.0.
 
 ## Cambios de la versión 0.86
 
