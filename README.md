@@ -6,7 +6,13 @@ El lector integrado abre EPUB, PDF, TXT, Markdown, HTML, RTF, DOCX y MOBI clási
 
 El lector respeta las zonas seguras de Android, permite alternar entre tema claro y oscuro y ajustar el brillo de lectura. Los bordes y los gestos horizontales avanzan o retroceden una pantalla de texto o una página PDF. El panel lateral incluye capítulos, páginas PDF y subrayados; la selección de texto permite resaltar, compartir una cita o consultar el diccionario del DLE/RAE con Wikcionario como alternativa. Los subrayados se guardan por archivo y se incluyen en el respaldo.
 
-## Cambios de la versión 0.78\n\n- Agrupación de libros por género; una obra con varias etiquetas aparece en todos sus grupos.\n- Búsqueda puntual en Google Libros y Open Library desde la ficha; géneros editables y guardados en el catálogo y el respaldo.\n- Correcciones del lector para quitar subrayados desde el menú de selección y cerrar el panel lateral con un gesto hacia la izquierda.\n\n## Cambios de la versión 0.76
+## Cambios de la versión 0.78
+
+- Agrupación de libros por género; una obra con varias etiquetas aparece en todos sus grupos.
+- Búsqueda puntual en Google Libros y Open Library desde la ficha; géneros editables y guardados en el catálogo y el respaldo.
+- Correcciones del lector para quitar subrayados desde el menú de selección y cerrar el panel lateral con un gesto hacia la izquierda.
+
+## Cambios de la versión 0.76
 
 - Reanudación del lector por voz desde la palabra actual al pausar, en lugar de reiniciar desde el principio de la página.
 - Menú de selección reducido a cinco acciones: subrayar (que también quita el subrayado existente), nota, copiar, fijar y diccionario.
