@@ -2552,7 +2552,8 @@ private fun openCasaDelLibro(context: Context) {
         }
     }
     val swipeThreshold = with(LocalDensity.current) { 36.dp.toPx() }
-    val swipeControlsHeight = with(LocalDensity.current) { 52.dp.toPx() }
+    val pullRefreshTopInset = with(LocalDensity.current) { 148.dp.toPx() }
+    val pullRefreshBottomInset = with(LocalDensity.current) { 80.dp.toPx() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var showSyncReport by remember { mutableStateOf(false) }
@@ -2955,6 +2956,56 @@ private fun openCasaDelLibro(context: Context) {
                 vm.offlineDownloadPercent, vm.offlineDownloadMessage,
                 shown.uri in offlineBookUris, { vm.removeOfflineCopy(shown) })
         } else {
+    val currentTab by rememberUpdatedState(tab)
+    val currentSwitch by rememberUpdatedState<(String) -> Unit>({ switchTab(it) })
+    var startedOnCarousel by remember { mutableStateOf(false) }
+    val mainSwipeModifier = Modifier.pointerInput(swipeThreshold, pageWidthPx) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            startedOnCarousel = false
+            val start = down.position
+            var end = start
+            var verticalGesture = false
+            var draggingPage = false
+            while (true) {
+                // Observe before clickable controls consume the movement. Horizontal carousels
+                // keep their own drag, while vertical lists continue to own vertical scrolling.
+                val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                    .firstOrNull { it.id == down.id } ?: break
+                end = change.position
+                if (!change.pressed) break
+                val horizontal = end.x - start.x
+                val vertical = end.y - start.y
+                if (!draggingPage && kotlin.math.abs(vertical) > swipeThreshold * 0.35f &&
+                    kotlin.math.abs(vertical) > kotlin.math.abs(horizontal) * 1.15f)
+                    verticalGesture = true
+                if (!verticalGesture && !startedOnCarousel &&
+                    (draggingPage || (kotlin.math.abs(horizontal) > swipeThreshold * 0.35f &&
+                        kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.25f))) {
+                    draggingPage = true
+                    pageDrag.floatValue = horizontal.coerceIn(-pageWidthPx, pageWidthPx)
+                    change.consume()
+                }
+            }
+            val horizontal = end.x - start.x
+            val vertical = end.y - start.y
+            if (draggingPage && kotlin.math.abs(horizontal) > swipeThreshold) {
+                val index = tabs.indexOf(currentTab)
+                val next = index + if (horizontal < 0) 1 else -1
+                if (next in tabs.indices) currentSwitch(tabs[next])
+                else settlePage()
+            } else if (!draggingPage && currentTab == "Inicio" &&
+                !startedOnCarousel &&
+                start.y > pullRefreshTopInset && start.y < size.height - pullRefreshBottomInset &&
+                vertical > swipeThreshold * 1.8f &&
+                listState.firstVisibleItemIndex == 0 &&
+                listState.firstVisibleItemScrollOffset == 0 && !vm.newsRefreshing) {
+                vm.refreshLaunchNews(true)
+            } else if (draggingPage) {
+                settlePage()
+            }
+        }
+    }
     ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = drawerState.isOpen,
         drawerContent = {
             ModalDrawerSheet(drawerContainerColor = Paper,
@@ -3111,6 +3162,7 @@ private fun openCasaDelLibro(context: Context) {
             }
         }) {
     Scaffold(
+        modifier = mainSwipeModifier,
         containerColor = Parchment,
         topBar = {
             Column(Modifier.fillMaxWidth().background(HeaderBrown).statusBarsPadding()) {
@@ -3163,56 +3215,7 @@ private fun openCasaDelLibro(context: Context) {
             }
         }
     ) { p ->
-      val currentTab by rememberUpdatedState(tab)
-      val currentSwitch by rememberUpdatedState<(String) -> Unit>({ switchTab(it) })
-      var startedOnCarousel by remember { mutableStateOf(false) }
-      Box(Modifier.padding(p).fillMaxSize().pointerInput(swipeThreshold, pageWidthPx) {
-          awaitEachGesture {
-              val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-              startedOnCarousel = false
-              val start = down.position
-              var end = start
-              var verticalGesture = false
-              var draggingPage = false
-              while (true) {
-                  // Observe before clickable cards consume the movement. A carousel still owns
-                  // its horizontal drag, while a vertical list keeps its own scroll gesture.
-                  val change = awaitPointerEvent(PointerEventPass.Initial).changes
-                      .firstOrNull { it.id == down.id } ?: break
-                  end = change.position
-                  if (!change.pressed) break
-                  val horizontal = end.x - start.x
-                  val vertical = end.y - start.y
-                  if (!draggingPage && kotlin.math.abs(vertical) > swipeThreshold * 0.35f &&
-                      kotlin.math.abs(vertical) > kotlin.math.abs(horizontal) * 1.15f)
-                      verticalGesture = true
-                  if (!verticalGesture && !startedOnCarousel && start.y > swipeControlsHeight &&
-                      (draggingPage || (kotlin.math.abs(horizontal) > swipeThreshold * 0.35f &&
-                          kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.25f))) {
-                      draggingPage = true
-                      pageDrag.floatValue = horizontal.coerceIn(-pageWidthPx, pageWidthPx)
-                      change.consume()
-                  }
-              }
-              val horizontal = end.x - start.x
-              val vertical = end.y - start.y
-              if (draggingPage && kotlin.math.abs(horizontal) > swipeThreshold) {
-                  val index = tabs.indexOf(currentTab)
-                  val next = index + if (horizontal < 0) 1 else -1
-                  if (next in tabs.indices) currentSwitch(tabs[next])
-                  else settlePage()
-              } else if (!draggingPage && currentTab == "Inicio" &&
-                  !startedOnCarousel &&
-                  vertical > swipeThreshold * 1.8f &&
-                  listState.firstVisibleItemIndex == 0 &&
-                  listState.firstVisibleItemScrollOffset == 0 && !vm.newsRefreshing) {
-                  if (draggingPage) settlePage()
-                  vm.refreshLaunchNews(true)
-              } else if (draggingPage) {
-                  settlePage()
-              }
-          }
-      }) {
+      Box(Modifier.padding(p).fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
         QuickAccess(
             onGoodreads = { openGoodreads(context) },
@@ -4122,8 +4125,10 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 }
             }
             item {
-                Box {
-                    LibraryActionButton(onClick = { sectionMenu = true }) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.fillMaxWidth()) {
+                    LibraryActionButton(onClick = { sectionMenu = true },
+                        modifier = Modifier.fillMaxWidth()) {
                         Text("Secciones: ${bookSections(book).joinToString().ifBlank { "Sin sección" }}  ▾")
                     }
                     DropdownMenu(expanded = sectionMenu, onDismissRequest = { sectionMenu = false }) {
@@ -4134,8 +4139,9 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                         }
                     }
                 }
-                LibraryActionButton(onClick = toggleWant) {
+                LibraryActionButton(onClick = toggleWant, modifier = Modifier.fillMaxWidth()) {
                     Text(if (book.wantToRead) "✓ Quiero leer" else "+ Quiero leer más adelante")
+                }
                 }
             }
             item {
