@@ -72,7 +72,9 @@ import java.net.URL
 import java.security.MessageDigest
 import android.util.Base64
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import kotlinx.coroutines.async
@@ -2127,7 +2129,7 @@ class MainActivity : ComponentActivity() {
     private val framesByScreen = mutableMapOf<String, IntArray>()
 
     fun setMetricScreen(screen: String) { metricScreen = screen }
-    fun performanceReport(): String = listOf("Inicio", "Biblioteca", "Secciones", "Ficha")
+    fun performanceReport(): String = listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Favoritos", "Ficha")
         .mapNotNull { name -> framesByScreen[name]?.let { "$name: ${it[1]} lentos de ${it[0]} fotogramas" } }
         .joinToString("\n").ifBlank { "Aún no hay mediciones en esta sesión." }
 
@@ -2434,8 +2436,8 @@ private fun openCasaDelLibro(context: Context) {
                 return@launch
             }
             val direction = if (tabs.indexOf(name) > tabs.indexOf(tab)) -1f else 1f
-            val distance = pageWidthPx * 0.24f
-            pageMotion.animateTo(direction * distance, tween(110, easing = FastOutSlowInEasing))
+            val distance = pageWidthPx
+            pageMotion.animateTo(direction * distance, tween(170, easing = FastOutSlowInEasing))
             tab = name
             showWishList = showPending
             vm.selectedSection = null
@@ -2443,7 +2445,10 @@ private fun openCasaDelLibro(context: Context) {
             vm.statusFilter = null
             vm.onlyFavorites = name == "Favoritos"
             pageMotion.snapTo(-direction * distance)
-            pageMotion.animateTo(0f, tween(200, easing = FastOutSlowInEasing))
+            // Build the destination for one frame while it remains outside the viewport.
+            // Replacing the books mid-screen was the main visible jump during navigation.
+            withFrameNanos { }
+            pageMotion.animateTo(0f, tween(230, easing = FastOutSlowInEasing))
         }
     }
     fun settlePage() {
@@ -2573,12 +2578,13 @@ private fun openCasaDelLibro(context: Context) {
     val sectionSnapshot = vm.selectedSection
     val qualitySnapshot = vm.qualityFilter
     val reviewSnapshot = vm.reviewPending
-    val filteredBooks by produceState(
-        initialValue = emptyList<Book>(), booksSnapshot, querySnapshot, statusSnapshot,
-        favoritesSnapshot, sectionSnapshot, qualitySnapshot, reviewSnapshot
-    ) {
+    var filteredBooks by remember { mutableStateOf(booksSnapshot) }
+    LaunchedEffect(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
+        sectionSnapshot, qualitySnapshot, reviewSnapshot) {
         // Filtering a large library must not block tab-button feedback or list scrolling.
-        value = withContext(Dispatchers.Default) {
+        // Keep the last complete layout until its replacement is ready; resetting to an empty
+        // list for one frame collapsed the rows and made covers jump.
+        filteredBooks = withContext(Dispatchers.Default) {
             filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
                 sectionSnapshot, qualitySnapshot, reviewSnapshot)
         }
@@ -3158,7 +3164,7 @@ private fun openCasaDelLibro(context: Context) {
                       (draggingPage || (kotlin.math.abs(horizontal) > swipeThreshold * 0.35f &&
                           kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.25f))) {
                       draggingPage = true
-                      pageDrag.floatValue = horizontal.coerceIn(-pageWidthPx * 0.24f, pageWidthPx * 0.24f)
+                      pageDrag.floatValue = horizontal.coerceIn(-pageWidthPx, pageWidthPx)
                       change.consume()
                   }
               }
@@ -3195,8 +3201,8 @@ private fun openCasaDelLibro(context: Context) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().graphicsLayer {
                 translationX = pageMotion.value + pageDrag.floatValue
-                alpha = (1f - kotlin.math.abs(pageMotion.value + pageDrag.floatValue) / (pageWidthPx * 0.24f))
-                    .coerceIn(0f, 1f)
+                alpha = (1f - kotlin.math.abs(pageMotion.value + pageDrag.floatValue) /
+                    pageWidthPx.coerceAtLeast(1f) * 0.12f).coerceIn(0.88f, 1f)
             },
             state = listState,
             contentPadding = PaddingValues(bottom = 24.dp),
@@ -3734,6 +3740,9 @@ private val coverBitmapCache = object : LruCache<String, Bitmap>(coverBitmapCach
     override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
 }
 
+// Prevent a burst of simultaneous bitmap decodes from stealing frames from scrolling.
+private val coverDecodeSlots = Semaphore(2)
+
 private fun coverBucket(pixels: Int): Int {
     val step = if (pixels < 256) 128 else 256
     return ((pixels.coerceAtLeast(1) + step - 1) / step) * step
@@ -3774,7 +3783,9 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     val bmp by produceState<Bitmap?>(cached, book.uri, book.cover, targetWidthPx, targetHeightPx) {
         value = cached
         if (cached == null && book.cover != null)
-            value = withContext(Dispatchers.Default) { decodeCover(book, targetWidthPx, targetHeightPx) }
+            value = coverDecodeSlots.withPermit {
+                withContext(Dispatchers.Default) { decodeCover(book, targetWidthPx, targetHeightPx) }
+            }
     }
     Surface(Modifier.width(w).height(h), shape = MaterialTheme.shapes.medium,
         color = Color(0xFFF1EDE6), tonalElevation = 0.dp) {
