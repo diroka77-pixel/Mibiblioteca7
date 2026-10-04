@@ -889,15 +889,30 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val bytes = withContext(Dispatchers.IO) {
-                    val original = getApplication<Application>().contentResolver.openInputStream(imageUri)
-                        ?.use { BitmapFactory.decodeStream(it) }
+                    val source = getApplication<Application>().contentResolver.openInputStream(imageUri)
+                        ?.use { it.readLimited(FileLimits.COVER_INPUT_BYTES) }
+                        ?: throw IllegalArgumentException("No se pudo leer la imagen.")
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(source, 0, source.size, bounds)
+                    val sample = imageSampleSize(bounds.outWidth, bounds.outHeight, 1800, 2400)
+                    val original = BitmapFactory.decodeByteArray(source, 0, source.size,
+                        BitmapFactory.Options().apply { inSampleSize = sample })
                         ?: throw IllegalArgumentException("Imagen no válida")
-                    val width = minOf(original.width, 900)
-                    val scaled = Bitmap.createScaledBitmap(original, width,
-                        (original.height.toLong() * width / original.width).toInt().coerceAtLeast(1), true)
-                    java.io.ByteArrayOutputStream().use { out ->
-                        scaled.compress(Bitmap.CompressFormat.JPEG, 78, out)
-                        out.toByteArray()
+                    val scale = minOf(900f / original.width, 2400f / original.height, 1f)
+                    val width = (original.width * scale).toInt().coerceAtLeast(1)
+                    val height = (original.height * scale).toInt().coerceAtLeast(1)
+                    val scaled = if (width == original.width && height == original.height) original
+                        else Bitmap.createScaledBitmap(original, width, height, true)
+                    try {
+                        java.io.ByteArrayOutputStream().use { out ->
+                            check(scaled.compress(Bitmap.CompressFormat.JPEG, 78, out)) {
+                                "No se pudo procesar la portada."
+                            }
+                            out.toByteArray()
+                        }
+                    } finally {
+                        if (scaled !== original) scaled.recycle()
+                        original.recycle()
                     }
                 }
                 withContext(Dispatchers.IO) {
@@ -1640,8 +1655,8 @@ private fun compactCover(bytes: ByteArray): ByteArray? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    var sample = 1
-    while (bounds.outWidth / sample > 1200 || bounds.outHeight / sample > 1800) sample *= 2
+    val sample = try { imageSampleSize(bounds.outWidth, bounds.outHeight, 1200, 1800) }
+        catch (_: IllegalArgumentException) { return null }
     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
         BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
     return try {
@@ -2157,8 +2172,9 @@ private fun findGoodreadsBook(book: Book): String? {
         val connection = URL("https://www.goodreads.com/search?q=$query").openConnection() as HttpURLConnection
         connection.connectTimeout = 8000; connection.readTimeout = 8000
         connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
-        val html = connection.inputStream.bufferedReader().use { it.readText() }
-        connection.disconnect()
+        val html = try {
+            connection.inputStream.use { it.readLimited(2L * 1024 * 1024).toString(Charsets.UTF_8) }
+        } finally { connection.disconnect() }
         val path = Regex("""/book/show/[0-9]+[^"'\s<]*""").find(html)?.value
         if (path != null) return "https://www.goodreads.com" + path.replace("&amp;", "&")
     } catch (_: Exception) {}
