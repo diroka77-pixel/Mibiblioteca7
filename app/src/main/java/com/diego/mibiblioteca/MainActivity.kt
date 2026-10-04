@@ -831,6 +831,29 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         saveBooks()
     }
 
+    fun updateGenre(uri: Uri, genre: String) {
+        books = books.map { if (it.uri == uri)
+            it.copy(genre = normalizeBookGenres(genre).joinToString(", ")) else it }
+        saveBooks()
+    }
+
+    fun searchGenre(uri: Uri) {
+        val book = books.firstOrNull { it.uri == uri } ?: return
+        if (uri in genreSearches) return
+        genreSearches = genreSearches + uri
+        viewModelScope.launch {
+            try {
+                val found = withContext(Dispatchers.IO) { fetchBookGenres(book) }
+                if (found.isBlank()) detailMessage = "No encontré géneros fiables para «${displayTitle(book)}». Puedes editarlos manualmente."
+                else updateGenre(uri, found)
+            } catch (e: Exception) {
+                detailMessage = "No se pudieron consultar los catálogos: ${e.localizedMessage ?: "comprueba la conexión"}"
+            } finally { genreSearches = genreSearches - uri }
+        }
+    }
+
+    var genreSearches by mutableStateOf<Set<Uri>>(emptySet())
+
     fun saveNotes(uri: Uri, notes: String) {
         books = books.map { if (it.uri == uri) it.copy(notes = notes) else it }
         saveBooks()
@@ -1818,6 +1841,78 @@ private fun fetchGoogleBookInfo(book: Book): Pair<String, String> {
     return bestAuthor to ""
 }
 
+
+private val genreAliases = mapOf(
+    "fiction" to "Ficción", "literary fiction" to "Ficción literaria",
+    "fantasy" to "Fantasía", "fantasy fiction" to "Fantasía",
+    "science fiction" to "Ciencia ficción", "science fiction & fantasy" to "Ciencia ficción",
+    "sci-fi" to "Ciencia ficción", "mystery" to "Misterio", "detective" to "Misterio",
+    "crime" to "Novela negra", "thriller" to "Thriller", "suspense" to "Suspense",
+    "romance" to "Romance", "historical fiction" to "Novela histórica",
+    "historical" to "Historia", "horror" to "Terror", "juvenile fiction" to "Literatura juvenil",
+    "young adult" to "Literatura juvenil", "children's fiction" to "Literatura infantil",
+    "biography" to "Biografía", "autobiography" to "Autobiografía", "history" to "Historia",
+    "poetry" to "Poesía", "comics" to "Cómic", "graphic novels" to "Novela gráfica",
+    "drama" to "Teatro", "adventure" to "Aventura", "war" to "Bélica",
+    "essays" to "Ensayo", "philosophy" to "Filosofía"
+)
+
+private fun normalizeBookGenres(raw: String): List<String> =
+    raw.split(Regex("[,;|/]+|\\s+--\\s+"))
+        .map { it.trim().trim('.', ':', ' ') }
+        .filter { it.length in 2..64 }
+        .map { part ->
+            val key = part.lowercase().replace(Regex("\\s+"), " ")
+            genreAliases[key] ?: part.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+        }.distinctBy { it.lowercase() }.take(5)
+
+private fun fetchBookGenres(book: Book): String {
+    val title = displayTitle(book)
+    val author = displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty()
+    val found = linkedSetOf<String>()
+    try {
+        val q = "intitle:$title" + if (author.isNotBlank()) " inauthor:$author" else ""
+        val url = "https://www.googleapis.com/books/v1/volumes?q=" +
+            java.net.URLEncoder.encode(q, "UTF-8") + "&langRestrict=es&maxResults=10"
+        val items = getJson(url).optJSONArray("items")
+        for (i in 0 until minOf(items?.length() ?: 0, 10)) {
+            val info = items?.optJSONObject(i)?.optJSONObject("volumeInfo") ?: continue
+            val authors = info.optJSONArray("authors")
+            val names = (0 until (authors?.length() ?: 0)).map { authors!!.optString(it) }
+            if (!catalogMatch(info.optString("title"), names, book)) continue
+            val categories = info.optJSONArray("categories") ?: continue
+            for (j in 0 until categories.length()) found += normalizeBookGenres(categories.optString(j))
+            if (found.size >= 5) break
+        }
+    } catch (_: Exception) {}
+    if (found.size < 2) try {
+        val q = "title=" + java.net.URLEncoder.encode(title, "UTF-8") +
+            if (author.isNotBlank()) "&author=" + java.net.URLEncoder.encode(author, "UTF-8") else ""
+        val docs = getJson("https://openlibrary.org/search.json?$q&fields=title,author_name,subject&limit=10")
+            .optJSONArray("docs")
+        for (i in 0 until minOf(docs?.length() ?: 0, 10)) {
+            val doc = docs?.optJSONObject(i) ?: continue
+            val authorArray = doc.optJSONArray("author_name")
+            val names = (0 until (authorArray?.length() ?: 0)).map { authorArray!!.optString(it) }
+            if (!catalogMatch(doc.optString("title"), names, book)) continue
+            val subjects = doc.optJSONArray("subject") ?: continue
+            for (j in 0 until minOf(subjects.length(), 40)) {
+                val subject = subjects.optString(j)
+                for (part in subject.split(Regex("[,;|/]+|\\s+--\\s+"))) {
+                    val key = part.trim().lowercase().replace(Regex("\\s+"), " ")
+                    val normalized = normalizeBookGenres(part).firstOrNull() ?: continue
+                    val recognized = key in genreAliases || Regex(
+                        "(?i)^(fiction|literature|fantasy|science fiction|mystery|crime|romance|history|horror|poetry|biography|drama|adventure|juvenile|young adult)"
+                    ).containsMatchIn(key)
+                    if (recognized) found += normalized
+                }
+            }
+            if (found.size >= 5) break
+        }
+    } catch (_: Exception) {}
+    return found.take(5).joinToString(", ")
+}
+
 private fun fetchOpenLibraryAuthor(book: Book): String = try {
     val title = java.net.URLEncoder.encode(displayTitle(book), "UTF-8")
     val docs = getJson("https://openlibrary.org/search.json?title=$title&fields=title,author_name&limit=6")
@@ -2226,6 +2321,7 @@ private fun openCasaDelLibro(context: Context) {
         "Leídos", "Leído", "Revisado" -> Icons.Outlined.CheckCircle
         "Autores", "Autor", "Biografía" -> Icons.Outlined.PersonOutline
         "Sagas" -> Icons.Outlined.Layers
+        "Géneros" -> Icons.Outlined.Category
         "Google", "Google IA" -> Icons.Outlined.AutoAwesome
         "Casa del Libro" -> Icons.Outlined.Storefront
         "Buscar" -> Icons.Outlined.Search
@@ -2456,7 +2552,7 @@ private fun openCasaDelLibro(context: Context) {
             "Autores" -> booksToGroup.groupBy { authors.getValue(it.uri) }
             "Sagas" -> booksToGroup.groupBy { it.saga.ifBlank { "Sin saga" } }
             "Géneros" -> booksToGroup.flatMap { book ->
-                val genres = book.genre.split('·', ';', '|').map(String::trim).filter(String::isNotBlank)
+                val genres = normalizeBookGenres(book.genre)
                 (genres.ifEmpty { listOf("Sin clasificar") }).map { name -> name to book }
             }.groupBy({ it.first }, { it.second })
             "Secciones" -> booksToGroup.flatMap { book ->
@@ -2623,7 +2719,9 @@ private fun openCasaDelLibro(context: Context) {
                 { vm.setGoodreadsUrl(shown.uri, it) }, { vm.toggleWantToRead(shown.uri) },
                 vm.detailMessage, shown.uri in vm.reviewPending,
                 { vm.confirmBookDetails(shown.uri) },
-                { title, author, saga, order -> vm.editIdentity(shown.uri, title, author, saga, order) })
+                { title, author, saga, order -> vm.editIdentity(shown.uri, title, author, saga, order) },
+                shown.uri in vm.genreSearches, { vm.searchGenre(shown.uri) },
+                { vm.updateGenre(shown.uri, it) })
         } else {
     ModalNavigationDrawer(drawerState = drawerState, gesturesEnabled = drawerState.isOpen,
         drawerContent = {
@@ -3355,7 +3453,8 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     replaceCover: (Uri) -> Unit,
     saveGoodreadsUrl: (String) -> Unit, toggleWant: () -> Unit, detailMessage: String?,
     needsReview: Boolean, confirmDetails: () -> Unit,
-    editIdentity: (String, String, String, String) -> Unit
+    editIdentity: (String, String, String, String) -> Unit,
+    genreSearching: Boolean, searchGenre: () -> Unit, updateGenre: (String) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -3370,6 +3469,8 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     var orderDraft by remember { mutableStateOf("") }
     var plotDraft by remember { mutableStateOf("") }
     var bioDraft by remember { mutableStateOf("") }
+    var genreDraft by remember(book.uri, book.genre) { mutableStateOf(book.genre) }
+    var editGenre by remember { mutableStateOf(false) }
     var notesDraft by remember(book.uri, book.notes) { mutableStateOf(book.notes) }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
         it?.let(replaceCover)
@@ -3441,6 +3542,17 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
             editIdentityDialog = false
         }) { Text("Guardar") } },
         dismissButton = { LibraryTextButton(onClick = { editIdentityDialog = false }) { Text("Cancelar") } }
+    )
+    if (editGenre) AlertDialog(
+        onDismissRequest = { editGenre = false },
+        title = { Text("Editar géneros") },
+        text = { Column {
+            Text("Escribe varios géneros separados por comas.", fontSize = 12.sp)
+            OutlinedTextField(genreDraft, { genreDraft = it }, label = { Text("Géneros") },
+                modifier = Modifier.fillMaxWidth(), minLines = 2)
+        } },
+        confirmButton = { LibraryTextButton(onClick = { updateGenre(genreDraft); editGenre = false }) { Text("Guardar") } },
+        dismissButton = { LibraryTextButton(onClick = { editGenre = false }) { Text("Cancelar") } }
     )
     if (editInfo) AlertDialog(
         onDismissRequest = { editInfo = false },
@@ -3573,6 +3685,22 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 Text("Datos del libro", fontFamily = FontFamily.Serif,
                     fontWeight = FontWeight.Bold, fontSize = 17.sp,
                     color = Mahogany, modifier = Modifier.padding(top = 8.dp))
+            }
+            item {
+                BookPanel("Géneros", book.uri.toString(), initiallyExpanded = true) {
+                    Text(book.genre.ifBlank { "Sin géneros asignados." }, fontSize = 13.sp, color = Mahogany)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LibraryTextButton(onClick = searchGenre, enabled = !genreSearching) {
+                            ActionLabel(if (genreSearching) "Consultando catálogos…" else "Buscar en Internet",
+                                "Buscar", 12.sp)
+                        }
+                        LibraryTextButton(onClick = { genreDraft = book.genre; editGenre = true }) {
+                            ActionLabel("Editar", "Editar", 12.sp)
+                        }
+                    }
+                    Text("Fuentes: Google Libros y Open Library. Comprueba las etiquetas encontradas.",
+                        fontSize = 11.sp, color = Mahogany)
+                }
             }
             item {
                 BookPanel("Argumento", book.uri.toString(), initiallyExpanded = true) {
