@@ -2413,6 +2413,7 @@ private fun openCasaDelLibro(context: Context) {
     val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Favoritos") }
     val scope = rememberCoroutineScope()
     val pageMotion = remember { Animatable(0f) }
+    val pageDrag = remember { mutableFloatStateOf(0f) }
     val pageWidthPx = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
     var tabTransitionJob by remember { mutableStateOf<Job?>(null) }
     LaunchedEffect(Unit) { if (tab == "Pendientes") tab = "Secciones" }
@@ -2423,6 +2424,10 @@ private fun openCasaDelLibro(context: Context) {
     fun switchTab(name: String, showPending: Boolean = false) {
         tabTransitionJob?.cancel()
         tabTransitionJob = scope.launch {
+            if (pageDrag.floatValue != 0f) {
+                pageMotion.snapTo(pageDrag.floatValue)
+                pageDrag.floatValue = 0f
+            }
             if (name == tab) {
                 showWishList = showPending
                 pageMotion.animateTo(0f, tween(160, easing = FastOutSlowInEasing))
@@ -2439,6 +2444,14 @@ private fun openCasaDelLibro(context: Context) {
             vm.onlyFavorites = name == "Favoritos"
             pageMotion.snapTo(-direction * distance)
             pageMotion.animateTo(0f, tween(230, easing = FastOutSlowInEasing))
+        }
+    }
+    fun settlePage() {
+        tabTransitionJob?.cancel()
+        tabTransitionJob = scope.launch {
+            pageMotion.snapTo(pageDrag.floatValue)
+            pageDrag.floatValue = 0f
+            pageMotion.animateTo(0f, tween(170, easing = FastOutSlowInEasing))
         }
     }
     var bookMenu by remember { mutableStateOf<Book?>(null) }
@@ -2488,7 +2501,7 @@ private fun openCasaDelLibro(context: Context) {
         when {
             selected != null -> selected = null
             showWishList -> showWishList = false
-            else -> { tab = "Inicio"; vm.selectedSection = null; vm.qualityFilter = "Ninguno" }
+            else -> switchTab("Inicio")
         }
     }
     val homeListState = rememberLazyListState()
@@ -3141,13 +3154,13 @@ private fun openCasaDelLibro(context: Context) {
                   val horizontal = end.x - start.x
                   val vertical = end.y - start.y
                   if (childConsumedGesture || startedOnCarousel) {
-                      if (draggingPage) pageMotion.snapTo(0f)
+                      if (draggingPage) pageDrag.floatValue = 0f
                       draggingPage = false
                   } else if (start.y > swipeControlsHeight &&
                       kotlin.math.abs(horizontal) > swipeThreshold * 0.45f &&
                       kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.35f) {
                       draggingPage = true
-                      pageMotion.snapTo(horizontal.coerceIn(-pageWidthPx * 0.32f, pageWidthPx * 0.32f))
+                      pageDrag.floatValue = horizontal.coerceIn(-pageWidthPx * 0.32f, pageWidthPx * 0.32f)
                   }
               }
               val horizontal = end.x - start.x
@@ -3157,16 +3170,16 @@ private fun openCasaDelLibro(context: Context) {
                   val index = tabs.indexOf(currentTab)
                   val next = index + if (horizontal < 0) 1 else -1
                   if (next in tabs.indices) currentSwitch(tabs[next])
-                  else pageMotion.animateTo(0f, tween(170, easing = FastOutSlowInEasing))
+                  else settlePage()
               } else if (!childConsumedGesture && currentTab == "Inicio" &&
                   !startedOnCarousel &&
                   vertical > swipeThreshold * 1.8f &&
                   listState.firstVisibleItemIndex == 0 &&
                   listState.firstVisibleItemScrollOffset == 0 && !vm.newsRefreshing) {
-                  pageMotion.animateTo(0f, tween(170, easing = FastOutSlowInEasing))
+                  if (draggingPage) settlePage()
                   vm.refreshLaunchNews(true)
               } else if (draggingPage) {
-                  pageMotion.animateTo(0f, tween(170, easing = FastOutSlowInEasing))
+                  settlePage()
               }
           }
       }) {
@@ -3183,8 +3196,8 @@ private fun openCasaDelLibro(context: Context) {
         Box(Modifier.fillMaxWidth().weight(1f)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().graphicsLayer {
-                translationX = pageMotion.value
-                alpha = (1f - kotlin.math.abs(pageMotion.value) / (pageWidthPx * 0.6f))
+                translationX = pageMotion.value + pageDrag.floatValue
+                alpha = (1f - kotlin.math.abs(pageMotion.value + pageDrag.floatValue) / (pageWidthPx * 0.6f))
                     .coerceIn(0.45f, 1f)
             },
             state = listState,
