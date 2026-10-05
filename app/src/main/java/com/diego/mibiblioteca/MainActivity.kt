@@ -2509,6 +2509,7 @@ private fun openCasaDelLibro(context: Context) {
     var addWishDialog by remember { mutableStateOf(false) }
     var wishTitle by remember { mutableStateOf("") }
     var wishUrl by remember { mutableStateOf("") }
+    var wallpaperPickerOpen by remember { mutableStateOf(false) }
     if (wallpaperPickerOpen) AlertDialog(
         onDismissRequest = { wallpaperPickerOpen = false },
         title = { Text("Elegir fondo de pantalla") },
@@ -2609,7 +2610,6 @@ private fun openCasaDelLibro(context: Context) {
     val pullRefreshBottomInset = with(LocalDensity.current) { 80.dp.toPx() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
-    var wallpaperPickerOpen by remember { mutableStateOf(false) }
     var showSyncReport by remember { mutableStateOf(false) }
     var homeSettings by remember { mutableStateOf(false) }
     var newsSettings by remember { mutableStateOf(false) }
