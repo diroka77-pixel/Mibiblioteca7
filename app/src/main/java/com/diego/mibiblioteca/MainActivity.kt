@@ -23,6 +23,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -66,6 +67,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import java.io.File
@@ -269,6 +274,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var viewMode by mutableStateOf("Lista"); private set
     var showHomeNews by mutableStateOf(true); private set
     var readingFirst by mutableStateOf(true); private set
+    var wallpaperMode by mutableStateOf("Automático"); private set
+    var lastOpenedUri by mutableStateOf<Uri?>(null); private set
     var selectedSection by mutableStateOf<String?>(null)
     var sections by mutableStateOf<List<String>>(emptyList()); private set
     var wishList by mutableStateOf<List<Pair<String, String>>>(emptyList()); private set
@@ -382,6 +389,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         showHomeNews = prefs.getBoolean("show_home_news", true)
         readingFirst = prefs.getBoolean("reading_first", true)
         loadWishList()
+        wallpaperMode = prefs.getString("wallpaper_mode", "Automático") ?: "Automático"
+        lastOpenedUri = prefs.getString("last_opened_book", null)?.let(Uri::parse)
         folderName = prefs.getString("folder_name", null)
         restoreLaunchNews()
         hiddenNewsSources = safeSavedArray(prefs.getString("hidden_news_sources", "[]")).let { arr ->
@@ -555,7 +564,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val clean = url.trim()
         if (!clean.startsWith("https://www.goodreads.com/")) return
         if (wishList.none { it.second == clean }) {
-            wishList = wishList + (title.trim().ifBlank { "Libro de Goodreads" } to clean)
+            wishList = wishList + (title.trim().ifBlank { "Libro de reseñas" } to clean)
             saveWishList()
         }
     }
@@ -1067,7 +1076,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun recordOpen(uri: Uri) {
-        prefs.edit().putLong("opened_" + uri.toString().hashCode(), System.currentTimeMillis()).apply()
+        lastOpenedUri = uri
+        prefs.edit().putLong("opened_" + uri.toString().hashCode(), System.currentTimeMillis())
+            .putString("last_opened_book", uri.toString()).apply()
+    }
+
+    fun chooseWallpaper(mode: String) {
+        if (mode !in (listOf("Automático", "Clásico", "Portada") + wallpaperGenres)) return
+        wallpaperMode = mode
+        prefs.edit().putString("wallpaper_mode", mode).apply()
     }
 
     fun readingBooks(): List<Book> = books.filter { it.status == ReadingStatus.READING }
@@ -2095,7 +2112,7 @@ private fun fetchSpanishInfo(book: Book): InfoCandidate {
     } catch (_: Exception) {}
     if (plot.isBlank()) {
         plot = goodreadsPlot(book)
-        if (plot.isNotBlank()) plotSource = "Goodreads"
+        if (plot.isNotBlank()) plotSource = "Reseña"
     }
     return InfoCandidate("", plot, bio, plotSource, bioSource)
 }
@@ -2194,7 +2211,7 @@ private fun openGoodreads(context: Context, book: Book? = null) {
     if (book == null) {
         val launch = context.packageManager.getLaunchIntentForPackage("com.goodreads")
         if (launch != null) context.startActivity(launch)
-        else android.widget.Toast.makeText(context, "Goodreads no está instalada", android.widget.Toast.LENGTH_LONG).show()
+        else android.widget.Toast.makeText(context, "La aplicación de reseñas no está instalada", android.widget.Toast.LENGTH_LONG).show()
         return
     }
     CoroutineScope(Dispatchers.Main).launch {
@@ -2238,7 +2255,7 @@ private fun openGoodreadsUrl(context: Context, url: String) {
     catch (_: Exception) {
         val launch = context.packageManager.getLaunchIntentForPackage("com.goodreads")
         if (launch != null) context.startActivity(launch)
-        else android.widget.Toast.makeText(context, "Goodreads no está instalada", android.widget.Toast.LENGTH_LONG).show()
+        else android.widget.Toast.makeText(context, "La aplicación de reseñas no está instalada", android.widget.Toast.LENGTH_LONG).show()
     }
 }
 
@@ -2339,12 +2356,12 @@ private fun openCasaDelLibro(context: Context) {
         "Carpeta" -> Icons.Outlined.Folder
         "Favoritos" -> Icons.Outlined.FavoriteBorder
         "Favorito" -> Icons.Outlined.Favorite
-        "Leyendo", "Leer", "Goodreads", "Sincronizar" -> Icons.Outlined.AutoStories
+        "Leyendo", "Leer", "Reseña", "Sincronizar" -> Icons.Outlined.AutoStories
         "Leídos", "Leído", "Revisado" -> Icons.Outlined.CheckCircle
         "Autores", "Autor", "Biografía" -> Icons.Outlined.PersonOutline
         "Sagas" -> Icons.Outlined.Layers
         "Géneros" -> Icons.Outlined.Category
-        "Google", "Google IA" -> Icons.Outlined.AutoAwesome
+        "Google", "Búsqueda IA" -> Icons.Outlined.AutoAwesome
         "Casa del Libro" -> Icons.Outlined.Storefront
         "Buscar" -> Icons.Outlined.Search
         "Cerrar" -> Icons.Outlined.Close
@@ -2492,6 +2509,27 @@ private fun openCasaDelLibro(context: Context) {
     var addWishDialog by remember { mutableStateOf(false) }
     var wishTitle by remember { mutableStateOf("") }
     var wishUrl by remember { mutableStateOf("") }
+    if (wallpaperPickerOpen) AlertDialog(
+        onDismissRequest = { wallpaperPickerOpen = false },
+        title = { Text("Elegir fondo de pantalla") },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 440.dp)) {
+                items(listOf("Automático", "Clásico", "Portada") + wallpaperGenres) { mode ->
+                    Row(Modifier.fillMaxWidth().clickable {
+                        vm.chooseWallpaper(mode)
+                        wallpaperPickerOpen = false
+                    }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = vm.wallpaperMode == mode,
+                            onClick = { vm.chooseWallpaper(mode); wallpaperPickerOpen = false })
+                        Text(mode, color = Mahogany)
+                    }
+                }
+            }
+        },
+        confirmButton = { LibraryTextButton(onClick = { wallpaperPickerOpen = false }) {
+            Text("Cerrar")
+        } }
+    )
     if (addingSection) AlertDialog(
         onDismissRequest = { addingSection = false },
         title = { Text("Nueva sección") },
@@ -2508,10 +2546,10 @@ private fun openCasaDelLibro(context: Context) {
     ) }
     if (addWishDialog) AlertDialog(
         onDismissRequest = { addWishDialog = false },
-        title = { Text("Añadir desde Goodreads") },
+        title = { Text("Añadir desde una reseña") },
         text = { Column {
             OutlinedTextField(wishTitle, { wishTitle = it }, label = { Text("Título") })
-            OutlinedTextField(wishUrl, { wishUrl = it }, label = { Text("Enlace compartido de Goodreads") })
+            OutlinedTextField(wishUrl, { wishUrl = it }, label = { Text("Enlace de la reseña") })
         } },
         confirmButton = { LibraryTextButton(onClick = {
             vm.addGoodreadsWish(wishTitle, wishUrl); addWishDialog = false; wishTitle = ""; wishUrl = ""
@@ -2571,6 +2609,7 @@ private fun openCasaDelLibro(context: Context) {
     val pullRefreshBottomInset = with(LocalDensity.current) { 80.dp.toPx() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    var wallpaperPickerOpen by remember { mutableStateOf(false) }
     var showSyncReport by remember { mutableStateOf(false) }
     var homeSettings by remember { mutableStateOf(false) }
     var newsSettings by remember { mutableStateOf(false) }
@@ -2933,10 +2972,10 @@ private fun openCasaDelLibro(context: Context) {
                 }
                 if (book.status == ReadingStatus.READING)
                     option("Quitar de Estoy leyendo", "Cerrar") { vm.setStatus(book.uri, ReadingStatus.PENDING) }
-                option("Consultar libro con Google IA", "Google IA") {
+                option("Búsqueda IA del libro", "Búsqueda IA") {
                     searchBookInGoogleAi(context, book)
                 }
-                option("Ver reseña en Goodreads", "Goodreads") { openGoodreads(context, book) }
+                option("Ver reseña", "Reseña") { openGoodreads(context, book) }
                 option("Buscar información del autor", "Buscar") {
                     searchInGoogleApp(context, displayAuthor(book) + " biografía escritor")
                 }
@@ -3057,6 +3096,14 @@ private fun openCasaDelLibro(context: Context) {
                             selected = false, icon = { Icon(Icons.Outlined.Category, null) },
                             onClick = { if (!vm.genreClassifying) vm.classifyGenres() })
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                        Text("Fondo de las pantallas", color = Teal, fontWeight = FontWeight.Bold)
+                        NavigationDrawerItem(label = { Text("Fondo: " + vm.wallpaperMode) },
+                            selected = false, icon = { Icon(Icons.Outlined.Wallpaper, null) },
+                            onClick = { wallpaperPickerOpen = true })
+                        Text("Automático sigue el género del último libro abierto.",
+                            color = Mahogany, fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         Text("Inicio y noticias", color = Teal, fontWeight = FontWeight.Bold)
                         NavigationDrawerItem(label = { Text("Organizar Inicio") }, selected = false,
                             icon = { AppIcon("Ajustes") }, onClick = {
@@ -3106,7 +3153,7 @@ private fun openCasaDelLibro(context: Context) {
                             switchTab("Biblioteca", showPending = true)
                             scope.launch { drawerState.close() }
                         })
-                    if (showWishList) LibraryTextButton(onClick = { addWishDialog = true }) { Text("Añadir Goodreads") }
+                    if (showWishList) LibraryTextButton(onClick = { addWishDialog = true }) { Text("Añadir reseña") }
                     if (tab == "Biblioteca" && !showWishList) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         Text("MOSTRAR", color = Teal,
@@ -3165,10 +3212,10 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 14.dp))
-                    NavigationDrawerItem(label = { Text("Goodreads") }, selected = false,
-                        icon = { AppIcon("Goodreads") }, onClick = { openGoodreads(context) })
-                    NavigationDrawerItem(label = { Text("Google IA") }, selected = false,
-                        icon = { AppIcon("Google IA") }, onClick = { openGoogleAi(context) })
+                    NavigationDrawerItem(label = { Text("Reseña") }, selected = false,
+                        icon = { AppIcon("Reseña") }, onClick = { openGoodreads(context) })
+                    NavigationDrawerItem(label = { Text("Búsqueda IA") }, selected = false,
+                        icon = { AppIcon("Búsqueda IA") }, onClick = { openGoogleAi(context) })
                     HorizontalDivider(Modifier.padding(vertical = 14.dp))
                     NavigationDrawerItem(label = { Text("Ajustes") }, selected = false,
                         icon = { AppIcon("Ajustes") }, onClick = { settingsOpen = true })
@@ -3247,6 +3294,8 @@ private fun openCasaDelLibro(context: Context) {
                 modifier = Modifier.padding(horizontal = 16.dp), fontSize = 12.sp, color = Mahogany)
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
+        val wallpaperBook = vm.books.firstOrNull { it.uri == vm.lastOpenedUri }
+        LibraryWallpaper(vm.wallpaperMode, wallpaperBook)
         LazyColumn(
             modifier = Modifier.fillMaxSize().graphicsLayer {
                 translationX = pageMotion.value + pageDrag.floatValue
@@ -3479,7 +3528,7 @@ private fun openCasaDelLibro(context: Context) {
                 items(vm.wishList, key = { "wish:" + it.second }) { (title, url) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         LibraryActionButton(onClick = { openGoodreadsUrl(context, url) },
-                            modifier = Modifier.weight(1f)) { Text(title.ifBlank { "Libro de Goodreads" }) }
+                            modifier = Modifier.weight(1f)) { Text(title.ifBlank { "Libro de reseñas" }) }
                         IconButton(onClick = { vm.removeGoodreadsWish(url) }) { AppIcon("Cerrar", "Quitar de pendientes") }
                     }
                 }
@@ -3642,8 +3691,8 @@ private fun openCasaDelLibro(context: Context) {
     onGoodreads: () -> Unit, onGoogle: () -> Unit
 ) {
     val shortcuts = listOf(
-        Triple("Goodreads", "Goodreads", Teal) to onGoodreads,
-        Triple("Google IA", "Google IA", Color(0xFFB96056)) to onGoogle
+        Triple("Reseña", "Reseña", Teal) to onGoodreads,
+        Triple("Búsqueda IA", "Búsqueda IA", Color(0xFFB96056)) to onGoogle
     )
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -3883,6 +3932,154 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     }
 }
 
+private fun bookMood(genre: String): Int {
+    val value = genre.lowercase(java.util.Locale.ROOT)
+    return when {
+        "fantas" in value -> 1
+        "mister" in value || "terror" in value || "suspense" in value -> 2
+        "ciencia ficci" in value || "sci-fi" in value -> 3
+        "romance" in value || "románt" in value -> 4
+        else -> 0
+    }
+}
+
+private fun moodColor(mood: Int): Color = when (mood) {
+    1 -> Color(0xFFB78B45)
+    2 -> Color(0xFF6D6281)
+    3 -> Color(0xFF397F99)
+    4 -> Color(0xFFB87977)
+    else -> Brass
+}
+
+private val wallpaperGenres = listOf(
+    "Fantasía", "Ciencia ficción", "Terror", "Thriller", "Misterio",
+    "Romance", "Novela histórica", "Aventuras", "Juvenil", "Infantil",
+    "Clásicos", "Biografía", "Historia", "Ensayo", "Divulgación",
+    "Humor", "Poesía", "Teatro", "Cómic y novela gráfica", "No ficción"
+)
+
+private val wallpaperTones = listOf(
+    Color(0xFFAD8045), Color(0xFF3D829B), Color(0xFF65526E), Color(0xFF60717A), Color(0xFF666A90),
+    Color(0xFFC17878), Color(0xFF9D715A), Color(0xFF598A83), Color(0xFF8A75AF), Color(0xFFB99A5F),
+    Color(0xFF796B62), Color(0xFF7E9982), Color(0xFF8B7660), Color(0xFF72918E), Color(0xFF5985A4),
+    Color(0xFFC2945A), Color(0xFF937595), Color(0xFF9C6874), Color(0xFF648592), Color(0xFF748C76)
+)
+
+@Composable
+private fun LibraryWallpaper(mode: String, book: Book?) {
+    val fromBook = remember(book?.genre) {
+        normalizeBookGenres(book?.genre.orEmpty())
+            .firstOrNull { it in wallpaperGenres }
+    }
+    val genre = if (mode == "Automático" || mode == "Portada") fromBook
+        else mode.takeIf { it in wallpaperGenres }
+    if (mode == "Clásico" || (mode == "Automático" && genre == null)) return
+    val index = wallpaperGenres.indexOf(genre).coerceAtLeast(0)
+    val tone = wallpaperTones[index]
+    val pale = androidx.compose.ui.graphics.lerp(Parchment, tone, 0.21f)
+    val light = androidx.compose.ui.graphics.lerp(Parchment, tone, 0.09f)
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+        listOf(pale, light, Parchment, pale)))) {
+        Canvas(Modifier.fillMaxSize()) {
+            val ink = tone.copy(alpha = 0.15f)
+            val unit = 1.dp.toPx()
+            when (index % 6) {
+                0 -> for (n in 0..18) {
+                    val x = size.width * ((n * 37 % 101) / 101f)
+                    val y = size.height * ((n * 53 % 97) / 97f)
+                    drawCircle(ink, radius = (2 + n % 3) * unit, center = Offset(x, y))
+                    drawLine(ink, Offset(x - 8 * unit, y), Offset(x + 8 * unit, y), unit)
+                    drawLine(ink, Offset(x, y - 8 * unit), Offset(x, y + 8 * unit), unit)
+                }
+                1 -> for (n in 1..5) {
+                    drawCircle(ink, radius = size.width * n / 5f,
+                        center = Offset(size.width * 0.87f, size.height * 0.29f),
+                        style = Stroke(width = 2 * unit))
+                }
+                2 -> for (n in 0..9) {
+                    val x = size.width * n / 7f
+                    drawLine(ink, Offset(x, 0f), Offset(x - size.width * 0.5f, size.height),
+                        2 * unit)
+                }
+                3 -> for (n in 0..8) {
+                    val x = size.width * (n + 1) / 10f
+                    drawLine(ink, Offset(x, 0f), Offset(x, size.height),
+                        (2 + n % 3) * unit)
+                    drawLine(ink, Offset(x - 12 * unit, size.height * 0.7f),
+                        Offset(x + 12 * unit, size.height * 0.7f), unit)
+                }
+                4 -> for (n in 0..6) {
+                    val y = size.height * (n + 1) / 8f
+                    drawLine(ink, Offset(0f, y), Offset(size.width, y - size.height * 0.08f),
+                        2 * unit)
+                }
+                else -> for (row in 0..10) for (col in 0..5) {
+                    drawCircle(ink, radius = (1 + (row + col) % 2) * unit,
+                        center = Offset(size.width * col / 5f, size.height * row / 10f))
+                }
+            }
+        }
+        if (mode == "Portada" && book != null) {
+            Box(Modifier.align(Alignment.TopEnd).padding(top = 24.dp, end = 16.dp)
+                .graphicsLayer { alpha = 0.23f; rotationZ = -8f }) {
+                Cover(book, 210.dp, 300.dp)
+            }
+        }
+        Text(genre ?: "Tu biblioteca", color = tone.copy(alpha = 0.38f),
+            fontFamily = FontFamily.Serif, fontSize = 20.sp,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp))
+    }
+}
+
+@Composable
+private fun GenreCoverEffect(mood: Int, progress: Float, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val p = progress.coerceIn(0f, 1f)
+        when (mood) {
+            1 -> {
+                val glow = kotlin.math.sin(Math.PI.toFloat() * p).coerceAtLeast(0f)
+                drawCircle(Color(0xFFFFDB82).copy(alpha = 0.45f * glow),
+                    radius = size.width * (0.25f + p * 0.55f),
+                    center = Offset(size.width * 0.5f, size.height * 0.45f))
+                val positions = listOf(0.12f to 0.14f, 0.86f to 0.22f,
+                    0.21f to 0.69f, 0.75f to 0.81f, 0.51f to 0.10f)
+                positions.forEachIndexed { index, point ->
+                    val x = size.width * point.first
+                    val y = size.height * (point.second - 0.10f * p)
+                    val radius = (2.5f + index % 3) * 1.dp.toPx()
+                    drawCircle(Color(0xFFFFD06A).copy(alpha = glow), radius, Offset(x, y))
+                    drawLine(Color.White.copy(alpha = glow * 0.8f),
+                        Offset(x - radius * 2, y), Offset(x + radius * 2, y), 1.dp.toPx())
+                    drawLine(Color.White.copy(alpha = glow * 0.8f),
+                        Offset(x, y - radius * 2), Offset(x, y + radius * 2), 1.dp.toPx())
+                }
+            }
+            2 -> {
+                val width = size.width * (1f - p)
+                drawRect(Color(0xFF242131).copy(alpha = 0.72f * (1f - p * 0.35f)),
+                    topLeft = Offset(size.width - width, 0f), size = Size(width, size.height))
+            }
+            3 -> {
+                val blue = Color(0xFF65CCF2)
+                drawRoundRect(blue.copy(alpha = 0.8f * (1f - p * 0.4f)),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx()),
+                    style = Stroke(width = 3.dp.toPx()))
+                drawLine(Color.White.copy(alpha = 1f - p), Offset(0f, 2.dp.toPx()),
+                    Offset(size.width * p, 2.dp.toPx()), 4.dp.toPx())
+                drawLine(blue.copy(alpha = 1f - p), Offset(size.width - 2.dp.toPx(), 0f),
+                    Offset(size.width - 2.dp.toPx(), size.height * p), 4.dp.toPx())
+            }
+            4 -> {
+                val glow = kotlin.math.sin(Math.PI.toFloat() * p).coerceAtLeast(0f)
+                drawCircle(brush = Brush.radialGradient(listOf(
+                    Color(0xFFFFD0AE).copy(alpha = 0.55f * glow),
+                    Color(0xFFFFD0AE).copy(alpha = 0f))),
+                    radius = size.height * 0.55f, center = center)
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun BookDetail(
     book: Book, back: () -> Unit, toggleFavorite: () -> Unit,
@@ -3903,20 +4100,13 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val opening = remember(book.uri) { Animatable(0f) }
-    val genreTone = remember(book.genre) {
-        val genre = book.genre.lowercase(java.util.Locale.ROOT)
-        when {
-            "fantas" in genre -> Color(0xFFB78B45)
-            "mister" in genre || "terror" in genre || "suspense" in genre -> Color(0xFF6D6281)
-            "ciencia ficci" in genre || "sci-fi" in genre -> Color(0xFF397F99)
-            "romance" in genre || "románt" in genre -> Color(0xFFB87977)
-            else -> Brass
-        }
-    }
+    val mood = remember(book.genre) { bookMood(book.genre) }
+    val genreTone = moodColor(mood)
     LaunchedEffect(book.uri) {
+        onOpened()
         if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
             opening.snapTo(0f)
-            opening.animateTo(1f, tween(270, easing = FastOutSlowInEasing))
+            opening.animateTo(1f, tween(650, easing = FastOutSlowInEasing))
         } else opening.snapTo(1f)
     }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -4062,12 +4252,16 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
             item {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(Modifier.graphicsLayer {
-                        alpha = 0.45f + 0.55f * opening.value
-                        val scale = 0.92f + 0.08f * opening.value
+                        alpha = 0.72f + 0.28f * opening.value
+                        val scale = (if (mood == 0) 0.72f else 0.88f) +
+                            (if (mood == 0) 0.28f else 0.12f) * opening.value
                         scaleX = scale
                         scaleY = scale
-                        translationY = (1f - opening.value) * 18.dp.toPx()
-                    }) { Cover(book, 165.dp, 240.dp) }
+                        translationY = (1f - opening.value) * (if (mood == 0) 42.dp else 26.dp).toPx()
+                    }) {
+                        Cover(book, 165.dp, 240.dp)
+                        GenreCoverEffect(mood, opening.value, Modifier.matchParentSize())
+                    }
                     Spacer(Modifier.height(8.dp))
                     Box(Modifier.fillMaxWidth(0.38f * opening.value)
                         .height(3.dp)
@@ -4080,6 +4274,10 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                     }, fontSize = 11.sp, color = Mahogany)
                     Spacer(Modifier.height(12.dp))
                     Text(displayTitle(book), fontSize = 16.sp, lineHeight = 20.sp,
+                        modifier = Modifier.graphicsLayer {
+                            alpha = opening.value
+                            translationY = (1f - opening.value) * 22.dp.toPx()
+                        },
                         fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
                     Text(displayAuthor(book), fontSize = 13.sp, color = Mahogany)
@@ -4272,7 +4470,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                     OutlinedButton(onClick = { openGoodreads(context, book) },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
-                        ActionLabel("Abrir este libro en Goodreads", "Goodreads")
+                        ActionLabel("Abrir reseña del libro", "Reseña")
                     }
                     OutlinedButton(onClick = {
                         searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book))
