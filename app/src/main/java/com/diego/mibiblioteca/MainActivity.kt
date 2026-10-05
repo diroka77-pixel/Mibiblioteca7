@@ -72,6 +72,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontFamily
 import java.io.File
 import java.net.HttpURLConnection
@@ -3914,41 +3915,36 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 withContext(Dispatchers.Default) { decodeCover(book, targetWidthPx, targetHeightPx) }
             }
     }
-    Surface(Modifier.width(w).height(h), shape = MaterialTheme.shapes.medium,
-        color = Color(0xFFF1EDE6), tonalElevation = 0.dp) {
-        if (bmp != null) Image(bmp!!.asImageBitmap(), book.title, Modifier.fillMaxSize(),
-            contentScale = ContentScale.Fit)
-        else Box(Modifier.fillMaxSize().padding(7.dp)
-            .background(Mahogany, androidx.compose.foundation.shape.RoundedCornerShape(5.dp))) {
-            Box(Modifier.align(Alignment.CenterStart).width(5.dp).fillMaxHeight().background(Brass))
-            Column(Modifier.align(Alignment.Center).padding(horizontal = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("✦", color = Brass, fontSize = 15.sp)
-                Text(displayTitle(book), color = Paper, fontFamily = FontFamily.Serif,
-                    fontSize = 10.sp, lineHeight = 12.sp, maxLines = 3,
-                    textAlign = TextAlign.Center)
+    val bookShape = androidx.compose.foundation.shape.RoundedCornerShape(
+        topStart = 3.dp, topEnd = 7.dp, bottomStart = 3.dp, bottomEnd = 7.dp)
+    Box(Modifier.width(w).height(h)) {
+        // Paper block remains visible along the right and lower edges.
+        Box(Modifier.fillMaxSize().padding(start = 5.dp, top = 3.dp)
+            .background(Brush.horizontalGradient(listOf(
+                Color(0xFFE5DCC7), Color.White, Color(0xFFB9AD98))), bookShape))
+        Surface(Modifier.fillMaxSize().padding(end = 5.dp, bottom = 5.dp)
+            .shadow(8.dp, bookShape), shape = bookShape,
+            color = Color(0xFFF1EDE6), tonalElevation = 0.dp) {
+            if (bmp != null) Image(bmp!!.asImageBitmap(), book.title, Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit)
+            else Box(Modifier.fillMaxSize().padding(5.dp)
+                .background(Mahogany, bookShape)) {
+                Column(Modifier.align(Alignment.Center).padding(horizontal = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("✦", color = Brass, fontSize = 15.sp)
+                    Text(displayTitle(book), color = Paper, fontFamily = FontFamily.Serif,
+                        fontSize = 10.sp, lineHeight = 12.sp, maxLines = 3,
+                        textAlign = TextAlign.Center)
+                }
             }
         }
+        Box(Modifier.fillMaxHeight().width(8.dp)
+            .background(Brush.horizontalGradient(listOf(
+                Color.Black.copy(alpha = 0.24f), Color.White.copy(alpha = 0.25f),
+                Color.Black.copy(alpha = 0.08f)))))
+        Box(Modifier.align(Alignment.TopStart).fillMaxWidth().height(2.dp)
+            .background(Color.White.copy(alpha = 0.27f)))
     }
-}
-
-private fun bookMood(genre: String): Int {
-    val value = genre.lowercase(java.util.Locale.ROOT)
-    return when {
-        "fantas" in value -> 1
-        "mister" in value || "terror" in value || "suspense" in value -> 2
-        "ciencia ficci" in value || "sci-fi" in value -> 3
-        "romance" in value || "románt" in value -> 4
-        else -> 0
-    }
-}
-
-private fun moodColor(mood: Int): Color = when (mood) {
-    1 -> Color(0xFFB78B45)
-    2 -> Color(0xFF6D6281)
-    3 -> Color(0xFF397F99)
-    4 -> Color(0xFFB87977)
-    else -> Brass
 }
 
 private val wallpaperGenres = listOf(
@@ -3958,124 +3954,116 @@ private val wallpaperGenres = listOf(
     "Humor", "Poesía", "Teatro", "Cómic y novela gráfica", "No ficción"
 )
 
-private val wallpaperTones = listOf(
-    Color(0xFFAD8045), Color(0xFF3D829B), Color(0xFF65526E), Color(0xFF60717A), Color(0xFF666A90),
-    Color(0xFFC17878), Color(0xFF9D715A), Color(0xFF598A83), Color(0xFF8A75AF), Color(0xFFB99A5F),
-    Color(0xFF796B62), Color(0xFF7E9982), Color(0xFF8B7660), Color(0xFF72918E), Color(0xFF5985A4),
-    Color(0xFFC2945A), Color(0xFF937595), Color(0xFF9C6874), Color(0xFF648592), Color(0xFF748C76)
+private val wallpaperImages = intArrayOf(
+    R.drawable.wallpaper_fantasy, R.drawable.wallpaper_science_fiction,
+    R.drawable.wallpaper_horror, R.drawable.wallpaper_thriller,
+    R.drawable.wallpaper_mystery, R.drawable.wallpaper_romance,
+    R.drawable.wallpaper_historical_novel, R.drawable.wallpaper_adventure,
+    R.drawable.wallpaper_young_adult, R.drawable.wallpaper_children,
+    R.drawable.wallpaper_classics, R.drawable.wallpaper_biography,
+    R.drawable.wallpaper_history, R.drawable.wallpaper_essay,
+    R.drawable.wallpaper_popular_science, R.drawable.wallpaper_humor,
+    R.drawable.wallpaper_poetry, R.drawable.wallpaper_theatre,
+    R.drawable.wallpaper_comics, R.drawable.wallpaper_nonfiction
 )
+
+private fun openingGenre(genre: String): String =
+    normalizeBookGenres(genre).firstOrNull { it in wallpaperGenres } ?: "Clásicos"
 
 @Composable
 private fun LibraryWallpaper(mode: String, book: Book?) {
-    val fromBook = remember(book?.genre) {
-        normalizeBookGenres(book?.genre.orEmpty())
-            .firstOrNull { it in wallpaperGenres }
-    }
-    val genre = if (mode == "Automático" || mode == "Portada") fromBook
-        else mode.takeIf { it in wallpaperGenres }
-    if (mode == "Clásico" || (mode == "Automático" && genre == null)) return
-    val index = wallpaperGenres.indexOf(genre).coerceAtLeast(0)
-    val tone = wallpaperTones[index]
-    val pale = androidx.compose.ui.graphics.lerp(Parchment, tone, 0.21f)
-    val light = androidx.compose.ui.graphics.lerp(Parchment, tone, 0.09f)
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-        listOf(pale, light, Parchment, pale)))) {
-        Canvas(Modifier.fillMaxSize()) {
-            val ink = tone.copy(alpha = 0.15f)
-            val unit = 1.dp.toPx()
-            when (index % 6) {
-                0 -> for (n in 0..18) {
-                    val x = size.width * ((n * 37 % 101) / 101f)
-                    val y = size.height * ((n * 53 % 97) / 97f)
-                    drawCircle(ink, radius = (2 + n % 3) * unit, center = Offset(x, y))
-                    drawLine(ink, Offset(x - 8 * unit, y), Offset(x + 8 * unit, y), unit)
-                    drawLine(ink, Offset(x, y - 8 * unit), Offset(x, y + 8 * unit), unit)
-                }
-                1 -> for (n in 1..5) {
-                    drawCircle(ink, radius = size.width * n / 5f,
-                        center = Offset(size.width * 0.87f, size.height * 0.29f),
-                        style = Stroke(width = 2 * unit))
-                }
-                2 -> for (n in 0..9) {
-                    val x = size.width * n / 7f
-                    drawLine(ink, Offset(x, 0f), Offset(x - size.width * 0.5f, size.height),
-                        2 * unit)
-                }
-                3 -> for (n in 0..8) {
-                    val x = size.width * (n + 1) / 10f
-                    drawLine(ink, Offset(x, 0f), Offset(x, size.height),
-                        (2 + n % 3) * unit)
-                    drawLine(ink, Offset(x - 12 * unit, size.height * 0.7f),
-                        Offset(x + 12 * unit, size.height * 0.7f), unit)
-                }
-                4 -> for (n in 0..6) {
-                    val y = size.height * (n + 1) / 8f
-                    drawLine(ink, Offset(0f, y), Offset(size.width, y - size.height * 0.08f),
-                        2 * unit)
-                }
-                else -> for (row in 0..10) for (col in 0..5) {
-                    drawCircle(ink, radius = (1 + (row + col) % 2) * unit,
-                        center = Offset(size.width * col / 5f, size.height * row / 10f))
-                }
-            }
-        }
+    if (mode == "Clásico") return
+    val genre = if (mode in wallpaperGenres) mode else openingGenre(book?.genre.orEmpty())
+    val image = wallpaperImages[wallpaperGenres.indexOf(genre).coerceAtLeast(0)]
+    Box(Modifier.fillMaxSize()) {
+        Image(painterResource(image), contentDescription = null,
+            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        // Leave the illustrations visible at the edges; calm the centre under the book cards.
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
+            Parchment.copy(alpha = 0.18f), Parchment.copy(alpha = 0.68f),
+            Parchment.copy(alpha = 0.68f), Parchment.copy(alpha = 0.22f)))))
         if (mode == "Portada" && book != null) {
             Box(Modifier.align(Alignment.TopEnd).padding(top = 24.dp, end = 16.dp)
-                .graphicsLayer { alpha = 0.23f; rotationZ = -8f }) {
+                .graphicsLayer { alpha = 0.30f; rotationZ = -8f }) {
                 Cover(book, 210.dp, 300.dp)
             }
         }
-        Text(genre ?: "Tu biblioteca", color = tone.copy(alpha = 0.38f),
-            fontFamily = FontFamily.Serif, fontSize = 20.sp,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp))
     }
 }
 
+private fun openingSymbols(genre: String): List<String> = when (genre) {
+    "Fantasía" -> listOf("🐉", "✦", "✧", "🔥", "✦")
+    "Ciencia ficción" -> listOf("🪐", "✦", "🚀", "✧", "✦")
+    "Terror" -> listOf("🦇", "🦇", "🦇", "🦇", "🌙")
+    "Thriller" -> listOf("🔍", "⚡", "◈", "⚡", "🔦")
+    "Misterio" -> listOf("🗝", "❓", "🔍", "✦", "🗝")
+    "Romance" -> listOf("♥", "♥", "💕", "♥", "🌹")
+    "Novela histórica" -> listOf("1453", "1789", "1914", "1492", "✦")
+    "Aventuras" -> listOf("🧭", "🗺", "✦", "⛰", "✦")
+    "Juvenil" -> listOf("✦", "⭐", "🌙", "✧", "⭐")
+    "Infantil" -> listOf("🦊", "🐰", "🌼", "✦", "🌈")
+    "Clásicos" -> listOf("🪶", "❦", "✦", "📜", "❦")
+    "Biografía" -> listOf("✒", "🖼", "✦", "📜", "✒")
+    "Historia" -> listOf("⏳", "🏛", "✦", "🗺", "⏳")
+    "Ensayo" -> listOf("✒", "💡", "❝", "✦", "❞")
+    "Divulgación" -> listOf("🔬", "🪐", "✦", "🌿", "🔭")
+    "Humor" -> listOf("🎭", "✦", "😂", "✦", "🎉")
+    "Poesía" -> listOf("🪶", "❀", "✦", "❀", "🌙")
+    "Teatro" -> listOf("🎭", "🎟", "✦", "🎭", "✦")
+    "Cómic y novela gráfica" -> listOf("💥", "⚡", "✦", "💬", "⚡")
+    else -> listOf("🌍", "🧭", "✦", "🔎", "✦")
+}
+
 @Composable
-private fun GenreCoverEffect(mood: Int, progress: Float, modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val p = progress.coerceIn(0f, 1f)
-        when (mood) {
-            1 -> {
-                val glow = kotlin.math.sin(Math.PI.toFloat() * p).coerceAtLeast(0f)
-                drawCircle(Color(0xFFFFDB82).copy(alpha = 0.45f * glow),
-                    radius = size.width * (0.25f + p * 0.55f),
-                    center = Offset(size.width * 0.5f, size.height * 0.45f))
-                val positions = listOf(0.12f to 0.14f, 0.86f to 0.22f,
-                    0.21f to 0.69f, 0.75f to 0.81f, 0.51f to 0.10f)
-                positions.forEachIndexed { index, point ->
-                    val x = size.width * point.first
-                    val y = size.height * (point.second - 0.10f * p)
-                    val radius = (2.5f + index % 3) * 1.dp.toPx()
-                    drawCircle(Color(0xFFFFD06A).copy(alpha = glow), radius, Offset(x, y))
-                    drawLine(Color.White.copy(alpha = glow * 0.8f),
-                        Offset(x - radius * 2, y), Offset(x + radius * 2, y), 1.dp.toPx())
-                    drawLine(Color.White.copy(alpha = glow * 0.8f),
-                        Offset(x, y - radius * 2), Offset(x, y + radius * 2), 1.dp.toPx())
-                }
+private fun GenreOpeningScene(genre: String, progress: Float, modifier: Modifier = Modifier) {
+    val p = progress.coerceIn(0f, 1f)
+    if (p >= 1f) return
+    val tone = when (genre) {
+        "Terror", "Thriller", "Misterio" -> Color(0xFF685579)
+        "Romance", "Poesía" -> Color(0xFFE17A83)
+        "Ciencia ficción", "Divulgación" -> Color(0xFF368CB6)
+        "Fantasía" -> Color(0xFFD5A546)
+        else -> Color(0xFF9A7250)
+    }
+    val burst = ((p - 0.08f) / 0.70f).coerceIn(0f, 1f)
+    val opacity = (kotlin.math.min(burst * 4f, (1f - p) * 5f)).coerceIn(0f, 1f)
+    Box(modifier) {
+        Canvas(Modifier.fillMaxSize()) {
+            val origin = Offset(size.width * 0.5f, size.height * 0.22f)
+            drawCircle(Brush.radialGradient(listOf(
+                tone.copy(alpha = opacity * 0.42f), Color.Transparent), center = origin,
+                radius = size.width * (0.30f + burst * 0.55f)),
+                radius = size.width * (0.30f + burst * 0.55f), center = origin)
+            // Opening paper fans out from the cover before the characters emerge.
+            if (p < 0.54f) {
+                val leaf = ((p + 0.06f) * 2f).coerceIn(0f, 1f)
+                val w = 66.dp.toPx() * leaf
+                val h = 85.dp.toPx()
+                drawLine(Color(0xFFFFF6DB).copy(alpha = opacity * 0.85f),
+                    origin, Offset(origin.x - w, origin.y - h * 0.38f),
+                    strokeWidth = 4.dp.toPx())
+                drawLine(Color(0xFFFFF6DB).copy(alpha = opacity * 0.85f),
+                    origin, Offset(origin.x + w, origin.y - h * 0.38f),
+                    strokeWidth = 4.dp.toPx())
             }
-            2 -> {
-                val width = size.width * (1f - p)
-                drawRect(Color(0xFF242131).copy(alpha = 0.72f * (1f - p * 0.35f)),
-                    topLeft = Offset(size.width - width, 0f), size = Size(width, size.height))
-            }
-            3 -> {
-                val blue = Color(0xFF65CCF2)
-                drawRoundRect(blue.copy(alpha = 0.8f * (1f - p * 0.4f)),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx()),
-                    style = Stroke(width = 3.dp.toPx()))
-                drawLine(Color.White.copy(alpha = 1f - p), Offset(0f, 2.dp.toPx()),
-                    Offset(size.width * p, 2.dp.toPx()), 4.dp.toPx())
-                drawLine(blue.copy(alpha = 1f - p), Offset(size.width - 2.dp.toPx(), 0f),
-                    Offset(size.width - 2.dp.toPx(), size.height * p), 4.dp.toPx())
-            }
-            4 -> {
-                val glow = kotlin.math.sin(Math.PI.toFloat() * p).coerceAtLeast(0f)
-                drawCircle(brush = Brush.radialGradient(listOf(
-                    Color(0xFFFFD0AE).copy(alpha = 0.55f * glow),
-                    Color(0xFFFFD0AE).copy(alpha = 0f))),
-                    radius = size.height * 0.55f, center = center)
-            }
+        }
+        openingSymbols(genre).forEachIndexed { index, glyph ->
+            val direction = (index - 2).toFloat()
+            Text(glyph, modifier = Modifier.align(Alignment.TopCenter)
+                .padding(top = if (index == 0) 125.dp else 165.dp)
+                .graphicsLayer {
+                    alpha = opacity
+                    val travel = burst * burst
+                    translationX = (direction * 64.dp.toPx() + (if (index == 0) 0f else 15.dp.toPx())) * travel
+                    translationY = (-130.dp.toPx() - (index % 2) * 34.dp.toPx()) * travel
+                    rotationZ = direction * 18f * travel
+                    val scale = (if (index == 0) 0.4f + 1.7f * burst else 0.45f + 0.8f * burst)
+                    scaleX = scale; scaleY = scale
+                },
+                color = tone, fontSize = if (genre == "Novela histórica") 29.sp
+                    else if (index == 0) 72.sp else 38.sp,
+                fontFamily = if (genre == "Novela histórica") FontFamily.Serif else FontFamily.Default,
+                fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -4100,13 +4088,13 @@ private fun GenreCoverEffect(mood: Int, progress: Float, modifier: Modifier = Mo
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val opening = remember(book.uri) { Animatable(0f) }
-    val mood = remember(book.genre) { bookMood(book.genre) }
-    val genreTone = moodColor(mood)
+    val openingKind = remember(book.genre) { openingGenre(book.genre) }
     LaunchedEffect(book.uri) {
         onOpened()
         if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
             opening.snapTo(0f)
-            opening.animateTo(1f, tween(650, easing = FastOutSlowInEasing))
+            delay(120)
+            opening.animateTo(1f, tween(1850, easing = FastOutSlowInEasing))
         } else opening.snapTo(1f)
     }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -4229,6 +4217,7 @@ private fun GenreCoverEffect(mood: Int, progress: Float, modifier: Modifier = Mo
         book.description.takeIf { book.language.lowercase().startsWith("es") ||
             book.language.lowercase().startsWith("spa") }.orEmpty()
     }
+    Box(Modifier.fillMaxSize()) {
     Scaffold(containerColor = Parchment, topBar = {
         TopAppBar(
             title = { Text("Mi Biblioteca", fontFamily = FontFamily.Serif, color = Paper) },
@@ -4252,21 +4241,21 @@ private fun GenreCoverEffect(mood: Int, progress: Float, modifier: Modifier = Mo
             item {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(Modifier.graphicsLayer {
-                        alpha = 0.72f + 0.28f * opening.value
-                        val scale = (if (mood == 0) 0.72f else 0.88f) +
-                            (if (mood == 0) 0.28f else 0.12f) * opening.value
-                        scaleX = scale
-                        scaleY = scale
-                        translationY = (1f - opening.value) * (if (mood == 0) 42.dp else 26.dp).toPx()
+                        val p = opening.value
+                        alpha = 0.80f + 0.20f * p
+                        scaleX = 0.80f + 0.20f * p
+                        scaleY = 0.80f + 0.20f * p
+                        rotationY = -26f * (1f - p)
+                        translationY = (1f - p) * 38.dp.toPx()
+                        cameraDistance = 18.dp.toPx()
                     }) {
                         Cover(book, 165.dp, 240.dp)
-                        GenreCoverEffect(mood, opening.value, Modifier.matchParentSize())
                     }
                     Spacer(Modifier.height(8.dp))
                     Box(Modifier.fillMaxWidth(0.38f * opening.value)
                         .height(3.dp)
                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(3.dp))
-                        .background(genreTone))
+                        .background(Brass))
                     if (book.cover == null && coverSearching) Text("Buscando portada…",
                         fontSize = 11.sp, color = Mahogany)
                     if (book.cover != null) Text("Portada: " + book.coverSource.ifBlank {
@@ -4488,6 +4477,8 @@ private fun GenreCoverEffect(mood: Int, progress: Float, modifier: Modifier = Mo
                 }
             }
         }
+    }
+    GenreOpeningScene(openingKind, opening.value, Modifier.fillMaxSize())
     }
 }
 
