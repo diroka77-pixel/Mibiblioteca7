@@ -2437,6 +2437,13 @@ private fun openCasaDelLibro(context: Context) {
     val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Favoritos") }
     val scope = rememberCoroutineScope()
     val pageMotion = remember { Animatable(0f) }
+    val headerReveal = remember { Animatable(1f) }
+    LaunchedEffect(tab) {
+        if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            headerReveal.snapTo(0.68f)
+            headerReveal.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
+        } else headerReveal.snapTo(1f)
+    }
     val pageDrag = remember { mutableFloatStateOf(0f) }
     val pageWidthPx = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
     var tabTransitionJob by remember { mutableStateOf<Job?>(null) }
@@ -3180,7 +3187,12 @@ private fun openCasaDelLibro(context: Context) {
                             .semantics { contentDescription = "Abrir menú" }) {
                         Icon(Icons.Outlined.Menu, "Abrir menú", tint = Color.White)
                     }
-                    Text("Mi Biblioteca", modifier = Modifier.align(Alignment.Center),
+                    Text("Mi Biblioteca", modifier = Modifier.align(Alignment.Center)
+                        .graphicsLayer {
+                            alpha = headerReveal.value
+                            scaleX = 0.97f + 0.03f * headerReveal.value
+                            scaleY = 0.97f + 0.03f * headerReveal.value
+                        },
                         color = Color.White, fontSize = 20.sp,
                         fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Serif)
                 }
@@ -3890,6 +3902,23 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
+    val opening = remember(book.uri) { Animatable(0f) }
+    val genreTone = remember(book.genre) {
+        val genre = book.genre.lowercase(java.util.Locale.ROOT)
+        when {
+            "fantas" in genre -> Color(0xFFB78B45)
+            "mister" in genre || "terror" in genre || "suspense" in genre -> Color(0xFF6D6281)
+            "ciencia ficci" in genre || "sci-fi" in genre -> Color(0xFF397F99)
+            "romance" in genre || "románt" in genre -> Color(0xFFB87977)
+            else -> Brass
+        }
+    }
+    LaunchedEffect(book.uri) {
+        if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            opening.snapTo(0f)
+            opening.animateTo(1f, tween(270, easing = FastOutSlowInEasing))
+        } else opening.snapTo(1f)
+    }
     var confirmDelete by remember { mutableStateOf(false) }
     var sectionMenu by remember { mutableStateOf(false) }
     var moreActionsExpanded by rememberSaveable(book.uri) { mutableStateOf(false) }
@@ -4032,7 +4061,18 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
             }
             item {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Cover(book, 165.dp, 240.dp)
+                    Box(Modifier.graphicsLayer {
+                        alpha = 0.45f + 0.55f * opening.value
+                        val scale = 0.92f + 0.08f * opening.value
+                        scaleX = scale
+                        scaleY = scale
+                        translationY = (1f - opening.value) * 18.dp.toPx()
+                    }) { Cover(book, 165.dp, 240.dp) }
+                    Spacer(Modifier.height(8.dp))
+                    Box(Modifier.fillMaxWidth(0.38f * opening.value)
+                        .height(3.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(3.dp))
+                        .background(genreTone))
                     if (book.cover == null && coverSearching) Text("Buscando portada…",
                         fontSize = 11.sp, color = Mahogany)
                     if (book.cover != null) Text("Portada: " + book.coverSource.ifBlank {
