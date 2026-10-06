@@ -4113,6 +4113,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     Crossfade(targetState = genre to palette,
         animationSpec = tween(1400, easing = FastOutSlowInEasing),
         label = "Cambio de género") { (activeGenre, color) ->
+        val glyphs = remember(activeGenre) { wallpaperGlyph(activeGenre) }
         Canvas(Modifier.fillMaxSize().background(Parchment)) {
             val w = size.width
             val h = size.height
@@ -4139,7 +4140,6 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 close()
             }
             drawPath(lower, color.copy(alpha = .065f))
-            val glyphs = wallpaperGlyph(activeGenre)
             fun facet(points: FloatArray, centerX: Float, centerY: Float,
                       scale: Float, opacity: Float, index: Int) {
                 val path = androidx.compose.ui.graphics.Path().apply {
