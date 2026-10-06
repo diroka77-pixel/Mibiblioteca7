@@ -2450,6 +2450,8 @@ private fun openCasaDelLibro(context: Context) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var selected by remember { mutableStateOf<Book?>(null) }
     var readingUri by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingReader by remember { mutableStateOf<Book?>(null) }
+    val readerTransition = remember { Animatable(0f) }
     var tab by rememberSaveable { mutableStateOf("Inicio") }
     var selectedGenres by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var genreAllSelected by rememberSaveable { mutableStateOf(true) }
@@ -2601,6 +2603,25 @@ private fun openCasaDelLibro(context: Context) {
     var restoreListPosition by remember { mutableStateOf(false) }
     var savedListIndex by remember { mutableIntStateOf(0) }
     var savedListOffset by remember { mutableIntStateOf(0) }
+    fun startReader(book: Book) {
+        if (pendingReader != null) return
+        vm.recordOpen(book.uri)
+        vm.setStatus(book.uri, ReadingStatus.READING)
+        if (!android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            readingUri = book.uri.toString()
+            return
+        }
+        pendingReader = book
+        scope.launch {
+            readerTransition.snapTo(0f)
+            readerTransition.animateTo(0.78f,
+                tween(900, easing = FastOutSlowInEasing))
+            readingUri = book.uri.toString()
+            readerTransition.animateTo(1f,
+                tween(280, easing = FastOutSlowInEasing))
+            pendingReader = null
+        }
+    }
     fun openBookFromList(book: Book) {
         savedListIndex = listState.firstVisibleItemIndex
         savedListOffset = listState.firstVisibleItemScrollOffset
@@ -2991,6 +3012,7 @@ private fun openCasaDelLibro(context: Context) {
         }
     }
     val readingBook = readingUri?.let { key -> vm.books.firstOrNull { it.uri.toString() == key } }
+    Box(Modifier.fillMaxSize()) {
     if (readingBook != null) {
         ReaderScreen(readingBook, onBack = { readingUri = null },
             onProgress = { percent -> vm.updateReadingPercent(readingBook.uri, percent) },
@@ -2998,7 +3020,7 @@ private fun openCasaDelLibro(context: Context) {
     } else if (shown != null) {
             BookDetail(shown, { selected = null }, { vm.toggleFavorite(shown.uri) },
                 { vm.recordOpen(shown.uri) },
-                { vm.setStatus(shown.uri, it) }, { readingUri = shown.uri.toString() },
+                { vm.setStatus(shown.uri, it) }, { startReader(shown) },
                 vm.message, duplicateGroups.firstOrNull { group -> group.any { it.uri == shown.uri } }
                     ?.filterNot { it.uri == shown.uri }.orEmpty(),
                 { vm.deleteDuplicate(shown) }, { vm.completeMissing(shown.uri, force = true) },
@@ -3380,8 +3402,7 @@ private fun openCasaDelLibro(context: Context) {
                 item(key = "reading-shelf") { ReadingShelf(readingBooks, vm::readingPercent,
                     isOffline = { it.uri in offlineBookUris },
                     onLongPress = { bookMenu = it }, onCarouselTouch = { startedOnCarousel = true }) { book ->
-                    readingUri = book.uri.toString()
-                    vm.recordOpen(book.uri)
+                    startReader(book)
                 } }
             item(key = "controls") {
                 Column(Modifier.padding(horizontal = 12.dp)) {
@@ -3605,7 +3626,7 @@ private fun openCasaDelLibro(context: Context) {
                                 items(ordered, key = { "carousel:$name:" + it.uri },
                                     contentType = { "genre-book" }) { book ->
                                     BookGalleryCard(book, Modifier.width(148.dp), book.uri in offlineBookUris,
-                                        vm.readingPercent(book.uri), { bookMenu = book }) { openBookFromList(book) }
+                                        vm.readingPercent(book.uri), { bookMenu = book }) { startReader(book) }
                                 }
                             }
                         }
@@ -3621,12 +3642,12 @@ private fun openCasaDelLibro(context: Context) {
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 BookGalleryCard(first, Modifier.weight(1f), first.uri in offlineBookUris,
                                     vm.readingPercent(first.uri), { bookMenu = first }) {
-                                    openBookFromList(first)
+                                    startReader(first)
                                 }
                                 if (second != null) {
                                     BookGalleryCard(second, Modifier.weight(1f), second.uri in offlineBookUris,
                                         vm.readingPercent(second.uri), { bookMenu = second }) {
-                                        openBookFromList(second)
+                                        startReader(second)
                                     }
                                 } else Spacer(Modifier.weight(1f))
                             }
@@ -3635,9 +3656,9 @@ private fun openCasaDelLibro(context: Context) {
                             contentType = { vm.viewModeFor(vm.selectedSection) }) { book ->
                             if (vm.viewModeFor(vm.selectedSection) == "Compacta")
                                 BookCompactCard(book, book.uri in offlineBookUris,
-                                    { bookMenu = book }) { openBookFromList(book) }
+                                    { bookMenu = book }) { startReader(book) }
                             else BookCard(book, book.uri in offlineBookUris,
-                                { bookMenu = book }) { openBookFromList(book) }
+                                { bookMenu = book }) { startReader(book) }
                         }
                     }
                 }
@@ -3652,6 +3673,8 @@ private fun openCasaDelLibro(context: Context) {
     }
     }
     }
+    }
+    pendingReader?.let { BookOpeningTransition(it, readerTransition.value) }
     }
 }
 
@@ -3931,64 +3954,107 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 withContext(Dispatchers.Default) { decodeCover(book, targetWidthPx, targetHeightPx) }
             }
     }
-    val depth = (w.value * 0.095f).coerceIn(5f, 15f).dp
+    val depth = (w.value * 0.045f).coerceIn(2.5f, 8f).dp
+    val bottom = depth * 0.42f
+    val hinge = (w.value * 0.035f).coerceIn(2f, 5f).dp
     val bookShape = androidx.compose.foundation.shape.RoundedCornerShape(
-        topStart = 2.dp, topEnd = 5.dp, bottomStart = 2.dp, bottomEnd = 5.dp)
-    Box(Modifier.width(w).height(h).shadow(11.dp, bookShape)) {
+        topStart = 2.dp, topEnd = 3.dp, bottomStart = 2.dp, bottomEnd = 3.dp)
+    Box(Modifier.width(w).height(h).shadow(7.dp, bookShape)) {
         Canvas(Modifier.matchParentSize()) {
             val d = depth.toPx()
-            val pageTop = 3.dp.toPx()
+            val foot = bottom.toPx()
             drawRect(Brush.horizontalGradient(listOf(
-                Color(0xFFB8AB96), Color(0xFFFFF7E5), Color(0xFFB19D83)),
-                startX = size.width - d), Offset(size.width - d, pageTop),
-                Size(d, size.height - pageTop))
-            for (line in 1..9) {
-                val x = size.width - d + d * line / 10f
-                drawLine(Color(0xFF8C7E6C).copy(alpha = 0.36f),
-                    Offset(x, pageTop + 2.dp.toPx()),
-                    Offset(x, size.height - 3.dp.toPx()), 0.65.dp.toPx())
-            }
+                Color(0xFFBEB2A0), Color(0xFFFFFBF2), Color(0xFFB7AA98)),
+                startX = size.width - d, endX = size.width),
+                Offset(size.width - d, 2.dp.toPx()),
+                Size(d, size.height - foot))
             drawRect(Brush.verticalGradient(listOf(
-                Color(0xFFB09D84), Color(0xFFFFF5DD), Color(0xFF947F68)),
-                startY = size.height - d * 0.72f),
-                Offset(2.dp.toPx(), size.height - d * 0.72f),
-                Size(size.width - d, d * 0.72f))
-            for (line in 1..6) {
-                val y = size.height - d * 0.72f + d * 0.72f * line / 7f
-                drawLine(Color(0xFF8C7E6C).copy(alpha = 0.32f),
-                    Offset(3.dp.toPx(), y), Offset(size.width - d, y),
-                    0.6.dp.toPx())
-            }
+                Color(0xFFB5A48E), Color(0xFFFFFAEE), Color(0xFFB5A48E)),
+                startY = size.height - foot, endY = size.height),
+                Offset(2.dp.toPx(), size.height - foot),
+                Size(size.width - d, foot))
+            drawLine(Color(0xFF776B5F).copy(alpha = 0.28f),
+                Offset(size.width - d, 2.dp.toPx()),
+                Offset(size.width - d, size.height - foot), 0.7.dp.toPx())
         }
-        Surface(Modifier.fillMaxSize().padding(start = 2.dp, end = depth,
-            bottom = depth * 0.72f).graphicsLayer {
-                rotationY = -8f
-                cameraDistance = 22.dp.toPx()
-            }.shadow(8.dp, bookShape), shape = bookShape,
-            color = Color(0xFFF1EDE6), tonalElevation = 0.dp) {
-            if (bmp != null) Image(bmp!!.asImageBitmap(), book.title, Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit)
-            else Box(Modifier.fillMaxSize().padding(4.dp)
-                .background(Mahogany, bookShape)) {
-                Column(Modifier.align(Alignment.Center).padding(horizontal = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(Modifier.fillMaxSize().padding(end = depth, bottom = bottom)
+            .graphicsLayer { rotationY = -3f; cameraDistance = 24.dp.toPx() }
+            .shadow(4.dp, bookShape), shape = bookShape,
+            color = Mahogany, tonalElevation = 0.dp) {
+            Box(Modifier.fillMaxSize()) {
+                if (bmp != null)
+                    Image(bmp!!.asImageBitmap(), book.title, Modifier.fillMaxSize(),
+                        contentScale = ContentScale.FillBounds)
+                else Column(Modifier.fillMaxSize().background(Mahogany).padding(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center) {
                     Text("✦", color = Brass, fontSize = 15.sp)
                     Text(displayTitle(book), color = Paper, fontFamily = FontFamily.Serif,
                         fontSize = 10.sp, lineHeight = 12.sp, maxLines = 3,
                         textAlign = TextAlign.Center)
                 }
+                Box(Modifier.align(Alignment.CenterStart).fillMaxHeight().width(hinge)
+                    .background(Brush.horizontalGradient(listOf(
+                        Color.Black.copy(alpha = 0.24f),
+                        Color.Black.copy(alpha = 0.06f),
+                        Color.White.copy(alpha = 0.10f)))))
             }
         }
-        Box(Modifier.align(Alignment.CenterStart).fillMaxHeight()
-            .width(depth * 0.80f).padding(bottom = depth * 0.72f)
-            .background(Brush.horizontalGradient(listOf(
-                Color(0xFF241A16).copy(alpha = 0.78f),
-                Color(0xFF7B5B42).copy(alpha = 0.38f),
-                Color.White.copy(alpha = 0.16f),
-                Color.Black.copy(alpha = 0.30f)))))
-        Box(Modifier.align(Alignment.TopStart).fillMaxWidth()
-            .padding(end = depth).height(1.dp)
-            .background(Color.White.copy(alpha = 0.38f)))
+    }
+}
+
+@Composable
+private fun BookOpeningTransition(book: Book, progress: Float) {
+    val p = progress.coerceIn(0f, 1f)
+    val opening = FastOutSlowInEasing.transform((p / 0.53f).coerceIn(0f, 1f))
+    val approach = FastOutSlowInEasing.transform(((p - 0.43f) / 0.49f).coerceIn(0f, 1f))
+    val exit = ((1f - p) / 0.22f).coerceIn(0f, 1f)
+    val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    Box(Modifier.fillMaxSize()
+        .background(Parchment.copy(alpha = (0.12f + approach * 0.88f) * exit))
+        .clickable(interactionSource = source, indication = null) { }) {
+        Box(Modifier.align(Alignment.Center).size(185.dp, 265.dp).graphicsLayer {
+            scaleX = 0.91f + approach * 3.0f
+            scaleY = scaleX
+            translationY = (1f - approach) * 30.dp.toPx()
+            alpha = exit
+        }) {
+            Surface(Modifier.fillMaxSize().shadow(14.dp,
+                androidx.compose.foundation.shape.RoundedCornerShape(3.dp)),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(3.dp),
+                color = Color(0xFFFFFBF3), tonalElevation = 0.dp) {
+                Box(Modifier.fillMaxSize()) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        drawRect(Brush.horizontalGradient(listOf(
+                            Color(0xFFD2C7B6), Color(0xFFFFFCF4), Color(0xFFFFFBF5)),
+                            endX = size.width * 0.22f))
+                        drawLine(Color(0xFFB6A58E).copy(alpha = .32f),
+                            Offset(size.width * .08f, 0f),
+                            Offset(size.width * .08f, size.height), 1.dp.toPx())
+                        for (line in 0..6) {
+                            val y = size.height * (.48f + line * .055f)
+                            drawLine(Mahogany.copy(alpha = .12f),
+                                Offset(size.width * .18f, y),
+                                Offset(size.width * (if (line % 3 == 2) .66f else .84f), y),
+                                1.dp.toPx())
+                        }
+                    }
+                    Text(displayTitle(book), modifier = Modifier.align(Alignment.TopCenter)
+                        .padding(start = 30.dp, end = 18.dp, top = 54.dp),
+                        color = Mahogany, fontFamily = FontFamily.Serif,
+                        fontSize = 15.sp, lineHeight = 19.sp,
+                        textAlign = TextAlign.Center, maxLines = 3)
+                }
+            }
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.04f, 0.5f)
+                rotationY = -155f * opening
+                cameraDistance = 28.dp.toPx()
+                alpha = (1f - ((opening - 0.55f) / 0.35f).coerceIn(0f, 1f))
+            }) {
+                Cover(book, 185.dp, 265.dp)
+            }
+        }
     }
 }
 
@@ -4181,135 +4247,6 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     }
 }
 
-private val openingImages = intArrayOf(
-    R.drawable.opening_fantasy, R.drawable.opening_science_fiction,
-    R.drawable.opening_horror, R.drawable.opening_thriller,
-    R.drawable.opening_mystery, R.drawable.opening_romance,
-    R.drawable.opening_historical_novel, R.drawable.opening_adventure,
-    R.drawable.opening_young_adult, R.drawable.opening_children,
-    R.drawable.opening_classics, R.drawable.opening_biography,
-    R.drawable.opening_history, R.drawable.opening_essay,
-    R.drawable.opening_popular_science, R.drawable.opening_humor,
-    R.drawable.opening_poetry, R.drawable.opening_theatre,
-    R.drawable.opening_comics, R.drawable.opening_nonfiction
-)
-
-@Composable
-private fun GenreOpeningScene(genre: String, progress: Float, modifier: Modifier = Modifier) {
-    val p = progress.coerceIn(0f, 1f)
-    if (p >= 1f) return
-    val index = wallpaperGenres.indexOf(genre).coerceAtLeast(10)
-    val tone = when (genre) {
-        "Terror", "Thriller", "Misterio" -> Color(0xFF67547D)
-        "Romance", "Poesía" -> Color(0xFFD86881)
-        "Ciencia ficción", "Divulgación" -> Color(0xFF3BA9D5)
-        "Infantil", "Juvenil" -> Color(0xFFE2AC59)
-        else -> Color(0xFFC18C48)
-    }
-    val burst = FastOutSlowInEasing.transform(((p - 0.06f) / 0.75f).coerceIn(0f, 1f))
-    val fade = FastOutSlowInEasing.transform(((1f - p) / 0.36f).coerceIn(0f, 1f))
-    val alphaValue = (burst * 5f).coerceIn(0f, 1f) * fade
-    val horror = genre == "Terror"
-    Box(modifier) {
-        Canvas(Modifier.fillMaxSize()) {
-            val origin = Offset(size.width * 0.5f, 205.dp.toPx())
-            val radius = size.width * (0.12f + burst * 0.74f)
-            drawCircle(Brush.radialGradient(listOf(
-                tone.copy(alpha = 0.30f * alphaValue),
-                tone.copy(alpha = 0.08f * alphaValue), Color.Transparent),
-                center = origin, radius = radius),
-                center = origin, radius = radius)
-            // Two sheets unfold from the physical cover.
-            if (p < 0.58f) {
-                val turn = ((p + 0.06f) * 2.2f).coerceIn(0f, 1f)
-                val wing = 107.dp.toPx() * turn
-                val top = 88.dp.toPx() * turn
-                val left = androidx.compose.ui.graphics.Path().apply {
-                    moveTo(origin.x, origin.y + 24.dp.toPx())
-                    quadraticBezierTo(origin.x - wing * 0.5f, origin.y - top * 0.35f,
-                        origin.x - wing, origin.y - top)
-                    lineTo(origin.x - wing * 0.86f, origin.y + 9.dp.toPx())
-                    quadraticBezierTo(origin.x - wing * 0.48f, origin.y - 12.dp.toPx(),
-                        origin.x, origin.y + 24.dp.toPx())
-                    close()
-                }
-                val right = androidx.compose.ui.graphics.Path().apply {
-                    moveTo(origin.x, origin.y + 24.dp.toPx())
-                    quadraticBezierTo(origin.x + wing * 0.5f, origin.y - top * 0.35f,
-                        origin.x + wing, origin.y - top)
-                    lineTo(origin.x + wing * 0.86f, origin.y + 9.dp.toPx())
-                    quadraticBezierTo(origin.x + wing * 0.48f, origin.y - 12.dp.toPx(),
-                        origin.x, origin.y + 24.dp.toPx())
-                    close()
-                }
-                drawPath(left, Color(0xFFFFF3D8).copy(alpha = 0.72f * alphaValue))
-                drawPath(right, Color(0xFFFFF3D8).copy(alpha = 0.84f * alphaValue))
-                drawLine(tone.copy(alpha = alphaValue), origin,
-                    Offset(origin.x, origin.y + 28.dp.toPx()), 2.dp.toPx())
-            }
-            for (n in 0..15) {
-                val spread = (n * 37 % 23 - 11) / 11f
-                val swirl = kotlin.math.sin((n * 1.7f + burst * 7f).toDouble()).toFloat()
-                val fly = (burst * (0.7f + (n % 5) * 0.08f)).coerceAtMost(1f)
-                val x = origin.x + (spread * 155.dp.toPx() + swirl * 28.dp.toPx()) * fly
-                val y = origin.y - (30.dp.toPx() + (n % 9) * 20.dp.toPx()) * fly
-                val particle = Offset(x, y)
-                drawCircle(tone.copy(alpha = alphaValue * (0.38f + n % 3 * 0.17f)),
-                    (1.4f + n % 4) * 1.dp.toPx(), particle)
-                if (n % 4 == 0) drawLine(tone.copy(alpha = alphaValue * 0.38f),
-                    Offset(x - spread * 14.dp.toPx(), y + 24.dp.toPx()), particle, 1.dp.toPx())
-            }
-        }
-        val image = openingImages[index]
-        Image(painterResource(image), contentDescription = null,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 72.dp)
-                .size(if (genre == "Fantasía") 315.dp else 270.dp)
-                .graphicsLayer {
-                    alpha = alphaValue
-                    scaleX = 0.24f + 0.82f * burst
-                    scaleY = 0.24f + 0.82f * burst
-                    translationX = (if (genre == "Fantasía") 46.dp else 16.dp).toPx() * burst
-                    translationY = -122.dp.toPx() * burst
-                    rotationZ = (if (horror) -15f else -9f) + 13f * burst
-                })
-        val echoes = if (horror) 6 else 2
-        repeat(echoes) { n ->
-            val start = 0.15f + n * 0.065f
-            val t = ((p - start) / (0.70f - n * 0.028f)).coerceIn(0f, 1f)
-            val direction = if (n % 2 == 0) -1f else 1f
-            Image(painterResource(image), contentDescription = null,
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 157.dp)
-                    .size(if (horror) 65.dp else 79.dp)
-                    .graphicsLayer {
-                        alpha = t * (1f - t) * (if (horror) 2.9f else 1.65f) * fade
-                        scaleX = 0.28f + t * (if (horror) 0.9f else 0.65f)
-                        scaleY = scaleX
-                        translationX = direction * (42.dp.toPx() + n * 31.dp.toPx()) * t
-                        translationY = -(48.dp.toPx() + n * 22.dp.toPx()) * t
-                        rotationZ = direction * (14f + n * 9f) * t
-                    })
-        }
-        if (genre == "Novela histórica" || genre == "Historia") {
-            listOf("1492", "1789", "1914", "1945").forEachIndexed { n, date ->
-                val t = ((p - 0.12f - n * 0.06f) / 0.6f).coerceIn(0f, 1f)
-                Text(date, color = Color(0xFF6C4428),
-                    fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                    fontSize = 25.sp, modifier = Modifier.align(Alignment.TopCenter)
-                        .padding(top = 191.dp)
-                        .background(Color(0xFFFFF2D8).copy(alpha = alphaValue * t * 0.88f),
-                            androidx.compose.foundation.shape.RoundedCornerShape(7.dp))
-                        .padding(horizontal = 5.dp, vertical = 2.dp)
-                        .graphicsLayer {
-                            alpha = alphaValue * t
-                            translationX = (n - 1.5f) * 77.dp.toPx() * t
-                            translationY = -(82.dp.toPx() + n * 29.dp.toPx()) * t
-                            rotationZ = (n - 1.5f) * 15f * t
-                        })
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun BookDetail(
     book: Book, back: () -> Unit, toggleFavorite: () -> Unit,
@@ -4331,13 +4268,11 @@ private fun GenreOpeningScene(genre: String, progress: Float, modifier: Modifier
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val opening = remember(book.uri) { Animatable(0f) }
-    val openingKind = remember(book.genre) { openingGenre(book.genre) }
     LaunchedEffect(book.uri) {
         onOpened()
         if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
             opening.snapTo(0f)
-            delay(120)
-            opening.animateTo(1f, tween(2450, easing = FastOutSlowInEasing))
+            opening.animateTo(1f, tween(420, easing = FastOutSlowInEasing))
         } else opening.snapTo(1f)
     }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -4521,7 +4456,7 @@ private fun GenreOpeningScene(genre: String, progress: Float, modifier: Modifier
                         book.sagaOrder.takeIf { it.isNotBlank() }?.let { " · nº $it" }.orEmpty(), fontSize = 12.sp)
                     Spacer(Modifier.height(14.dp))
                 Button(onClick = {
-                    onOpened(); setStatus(ReadingStatus.READING); openBook()
+                    openBook()
                 }, modifier = Modifier.fillMaxWidth()) {
                     ActionLabel("Leer este libro", "Leer")
                 }
@@ -4725,7 +4660,6 @@ private fun GenreOpeningScene(genre: String, progress: Float, modifier: Modifier
             }
         }
     }
-    GenreOpeningScene(openingKind, opening.value, Modifier.fillMaxSize())
     }
 }
 
