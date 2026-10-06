@@ -2465,8 +2465,8 @@ private fun openCasaDelLibro(context: Context) {
     val headerReveal = remember { Animatable(1f) }
     LaunchedEffect(tab) {
         if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
-            headerReveal.snapTo(0.68f)
-            headerReveal.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
+            headerReveal.snapTo(0.90f)
+            headerReveal.animateTo(1f, tween(380, easing = FastOutSlowInEasing))
         } else headerReveal.snapTo(1f)
     }
     val pageDrag = remember { mutableFloatStateOf(0f) }
@@ -2486,12 +2486,12 @@ private fun openCasaDelLibro(context: Context) {
             }
             if (name == tab) {
                 showWishList = showPending
-                pageMotion.animateTo(0f, tween(160, easing = FastOutSlowInEasing))
+                pageMotion.animateTo(0f, tween(240, easing = FastOutSlowInEasing))
                 return@launch
             }
             val direction = if (tabs.indexOf(name) > tabs.indexOf(tab)) -1f else 1f
             val distance = pageWidthPx
-            pageMotion.animateTo(direction * distance, tween(170, easing = FastOutSlowInEasing))
+            pageMotion.animateTo(direction * distance, tween(240, easing = FastOutSlowInEasing))
             tab = name
             showWishList = showPending
             vm.selectedSection = null
@@ -2502,7 +2502,7 @@ private fun openCasaDelLibro(context: Context) {
             // Build the destination for one frame while it remains outside the viewport.
             // Replacing the books mid-screen was the main visible jump during navigation.
             withFrameNanos { }
-            pageMotion.animateTo(0f, tween(230, easing = FastOutSlowInEasing))
+            pageMotion.animateTo(0f, tween(340, easing = FastOutSlowInEasing))
         }
     }
     fun settlePage() {
@@ -3234,7 +3234,7 @@ private fun openCasaDelLibro(context: Context) {
         }) {
     val wallpaperBook = vm.books.firstOrNull { it.uri == vm.lastOpenedUri }
     val immersive = vm.wallpaperMode != "Clásico"
-    val immersedBar = Color(0xFF15232A).copy(alpha = 0.68f)
+    val immersedBar = HeaderBrown.copy(alpha = 0.94f)
     Box(Modifier.fillMaxSize().background(Parchment)) {
     LibraryWallpaper(vm.wallpaperMode, wallpaperBook)
     Scaffold(
@@ -3271,9 +3271,9 @@ private fun openCasaDelLibro(context: Context) {
             }
         },
         bottomBar = {
-            NavigationBar(containerColor = if (immersive) immersedBar else Paper,
-                contentColor = if (immersive) Color.White else Mahogany,
-                tonalElevation = if (immersive) 0.dp else 6.dp) {
+            NavigationBar(containerColor = if (immersive) Paper.copy(alpha = 0.96f) else Paper,
+                contentColor = Mahogany,
+                tonalElevation = 4.dp) {
                 listOf(
                     Triple("Inicio", "Inicio", "Inicio"),
                     Triple("Biblioteca", "Libros", "Libros"),
@@ -3287,12 +3287,11 @@ private fun openCasaDelLibro(context: Context) {
                         icon = { AppIcon(icon, description = label, size = 22.dp) },
                         label = { Text(label, maxLines = 1, fontSize = 10.sp) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = if (immersive) Color.White else Ink,
-                            selectedTextColor = if (immersive) Color.White else Mahogany,
-                            indicatorColor = if (immersive) Brass.copy(alpha = 0.56f) else Color(0xFFE9DCC6),
-                            unselectedIconColor = if (immersive) Color.White.copy(alpha = 0.82f) else Teal,
-                            unselectedTextColor = if (immersive) Color.White.copy(alpha = 0.82f)
-                                else Mahogany.copy(alpha = 0.72f))
+                            selectedIconColor = Ink,
+                            selectedTextColor = Mahogany,
+                            indicatorColor = Color(0xFFE9DCC6),
+                            unselectedIconColor = Teal,
+                            unselectedTextColor = Mahogany.copy(alpha = 0.72f))
                     )
                 }
             }
@@ -3716,18 +3715,18 @@ private fun openCasaDelLibro(context: Context) {
             Surface(
                 modifier = Modifier.weight(1f).heightIn(min = 50.dp).clickable(onClick = action),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                color = if (immersive) Color(0xFF15232A).copy(alpha = 0.76f) else Paper,
+                color = if (immersive) Paper.copy(alpha = 0.92f) else Paper,
                 tonalElevation = 0.dp,
                 border = androidx.compose.foundation.BorderStroke(1.dp,
-                    if (immersive) Color.White.copy(alpha = 0.32f) else item.third.copy(alpha = 0.38f))
+                    item.third.copy(alpha = 0.30f))
             ) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center) {
-                    AppIcon(item.second, tint = if (immersive) Color(0xFFFFD88B) else item.third, size = 21.dp)
+                    AppIcon(item.second, tint = item.third, size = 21.dp)
                     Spacer(Modifier.width(8.dp))
                     Text(item.first, fontSize = 13.sp, maxLines = 1,
-                        color = if (immersive) Color.White else Mahogany.copy(alpha = 0.85f),
+                        color = Mahogany.copy(alpha = 0.85f),
                         textAlign = TextAlign.Center)
                 }
             }
@@ -4016,35 +4015,167 @@ private val wallpaperImages = intArrayOf(
 private fun openingGenre(genre: String): String =
     normalizeBookGenres(genre).firstOrNull { it in wallpaperGenres } ?: "Clásicos"
 
+private fun wallpaperGlyph(genre: String): List<FloatArray> = when (genre) {
+    "Fantasía" -> listOf(
+        floatArrayOf(4f,76f,32f,48f,48f,58f,72f,12f,84f,53f,96f,64f,67f,62f,46f,84f,38f,66f),
+        floatArrayOf(31f,48f,20f,22f,65f,38f,48f,58f),
+        floatArrayOf(72f,12f,64f,4f,61f,27f))
+    "Ciencia ficción" -> listOf(
+        floatArrayOf(45f,8f,68f,16f,80f,38f,73f,64f,53f,77f,29f,67f,18f,42f,26f,20f),
+        floatArrayOf(3f,64f,18f,47f,39f,55f,69f,65f,96f,40f,90f,65f,66f,84f,31f,78f),
+        floatArrayOf(74f,6f,79f,13f,86f,11f,81f,18f,83f,25f,75f,20f,69f,24f,71f,16f))
+    "Terror" -> listOf(
+        floatArrayOf(2f,33f,24f,42f,29f,21f,44f,39f,50f,36f,56f,39f,71f,21f,76f,42f,98f,33f,84f,72f,68f,61f,50f,77f,32f,61f,16f,72f),
+        floatArrayOf(39f,77f,50f,85f,61f,77f,57f,93f,43f,93f))
+    "Thriller" -> listOf(
+        floatArrayOf(50f,5f,80f,23f,76f,58f,50f,90f,24f,58f,20f,23f),
+        floatArrayOf(50f,20f,67f,34f,50f,62f,33f,34f),
+        floatArrayOf(47f,57f,53f,57f,53f,72f,47f,72f))
+    "Misterio" -> listOf(
+        floatArrayOf(13f,30f,31f,11f,52f,7f,77f,25f,69f,54f,46f,75f,18f,59f),
+        floatArrayOf(46f,34f,61f,38f,64f,53f,50f,61f,36f,53f,35f,40f),
+        floatArrayOf(68f,66f,91f,88f,85f,94f,61f,72f))
+    "Romance" -> listOf(
+        floatArrayOf(50f,86f,7f,45f,9f,24f,24f,13f,39f,17f,50f,29f,61f,17f,76f,13f,91f,24f,93f,45f),
+        floatArrayOf(50f,69f,25f,44f,25f,30f,39f,29f,50f,42f,61f,29f,75f,30f,75f,44f))
+    "Novela histórica" -> listOf(
+        floatArrayOf(18f,8f,82f,8f,82f,17f,64f,38f,55f,48f,64f,58f,82f,79f,82f,89f,18f,89f,18f,79f,36f,58f,45f,48f,36f,38f,18f,17f),
+        floatArrayOf(31f,18f,69f,18f,50f,43f),
+        floatArrayOf(50f,55f,69f,79f,31f,79f))
+    "Aventuras" -> listOf(
+        floatArrayOf(50f,3f,60f,40f,97f,50f,60f,60f,50f,97f,40f,60f,3f,50f,40f,40f),
+        floatArrayOf(50f,22f,61f,50f,50f,78f,39f,50f),
+        floatArrayOf(50f,32f,56f,50f,50f,68f,44f,50f))
+    "Juvenil" -> listOf(
+        floatArrayOf(8f,65f,26f,19f,43f,31f,63f,8f,92f,29f,74f,76f,47f,92f,25f,79f),
+        floatArrayOf(28f,61f,48f,44f,59f,54f,82f,35f,68f,68f,47f,81f))
+    "Infantil" -> listOf(
+        floatArrayOf(50f,6f,61f,36f,94f,37f,69f,57f,78f,91f,50f,71f,22f,91f,31f,57f,6f,37f,39f,36f),
+        floatArrayOf(50f,27f,56f,45f,75f,45f,60f,57f,66f,75f,50f,63f,34f,75f,40f,57f,25f,45f,44f,45f))
+    "Clásicos" -> listOf(
+        floatArrayOf(14f,16f,48f,10f,50f,78f,17f,86f),
+        floatArrayOf(52f,10f,86f,16f,83f,86f,50f,78f),
+        floatArrayOf(10f,86f,49f,79f,90f,86f,90f,93f,49f,87f,10f,93f))
+    "Biografía" -> listOf(
+        floatArrayOf(49f,7f,68f,16f,75f,36f,65f,56f,50f,63f,32f,56f,25f,36f,31f,16f),
+        floatArrayOf(11f,91f,18f,72f,34f,65f,50f,69f,66f,65f,82f,72f,89f,91f))
+    "Historia" -> listOf(
+        floatArrayOf(12f,23f,37f,13f,61f,24f,89f,9f,89f,74f,61f,89f,37f,76f,12f,87f),
+        floatArrayOf(37f,13f,37f,76f,61f,89f,61f,24f),
+        floatArrayOf(12f,23f,37f,13f,61f,24f,89f,9f))
+    "Ensayo" -> listOf(
+        floatArrayOf(12f,16f,72f,16f,72f,26f,12f,26f),
+        floatArrayOf(12f,37f,89f,37f,89f,47f,12f,47f),
+        floatArrayOf(12f,58f,78f,58f,78f,68f,12f,68f),
+        floatArrayOf(12f,79f,53f,79f,53f,89f,12f,89f))
+    "Divulgación" -> listOf(
+        floatArrayOf(50f,7f,61f,32f,87f,21f,76f,48f,96f,65f,68f,65f,50f,91f,32f,65f,4f,65f,24f,48f,13f,21f,39f,32f),
+        floatArrayOf(50f,29f,58f,47f,50f,66f,42f,47f),
+        floatArrayOf(43f,4f,57f,4f,50f,18f))
+    "Humor" -> listOf(
+        floatArrayOf(8f,28f,25f,13f,75f,13f,92f,28f,92f,65f,75f,80f,42f,80f,21f,94f,25f,78f,8f,65f),
+        floatArrayOf(27f,39f,36f,39f,36f,49f,27f,49f),
+        floatArrayOf(64f,39f,73f,39f,73f,49f,64f,49f),
+        floatArrayOf(35f,61f,50f,69f,65f,61f,59f,75f,41f,75f))
+    "Poesía" -> listOf(
+        floatArrayOf(14f,77f,28f,49f,59f,14f,84f,10f,65f,38f,34f,68f),
+        floatArrayOf(25f,92f,70f,53f,80f,57f,35f,97f),
+        floatArrayOf(41f,58f,57f,40f,66f,43f,50f,61f))
+    "Teatro" -> listOf(
+        floatArrayOf(8f,20f,48f,11f,48f,82f,28f,92f,12f,76f),
+        floatArrayOf(52f,11f,92f,20f,88f,76f,72f,92f,52f,82f),
+        floatArrayOf(21f,44f,32f,44f,32f,52f,21f,52f),
+        floatArrayOf(68f,44f,79f,44f,79f,52f,68f,52f))
+    "Cómic y novela gráfica" -> listOf(
+        floatArrayOf(9f,12f,91f,12f,91f,70f,51f,70f,22f,93f,28f,70f,9f,70f),
+        floatArrayOf(30f,37f,43f,24f,55f,34f,69f,25f,66f,48f,46f,58f))
+    else -> listOf(
+        floatArrayOf(11f,20f,42f,10f,50f,26f,58f,10f,89f,20f,89f,83f,58f,73f,50f,91f,42f,73f,11f,83f),
+        floatArrayOf(24f,32f,45f,27f,50f,39f,55f,27f,76f,32f,76f,69f,55f,63f,50f,76f,45f,63f,24f,69f))
+}
+
 @Composable
 private fun LibraryWallpaper(mode: String, book: Book?) {
     if (mode == "Clásico") return
     val genre = if (mode in wallpaperGenres) mode else openingGenre(book?.genre.orEmpty())
-    val image = wallpaperImages[wallpaperGenres.indexOf(genre).coerceAtLeast(0)]
-    val transition = rememberInfiniteTransition(label = "Ambiente")
-    val drift by transition.animateFloat(initialValue = -1f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(16000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse), label = "Desplazamiento")
-    Box(Modifier.fillMaxSize()) {
-        Crossfade(targetState = image, animationSpec = tween(850), label = "Cambio de fondo") { resource ->
-            Image(painterResource(resource), contentDescription = null,
-                modifier = Modifier.fillMaxSize().graphicsLayer {
-                    scaleX = 1.08f; scaleY = 1.08f
-                    if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
-                        translationX = drift * 7.dp.toPx()
-                        translationY = drift * 12.dp.toPx()
+    val palette = when (genre) {
+        "Terror", "Thriller", "Misterio" -> Color(0xFF68747B)
+        "Ciencia ficción", "Divulgación" -> Color(0xFF537D86)
+        "Romance", "Poesía" -> Color(0xFFAE7783)
+        "Fantasía", "Aventuras" -> Color(0xFF9B7854)
+        "Infantil", "Juvenil", "Humor" -> Color(0xFFAF925D)
+        else -> Color(0xFF817A65)
+    }
+    val motion = rememberInfiniteTransition(label = "Fondo suave")
+    val drift by motion.animateFloat(-1f, 1f,
+        infiniteRepeatable(tween(26000, easing = LinearEasing), RepeatMode.Reverse),
+        label = "Deriva lenta")
+    Crossfade(targetState = genre to palette,
+        animationSpec = tween(1400, easing = FastOutSlowInEasing),
+        label = "Cambio de género") { (activeGenre, color) ->
+        Canvas(Modifier.fillMaxSize().background(Parchment)) {
+            val w = size.width
+            val h = size.height
+            val shift = if (android.animation.ValueAnimator.areAnimatorsEnabled())
+                drift * 3.dp.toPx() else 0f
+            val wash = Color(0xFFF5F0E7)
+            drawRect(wash)
+            val band = androidx.compose.ui.graphics.Path().apply {
+                moveTo(0f, h * .13f)
+                lineTo(w * .38f, h * .08f)
+                lineTo(w, h * .19f)
+                lineTo(w, h * .41f)
+                lineTo(w * .62f, h * .35f)
+                lineTo(0f, h * .44f)
+                close()
+            }
+            drawPath(band, color.copy(alpha = .065f))
+            val lower = androidx.compose.ui.graphics.Path().apply {
+                moveTo(0f, h * .76f)
+                lineTo(w * .38f, h * .71f)
+                lineTo(w, h * .82f)
+                lineTo(w, h)
+                lineTo(0f, h)
+                close()
+            }
+            drawPath(lower, color.copy(alpha = .065f))
+            val glyphs = wallpaperGlyph(activeGenre)
+            fun facet(points: FloatArray, centerX: Float, centerY: Float,
+                      scale: Float, opacity: Float, index: Int) {
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(centerX + (points[0] - 50f) * scale + shift,
+                        centerY + (points[1] - 50f) * scale)
+                    var n = 2
+                    while (n < points.size) {
+                        lineTo(centerX + (points[n] - 50f) * scale + shift,
+                            centerY + (points[n + 1] - 50f) * scale)
+                        n += 2
                     }
-                }, contentScale = ContentScale.Crop)
+                    close()
+                }
+                drawPath(path, color.copy(alpha = opacity * (if (index == 0) 1f else .64f)))
+                drawPath(path, color.copy(alpha = opacity * .44f),
+                    style = Stroke(width = 1.3.dp.toPx()))
+            }
+            val scale = w * .0057f
+            glyphs.forEachIndexed { index, points ->
+                facet(points, w * .70f, h * .29f, scale, .19f, index)
+                facet(points, w * .20f, h * .80f, scale * .46f, .10f, index)
+            }
+            drawCircle(color.copy(alpha = .055f), w * .31f,
+                Offset(w * .72f + shift, h * .30f),
+                style = Stroke(width = 1.dp.toPx()))
+            drawLine(color.copy(alpha = .12f), Offset(w * .09f, h * .63f),
+                Offset(w * .42f, h * .63f), 1.dp.toPx())
         }
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
-            Parchment.copy(alpha = 0.24f), Parchment.copy(alpha = 0.54f),
-            Parchment.copy(alpha = 0.54f), Parchment.copy(alpha = 0.28f)))))
-        val unclassified = book != null && normalizeBookGenres(book.genre)
-            .none { it in wallpaperGenres }
-        if ((mode == "Portada" || (mode == "Automático" && unclassified)) && book != null) {
+    }
+    val unclassified = book != null && normalizeBookGenres(book.genre)
+        .none { it in wallpaperGenres }
+    if ((mode == "Portada" || (mode == "Automático" && unclassified)) && book != null) {
+        Box(Modifier.fillMaxSize()) {
             Box(Modifier.align(Alignment.TopEnd).padding(top = 24.dp, end = 16.dp)
-                .graphicsLayer { alpha = 0.30f; rotationZ = -8f }) {
-                Cover(book, 210.dp, 300.dp)
+                .graphicsLayer { alpha = .10f; rotationZ = -8f }) {
+                Cover(book, 180.dp, 255.dp)
             }
         }
     }
@@ -4076,7 +4207,7 @@ private fun GenreOpeningScene(genre: String, progress: Float, modifier: Modifier
         else -> Color(0xFFC18C48)
     }
     val burst = FastOutSlowInEasing.transform(((p - 0.06f) / 0.75f).coerceIn(0f, 1f))
-    val fade = ((1f - p) / 0.22f).coerceIn(0f, 1f)
+    val fade = FastOutSlowInEasing.transform(((1f - p) / 0.36f).coerceIn(0f, 1f))
     val alphaValue = (burst * 5f).coerceIn(0f, 1f) * fade
     val horror = genre == "Terror"
     Box(modifier) {
@@ -4084,8 +4215,8 @@ private fun GenreOpeningScene(genre: String, progress: Float, modifier: Modifier
             val origin = Offset(size.width * 0.5f, 205.dp.toPx())
             val radius = size.width * (0.12f + burst * 0.74f)
             drawCircle(Brush.radialGradient(listOf(
-                tone.copy(alpha = 0.48f * alphaValue),
-                tone.copy(alpha = 0.13f * alphaValue), Color.Transparent),
+                tone.copy(alpha = 0.30f * alphaValue),
+                tone.copy(alpha = 0.08f * alphaValue), Color.Transparent),
                 center = origin, radius = radius),
                 center = origin, radius = radius)
             // Two sheets unfold from the physical cover.
@@ -4116,7 +4247,7 @@ private fun GenreOpeningScene(genre: String, progress: Float, modifier: Modifier
                 drawLine(tone.copy(alpha = alphaValue), origin,
                     Offset(origin.x, origin.y + 28.dp.toPx()), 2.dp.toPx())
             }
-            for (n in 0..25) {
+            for (n in 0..15) {
                 val spread = (n * 37 % 23 - 11) / 11f
                 val swirl = kotlin.math.sin((n * 1.7f + burst * 7f).toDouble()).toFloat()
                 val fly = (burst * (0.7f + (n % 5) * 0.08f)).coerceAtMost(1f)
@@ -4135,8 +4266,8 @@ private fun GenreOpeningScene(genre: String, progress: Float, modifier: Modifier
                 .size(if (genre == "Fantasía") 315.dp else 270.dp)
                 .graphicsLayer {
                     alpha = alphaValue
-                    scaleX = 0.16f + 1.17f * burst
-                    scaleY = 0.16f + 1.17f * burst
+                    scaleX = 0.24f + 0.82f * burst
+                    scaleY = 0.24f + 0.82f * burst
                     translationX = (if (genre == "Fantasía") 46.dp else 16.dp).toPx() * burst
                     translationY = -122.dp.toPx() * burst
                     rotationZ = (if (horror) -15f else -9f) + 13f * burst
@@ -4206,7 +4337,7 @@ private fun GenreOpeningScene(genre: String, progress: Float, modifier: Modifier
         if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
             opening.snapTo(0f)
             delay(120)
-            opening.animateTo(1f, tween(2250, easing = FastOutSlowInEasing))
+            opening.animateTo(1f, tween(2450, easing = FastOutSlowInEasing))
         } else opening.snapTo(1f)
     }
     var confirmDelete by remember { mutableStateOf(false) }
