@@ -2625,15 +2625,13 @@ private fun openCasaDelLibro(context: Context) {
                 }
                 readerTransition.snapTo(0f)
                 pendingReader = book
-                var readerShown = false
+                // Finish the physical movement before composing the reader behind the page.
+                readerTransition.animateTo(0.84f,
+                    tween(1060, easing = LinearEasing))
+                readingUri = book.uri.toString()
+                withFrameNanos { }
                 readerTransition.animateTo(1f,
-                    tween(1320, easing = LinearEasing)) {
-                    if (value >= 0.84f && !readerShown) {
-                        readingUri = book.uri.toString()
-                        readerShown = true
-                    }
-                }
-                if (!readerShown) readingUri = book.uri.toString()
+                    tween(300, easing = FastOutSlowInEasing))
             } finally {
                 pendingReader = null
                 readerTransitionBusy = false
@@ -3420,7 +3418,7 @@ private fun openCasaDelLibro(context: Context) {
                 item(key = "reading-shelf") { ReadingShelf(readingBooks, vm::readingPercent,
                     isOffline = { it.uri in offlineBookUris },
                     onLongPress = { bookMenu = it }, onCarouselTouch = { startedOnCarousel = true }) { book ->
-                    startReader(book)
+                    openBookFromList(book)
                 } }
             item(key = "controls") {
                 Column(Modifier.padding(horizontal = 12.dp)) {
@@ -3644,7 +3642,7 @@ private fun openCasaDelLibro(context: Context) {
                                 items(ordered, key = { "carousel:$name:" + it.uri },
                                     contentType = { "genre-book" }) { book ->
                                     BookGalleryCard(book, Modifier.width(148.dp), book.uri in offlineBookUris,
-                                        vm.readingPercent(book.uri), { bookMenu = book }) { startReader(book) }
+                                        vm.readingPercent(book.uri), { bookMenu = book }) { openBookFromList(book) }
                                 }
                             }
                         }
@@ -3660,12 +3658,12 @@ private fun openCasaDelLibro(context: Context) {
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 BookGalleryCard(first, Modifier.weight(1f), first.uri in offlineBookUris,
                                     vm.readingPercent(first.uri), { bookMenu = first }) {
-                                    startReader(first)
+                                    openBookFromList(first)
                                 }
                                 if (second != null) {
                                     BookGalleryCard(second, Modifier.weight(1f), second.uri in offlineBookUris,
                                         vm.readingPercent(second.uri), { bookMenu = second }) {
-                                        startReader(second)
+                                        openBookFromList(second)
                                     }
                                 } else Spacer(Modifier.weight(1f))
                             }
@@ -3674,9 +3672,9 @@ private fun openCasaDelLibro(context: Context) {
                             contentType = { vm.viewModeFor(vm.selectedSection) }) { book ->
                             if (vm.viewModeFor(vm.selectedSection) == "Compacta")
                                 BookCompactCard(book, book.uri in offlineBookUris,
-                                    { bookMenu = book }) { startReader(book) }
+                                    { bookMenu = book }) { openBookFromList(book) }
                             else BookCard(book, book.uri in offlineBookUris,
-                                { bookMenu = book }) { startReader(book) }
+                                { bookMenu = book }) { openBookFromList(book) }
                         }
                     }
                 }
@@ -3692,7 +3690,7 @@ private fun openCasaDelLibro(context: Context) {
     }
     }
     }
-    pendingReader?.let { BookOpeningTransition(it, readerTransition.value) }
+    pendingReader?.let { BookOpeningTransition(it, readerTransition) }
     }
 }
 
@@ -4022,16 +4020,23 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
 }
 
 @Composable
-private fun BookOpeningTransition(book: Book, progress: Float) {
-    val p = progress.coerceIn(0f, 1f)
-    val opening = FastOutSlowInEasing.transform(((p - 0.03f) / 0.58f).coerceIn(0f, 1f))
-    val approach = FastOutSlowInEasing.transform(((p - 0.35f) / 0.61f).coerceIn(0f, 1f))
-    val exit = FastOutSlowInEasing.transform(((1f - p) / 0.19f).coerceIn(0f, 1f))
+private fun BookOpeningTransition(
+    book: Book,
+    transition: Animatable<Float, androidx.compose.animation.core.AnimationVector1D>
+) {
     val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Box(Modifier.fillMaxSize()
-        .background(Parchment.copy(alpha = (0.10f + approach * 0.90f) * exit))
         .clickable(interactionSource = source, indication = null) { }) {
+        Box(Modifier.matchParentSize().graphicsLayer {
+            val p = transition.value.coerceIn(0f, 1f)
+            val approach = FastOutSlowInEasing.transform(((p - 0.32f) / 0.52f).coerceIn(0f, 1f))
+            val exit = FastOutSlowInEasing.transform(((1f - p) / 0.16f).coerceIn(0f, 1f))
+            alpha = (0.10f + approach * 0.90f) * exit
+        }.background(Parchment))
         Box(Modifier.align(Alignment.Center).size(185.dp, 265.dp).graphicsLayer {
+            val p = transition.value.coerceIn(0f, 1f)
+            val approach = FastOutSlowInEasing.transform(((p - 0.32f) / 0.52f).coerceIn(0f, 1f))
+            val exit = FastOutSlowInEasing.transform(((1f - p) / 0.16f).coerceIn(0f, 1f))
             scaleX = 0.92f + approach * 3.02f
             scaleY = scaleX
             translationY = (1f - approach) * 26.dp.toPx()
@@ -4103,8 +4108,13 @@ private fun BookOpeningTransition(book: Book, progress: Float) {
                 }
             }
             Box(Modifier.fillMaxSize().graphicsLayer {
+                val p = transition.value.coerceIn(0f, 1f)
+                val opening = FastOutSlowInEasing.transform(
+                    ((p - 0.03f) / 0.59f).coerceIn(0f, 1f))
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.04f, 0.5f)
                 rotationY = -158f * opening
+                rotationZ = -2.4f * kotlin.math.sin(opening * kotlin.math.PI).toFloat()
+                scaleX = 1f + .018f * kotlin.math.sin(opening * kotlin.math.PI).toFloat()
                 cameraDistance = 30.dp.toPx()
                 alpha = 1f - FastOutSlowInEasing.transform(
                     ((opening - 0.56f) / 0.33f).coerceIn(0f, 1f))
