@@ -2451,7 +2451,10 @@ private fun openCasaDelLibro(context: Context) {
     var selected by remember { mutableStateOf<Book?>(null) }
     var readingUri by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingReader by remember { mutableStateOf<Book?>(null) }
+    var readerTransitionBusy by remember { mutableStateOf(false) }
     val readerTransition = remember { Animatable(0f) }
+    val coverPreviewWidthPx = with(LocalDensity.current) { 185.dp.roundToPx() }
+    val coverPreviewHeightPx = with(LocalDensity.current) { 265.dp.roundToPx() }
     var tab by rememberSaveable { mutableStateOf("Inicio") }
     var selectedGenres by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var genreAllSelected by rememberSaveable { mutableStateOf(true) }
@@ -2604,22 +2607,37 @@ private fun openCasaDelLibro(context: Context) {
     var savedListIndex by remember { mutableIntStateOf(0) }
     var savedListOffset by remember { mutableIntStateOf(0) }
     fun startReader(book: Book) {
-        if (pendingReader != null) return
+        if (readerTransitionBusy) return
+        readerTransitionBusy = true
         vm.recordOpen(book.uri)
         vm.setStatus(book.uri, ReadingStatus.READING)
         if (!android.animation.ValueAnimator.areAnimatorsEnabled()) {
             readingUri = book.uri.toString()
+            readerTransitionBusy = false
             return
         }
-        pendingReader = book
         scope.launch {
-            readerTransition.snapTo(0f)
-            readerTransition.animateTo(0.78f,
-                tween(900, easing = FastOutSlowInEasing))
-            readingUri = book.uri.toString()
-            readerTransition.animateTo(1f,
-                tween(280, easing = FastOutSlowInEasing))
-            pendingReader = null
+            try {
+                if (book.cover != null) coverDecodeSlots.withPermit {
+                    withContext(Dispatchers.Default) {
+                        decodeCover(book, coverPreviewWidthPx, coverPreviewHeightPx)
+                    }
+                }
+                readerTransition.snapTo(0f)
+                pendingReader = book
+                var readerShown = false
+                readerTransition.animateTo(1f,
+                    tween(1320, easing = LinearEasing)) {
+                    if (value >= 0.84f && !readerShown) {
+                        readingUri = book.uri.toString()
+                        readerShown = true
+                    }
+                }
+                if (!readerShown) readingUri = book.uri.toString()
+            } finally {
+                pendingReader = null
+                readerTransitionBusy = false
+            }
         }
     }
     fun openBookFromList(book: Book) {
@@ -4006,51 +4024,90 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
 @Composable
 private fun BookOpeningTransition(book: Book, progress: Float) {
     val p = progress.coerceIn(0f, 1f)
-    val opening = FastOutSlowInEasing.transform((p / 0.53f).coerceIn(0f, 1f))
-    val approach = FastOutSlowInEasing.transform(((p - 0.43f) / 0.49f).coerceIn(0f, 1f))
-    val exit = ((1f - p) / 0.22f).coerceIn(0f, 1f)
+    val opening = FastOutSlowInEasing.transform(((p - 0.03f) / 0.58f).coerceIn(0f, 1f))
+    val approach = FastOutSlowInEasing.transform(((p - 0.35f) / 0.61f).coerceIn(0f, 1f))
+    val exit = FastOutSlowInEasing.transform(((1f - p) / 0.19f).coerceIn(0f, 1f))
     val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Box(Modifier.fillMaxSize()
-        .background(Parchment.copy(alpha = (0.12f + approach * 0.88f) * exit))
+        .background(Parchment.copy(alpha = (0.10f + approach * 0.90f) * exit))
         .clickable(interactionSource = source, indication = null) { }) {
         Box(Modifier.align(Alignment.Center).size(185.dp, 265.dp).graphicsLayer {
-            scaleX = 0.91f + approach * 3.0f
+            scaleX = 0.92f + approach * 3.02f
             scaleY = scaleX
-            translationY = (1f - approach) * 30.dp.toPx()
+            translationY = (1f - approach) * 26.dp.toPx()
+            rotationZ = -1.5f * (1f - approach)
             alpha = exit
         }) {
-            Surface(Modifier.fillMaxSize().shadow(14.dp,
+            Surface(Modifier.fillMaxSize().shadow(16.dp,
                 androidx.compose.foundation.shape.RoundedCornerShape(3.dp)),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(3.dp),
-                color = Color(0xFFFFFBF3), tonalElevation = 0.dp) {
+                color = Color(0xFFF6E9CC), tonalElevation = 0.dp) {
                 Box(Modifier.fillMaxSize()) {
                     Canvas(Modifier.fillMaxSize()) {
                         drawRect(Brush.horizontalGradient(listOf(
-                            Color(0xFFD2C7B6), Color(0xFFFFFCF4), Color(0xFFFFFBF5)),
-                            endX = size.width * 0.22f))
-                        drawLine(Color(0xFFB6A58E).copy(alpha = .32f),
+                            Color(0xFFBCAA88), Color(0xFFEAD9B8),
+                            Color(0xFFF8ECCF), Color(0xFFF2E3C4)),
+                            startX = 0f, endX = size.width))
+                        drawRect(Brush.radialGradient(listOf(
+                            Color(0xFFFFF8E5).copy(alpha = .60f),
+                            Color.Transparent),
+                            center = Offset(size.width * .58f, size.height * .42f),
+                            radius = size.height * .78f))
+                        drawRect(Color(0xFF785D3D).copy(alpha = .34f),
+                            topLeft = Offset(size.width * .13f, size.height * .09f),
+                            size = Size(size.width * .75f, size.height * .82f),
+                            style = Stroke(width = .8.dp.toPx()))
+                        drawLine(Color(0xFF69503A).copy(alpha = .24f),
                             Offset(size.width * .08f, 0f),
                             Offset(size.width * .08f, size.height), 1.dp.toPx())
-                        for (line in 0..6) {
-                            val y = size.height * (.48f + line * .055f)
-                            drawLine(Mahogany.copy(alpha = .12f),
-                                Offset(size.width * .18f, y),
-                                Offset(size.width * (if (line % 3 == 2) .66f else .84f), y),
-                                1.dp.toPx())
+                        for (n in 0..56) {
+                            val x = size.width * ((n * 37 % 89 + 7) / 100f)
+                            val y = size.height * ((n * 53 % 93 + 3) / 100f)
+                            val radius = if (n % 4 == 0) .52.dp.toPx() else .32.dp.toPx()
+                            drawCircle(Color(0xFF806545).copy(alpha = .09f),
+                                radius, Offset(x, y))
                         }
+                        val center = size.width * .5f
+                        val ornamentY = size.height * .29f
+                        drawLine(Color(0xFF8E7051).copy(alpha = .60f),
+                            Offset(size.width * .25f, ornamentY),
+                            Offset(size.width * .43f, ornamentY), .7.dp.toPx())
+                        drawLine(Color(0xFF8E7051).copy(alpha = .60f),
+                            Offset(size.width * .57f, ornamentY),
+                            Offset(size.width * .76f, ornamentY), .7.dp.toPx())
+                        val diamond = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(center, ornamentY - 3.dp.toPx())
+                            lineTo(center + 3.dp.toPx(), ornamentY)
+                            lineTo(center, ornamentY + 3.dp.toPx())
+                            lineTo(center - 3.dp.toPx(), ornamentY)
+                            close()
+                        }
+                        drawPath(diamond, Color(0xFF8E7051).copy(alpha = .72f))
                     }
-                    Text(displayTitle(book), modifier = Modifier.align(Alignment.TopCenter)
-                        .padding(start = 30.dp, end = 18.dp, top = 54.dp),
-                        color = Mahogany, fontFamily = FontFamily.Serif,
-                        fontSize = 15.sp, lineHeight = 19.sp,
-                        textAlign = TextAlign.Center, maxLines = 3)
+                    Column(Modifier.align(Alignment.Center).fillMaxWidth()
+                        .padding(start = 27.dp, end = 17.dp, top = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center) {
+                        Text(displayTitle(book), color = Color(0xFF4A2B1E),
+                            fontFamily = FontFamily.Serif,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp, lineHeight = 23.sp, letterSpacing = .15.sp,
+                            textAlign = TextAlign.Center, maxLines = 3)
+                        Spacer(Modifier.height(15.dp))
+                        Text(displayAuthor(book).uppercase(), color = Color(0xFF76563D),
+                            fontFamily = FontFamily.Serif, fontWeight = FontWeight.Medium,
+                            fontSize = 8.sp, letterSpacing = 1.1.sp,
+                            textAlign = TextAlign.Center, maxLines = 2)
+                    }
                 }
             }
             Box(Modifier.fillMaxSize().graphicsLayer {
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.04f, 0.5f)
-                rotationY = -155f * opening
-                cameraDistance = 28.dp.toPx()
-                alpha = (1f - ((opening - 0.55f) / 0.35f).coerceIn(0f, 1f))
+                rotationY = -158f * opening
+                cameraDistance = 30.dp.toPx()
+                alpha = 1f - FastOutSlowInEasing.transform(
+                    ((opening - 0.56f) / 0.33f).coerceIn(0f, 1f))
             }) {
                 Cover(book, 185.dp, 265.dp)
             }
