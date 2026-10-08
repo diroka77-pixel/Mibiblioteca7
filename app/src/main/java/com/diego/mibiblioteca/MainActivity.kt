@@ -2467,15 +2467,9 @@ private fun openCasaDelLibro(context: Context) {
     val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Favoritos") }
     val scope = rememberCoroutineScope()
     val pageMotion = remember { Animatable(0f) }
-    val headerReveal = remember { Animatable(1f) }
-    LaunchedEffect(tab) {
-        if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
-            headerReveal.snapTo(0.90f)
-            headerReveal.animateTo(1f, tween(380, easing = FastOutSlowInEasing))
-        } else headerReveal.snapTo(1f)
-    }
     val pageDrag = remember { mutableFloatStateOf(0f) }
     val pageWidthPx = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
+    val pageTravelPx = pageWidthPx * 0.22f
     var tabTransitionJob by remember { mutableStateOf<Job?>(null) }
     LaunchedEffect(Unit) { if (tab == "Pendientes") tab = "Secciones" }
     var addingSection by remember { mutableStateOf(false) }
@@ -2486,17 +2480,17 @@ private fun openCasaDelLibro(context: Context) {
         tabTransitionJob?.cancel()
         tabTransitionJob = scope.launch {
             if (pageDrag.floatValue != 0f) {
-                pageMotion.snapTo(pageDrag.floatValue)
+                pageMotion.snapTo((pageDrag.floatValue * 0.22f).coerceIn(-pageTravelPx, pageTravelPx))
                 pageDrag.floatValue = 0f
             }
             if (name == tab) {
                 showWishList = showPending
-                pageMotion.animateTo(0f, tween(240, easing = FastOutSlowInEasing))
+                pageMotion.animateTo(0f, tween(180, easing = FastOutSlowInEasing))
                 return@launch
             }
             val direction = if (tabs.indexOf(name) > tabs.indexOf(tab)) -1f else 1f
-            val distance = pageWidthPx
-            pageMotion.animateTo(direction * distance, tween(240, easing = FastOutSlowInEasing))
+            val distance = pageTravelPx
+            pageMotion.animateTo(direction * distance, tween(160, easing = FastOutSlowInEasing))
             tab = name
             showWishList = showPending
             vm.selectedSection = null
@@ -2504,16 +2498,15 @@ private fun openCasaDelLibro(context: Context) {
             vm.statusFilter = null
             vm.onlyFavorites = name == "Favoritos"
             pageMotion.snapTo(-direction * distance)
-            // Build the destination for one frame while it remains outside the viewport.
-            // Replacing the books mid-screen was the main visible jump during navigation.
+            // Compose the destination while fully transparent, then bring it gently into view.
             withFrameNanos { }
-            pageMotion.animateTo(0f, tween(340, easing = FastOutSlowInEasing))
+            pageMotion.animateTo(0f, tween(280, easing = FastOutSlowInEasing))
         }
     }
     fun settlePage() {
         tabTransitionJob?.cancel()
         tabTransitionJob = scope.launch {
-            pageMotion.snapTo(pageDrag.floatValue)
+            pageMotion.snapTo((pageDrag.floatValue * 0.22f).coerceIn(-pageTravelPx, pageTravelPx))
             pageDrag.floatValue = 0f
             pageMotion.animateTo(0f, tween(170, easing = FastOutSlowInEasing))
         }
@@ -3286,12 +3279,7 @@ private fun openCasaDelLibro(context: Context) {
                             .semantics { contentDescription = "Abrir menú" }) {
                         Icon(Icons.Outlined.Menu, "Abrir menú", tint = Color.White)
                     }
-                    Text("Mi Biblioteca", modifier = Modifier.align(Alignment.Center)
-                        .graphicsLayer {
-                            alpha = headerReveal.value
-                            scaleX = 0.97f + 0.03f * headerReveal.value
-                            scaleY = 0.97f + 0.03f * headerReveal.value
-                        },
+                    Text("Mi Biblioteca", modifier = Modifier.align(Alignment.Center),
                         color = Color.White, fontSize = 20.sp,
                         fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Serif)
                 }
@@ -3349,9 +3337,11 @@ private fun openCasaDelLibro(context: Context) {
         Box(Modifier.fillMaxWidth().weight(1f)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().graphicsLayer {
-                translationX = pageMotion.value + pageDrag.floatValue
-                alpha = (1f - kotlin.math.abs(pageMotion.value + pageDrag.floatValue) /
-                    pageWidthPx.coerceAtLeast(1f) * 0.12f).coerceIn(0.88f, 1f)
+                val travel = (pageMotion.value + pageDrag.floatValue * 0.22f)
+                    .coerceIn(-pageTravelPx, pageTravelPx)
+                translationX = travel
+                alpha = (1f - kotlin.math.abs(travel) / pageTravelPx.coerceAtLeast(1f))
+                    .coerceIn(0f, 1f)
             },
             state = listState,
             contentPadding = PaddingValues(bottom = 24.dp),
@@ -4460,7 +4450,6 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
         book.description.takeIf { book.language.lowercase().startsWith("es") ||
             book.language.lowercase().startsWith("spa") }.orEmpty()
     }
-    val detailImmersive = wallpaperMode != "Clásico"
     Box(Modifier.fillMaxSize().background(Parchment)) {
     LibraryWallpaper(wallpaperMode, book)
     Scaffold(containerColor = Color.Transparent, topBar = {
@@ -4468,9 +4457,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
             title = { Text("Mi Biblioteca", fontFamily = FontFamily.Serif, color = Paper) },
             navigationIcon = { IconButton(onClick = back) { AppIcon("Volver", "Volver", tint = Paper) } },
             actions = { IconButton(onClick = toggleFavorite) { AppIcon(if (book.favorite) "Favorito" else "Favoritos", "Favorito", tint = Paper) } },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = if (detailImmersive) Color(0xFF15232A).copy(alpha = 0.72f)
-                    else HeaderBrown)
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = HeaderBrown)
         )
     }) { p ->
         LazyColumn(Modifier.padding(p).fillMaxSize().padding(horizontal = 16.dp),
