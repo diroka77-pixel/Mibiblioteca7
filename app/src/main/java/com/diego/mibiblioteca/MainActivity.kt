@@ -3955,6 +3955,22 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 withContext(Dispatchers.Default) { decodeCover(book, targetWidthPx, targetHeightPx) }
             }
     }
+    val coverEdgeColor = remember(bmp) {
+        val bitmap = bmp
+        if (bitmap == null || bitmap.width < 2 || bitmap.height < 2) Mahogany
+        else {
+            val samples = intArrayOf(
+                bitmap.getPixel(bitmap.width / 2, 1),
+                bitmap.getPixel(bitmap.width / 2, bitmap.height - 2),
+                bitmap.getPixel(1, bitmap.height / 2),
+                bitmap.getPixel(bitmap.width - 2, bitmap.height / 2)
+            )
+            val red = samples.sumOf { android.graphics.Color.red(it) } / samples.size / 255f
+            val green = samples.sumOf { android.graphics.Color.green(it) } / samples.size / 255f
+            val blue = samples.sumOf { android.graphics.Color.blue(it) } / samples.size / 255f
+            Color(red * .70f, green * .70f, blue * .70f, 1f)
+        }
+    }
     val depth = (w.value * 0.033f).coerceIn(2.3f, 5.8f).dp
     val foot = (w.value * 0.058f).coerceIn(3.5f, 10.5f).dp
     val bookShape = androidx.compose.foundation.shape.RoundedCornerShape(
@@ -4049,6 +4065,15 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 Offset(2.dp.toPx(), size.height - f),
                 Offset(size.width - d, size.height - f),
                 .55.dp.toPx())
+            // The back board projects just beyond the page block.
+            drawRoundRect(coverEdgeColor,
+                topLeft = Offset(.6.dp.toPx(), size.height - 1.45.dp.toPx()),
+                size = Size(size.width - d * .30f, 1.25.dp.toPx()),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(.6.dp.toPx()))
+            drawLine(Color.White.copy(alpha = .14f),
+                Offset(1.2.dp.toPx(), size.height - 1.55.dp.toPx()),
+                Offset(size.width - d * .38f, size.height - 1.55.dp.toPx()),
+                .30.dp.toPx())
         }
         Surface(Modifier.fillMaxSize().padding(end = depth, bottom = foot)
             .graphicsLayer {
@@ -4081,6 +4106,19 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                     drawRect(Brush.verticalGradient(listOf(
                         Color(0x24FFFFFF), Color.Transparent),
                         startY = 0f, endY = size.height * .22f))
+                    // Cover bevel and a soft hinge make the printed image read as a physical cover.
+                    drawLine(coverEdgeColor.copy(alpha = .72f),
+                        Offset(1.dp.toPx(), size.height - .65.dp.toPx()),
+                        Offset(size.width - 1.dp.toPx(), size.height - .65.dp.toPx()),
+                        1.05.dp.toPx())
+                    drawLine(Color(0xFF17110D).copy(alpha = .24f),
+                        Offset(size.width * .045f, 2.dp.toPx()),
+                        Offset(size.width * .045f, size.height - 2.dp.toPx()),
+                        .65.dp.toPx())
+                    drawLine(Color.White.copy(alpha = .12f),
+                        Offset(size.width * .054f, 2.dp.toPx()),
+                        Offset(size.width * .054f, size.height - 2.dp.toPx()),
+                        .42.dp.toPx())
                     drawRoundRect(Color(0x2E20160F), cornerRadius =
                         androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()),
                         style = Stroke(width = .7.dp.toPx()))
@@ -4096,6 +4134,9 @@ private fun BookOpeningTransition(
     transition: Animatable<Float, androidx.compose.animation.core.AnimationVector1D>
 ) {
     val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val transitionGenre = openingGenre(book.genre)
+    val transitionImage = wallpaperImages[
+        wallpaperGenres.indexOf(transitionGenre).coerceAtLeast(0)]
     Box(Modifier.fillMaxSize()
         .clickable(interactionSource = source, indication = null) { }) {
         // Cover the detail screen immediately so its static cover never appears
@@ -4104,7 +4145,25 @@ private fun BookOpeningTransition(
             val p = transition.value.coerceIn(0f, 1f)
             alpha = 1f - FastOutSlowInEasing.transform(
                 ((p - .84f) / .16f).coerceIn(0f, 1f))
-        }.background(Parchment))
+            scaleX = 1.055f - p * .025f
+            scaleY = 1.055f - p * .025f
+        }) {
+            Image(painterResource(transitionImage), contentDescription = null,
+                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Canvas(Modifier.fillMaxSize()) {
+                // Keep the genre scene crisp and colourful while guiding the eye to the book.
+                drawRect(Color(0xFFFFFBF3).copy(alpha = .08f))
+                drawRect(Brush.radialGradient(listOf(
+                    Color.Transparent,
+                    Color(0xFF2B201B).copy(alpha = .28f)),
+                    center = Offset(size.width * .50f, size.height * .46f),
+                    radius = kotlin.math.max(size.width, size.height) * .74f))
+                drawRect(Brush.radialGradient(listOf(
+                    Color.White.copy(alpha = .10f), Color.Transparent),
+                    center = Offset(size.width * .50f, size.height * .44f),
+                    radius = size.width * .38f))
+            }
+        }
         Box(Modifier.align(Alignment.Center).size(185.dp, 265.dp).graphicsLayer {
             val p = transition.value.coerceIn(0f, 1f)
             val approach = FastOutSlowInEasing.transform(((p - 0.32f) / 0.52f).coerceIn(0f, 1f))
