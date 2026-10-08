@@ -2627,11 +2627,11 @@ private fun openCasaDelLibro(context: Context) {
                 pendingReader = book
                 // Finish the physical movement before composing the reader behind the page.
                 readerTransition.animateTo(0.84f,
-                    tween(1060, easing = LinearEasing))
+                    tween(1180, easing = LinearEasing))
                 readingUri = book.uri.toString()
                 withFrameNanos { }
                 readerTransition.animateTo(1f,
-                    tween(300, easing = FastOutSlowInEasing))
+                    tween(340, easing = FastOutSlowInEasing))
             } finally {
                 pendingReader = null
                 readerTransitionBusy = false
@@ -3798,10 +3798,7 @@ private fun openCasaDelLibro(context: Context) {
                 Column(Modifier.width(coverWidth).height(coverWidth * 1.40f + 104.dp).combinedClickable(
                     onClick = { onOpen(book) }, onLongClick = { onLongPress(book) })) {
                     Box {
-                        Card(elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
-                            Cover(book, coverWidth, coverWidth * 1.40f)
-                        }
+                        Cover(book, coverWidth, coverWidth * 1.40f)
                         if (isOffline(book)) OfflineBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
                     }
                     Spacer(Modifier.height(8.dp))
@@ -3883,10 +3880,7 @@ private fun openCasaDelLibro(context: Context) {
         val coverWidth = maxWidth
         Column(Modifier.fillMaxWidth().height(coverWidth * 1.42f + 104.dp)) {
             Box {
-                Card(elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
-                    Cover(book, coverWidth, coverWidth * 1.42f)
-                }
+                Cover(book, coverWidth, coverWidth * 1.42f)
                 if (offline) OfflineBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
             }
             Spacer(Modifier.height(7.dp))
@@ -3970,50 +3964,54 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 withContext(Dispatchers.Default) { decodeCover(book, targetWidthPx, targetHeightPx) }
             }
     }
-    val depth = (w.value * 0.045f).coerceIn(2.5f, 8f).dp
-    val bottom = depth * 0.42f
-    val hinge = (w.value * 0.035f).coerceIn(2f, 5f).dp
+    val depth = (w.value * 0.030f).coerceIn(2f, 5.5f).dp
+    val bottom = depth * 0.58f
     val bookShape = androidx.compose.foundation.shape.RoundedCornerShape(
         topStart = 2.dp, topEnd = 3.dp, bottomStart = 2.dp, bottomEnd = 3.dp)
-    Box(Modifier.width(w).height(h).shadow(7.dp, bookShape)) {
+    Box(Modifier.width(w).height(h).shadow(10.dp, bookShape)) {
         Canvas(Modifier.matchParentSize()) {
             val d = depth.toPx()
             val foot = bottom.toPx()
-            drawRect(Brush.horizontalGradient(listOf(
-                Color(0xFFBEB2A0), Color(0xFFFFFBF2), Color(0xFFB7AA98)),
-                startX = size.width - d, endX = size.width),
-                Offset(size.width - d, 2.dp.toPx()),
-                Size(d, size.height - foot))
-            drawRect(Brush.verticalGradient(listOf(
-                Color(0xFFB5A48E), Color(0xFFFFFAEE), Color(0xFFB5A48E)),
-                startY = size.height - foot, endY = size.height),
-                Offset(2.dp.toPx(), size.height - foot),
-                Size(size.width - d, foot))
-            drawLine(Color(0xFF776B5F).copy(alpha = 0.28f),
-                Offset(size.width - d, 2.dp.toPx()),
-                Offset(size.width - d, size.height - foot), 0.7.dp.toPx())
+            val edge = androidx.compose.ui.graphics.Path().apply {
+                moveTo(size.width - d, 1.dp.toPx())
+                lineTo(size.width - d * 0.32f, d * 0.42f)
+                lineTo(size.width, size.height - foot * 0.35f)
+                lineTo(size.width - d, size.height - foot)
+                close()
+            }
+            drawPath(edge, Brush.horizontalGradient(listOf(
+                Color(0xFF9F917E), Color(0xFFE9DFCC), Color(0xFFB5A793)),
+                startX = size.width - d, endX = size.width))
+            val lower = androidx.compose.ui.graphics.Path().apply {
+                moveTo(2.dp.toPx(), size.height - foot)
+                lineTo(size.width - d, size.height - foot)
+                lineTo(size.width, size.height - foot * 0.35f)
+                lineTo(size.width - d * 0.30f, size.height)
+                lineTo(3.dp.toPx(), size.height)
+                close()
+            }
+            drawPath(lower, Brush.verticalGradient(listOf(
+                Color(0xFFAD9D85), Color(0xFFE8DDC9), Color(0xFF9C8B74)),
+                startY = size.height - foot, endY = size.height))
         }
         Surface(Modifier.fillMaxSize().padding(end = depth, bottom = bottom)
-            .graphicsLayer { rotationY = -3f; cameraDistance = 24.dp.toPx() }
-            .shadow(4.dp, bookShape), shape = bookShape,
+            .graphicsLayer {
+                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                rotationY = -6f
+                cameraDistance = 30.dp.toPx()
+            }
+            .shadow(5.dp, bookShape), shape = bookShape,
             color = Mahogany, tonalElevation = 0.dp) {
-            Box(Modifier.fillMaxSize()) {
-                if (bmp != null)
-                    Image(bmp!!.asImageBitmap(), book.title, Modifier.fillMaxSize(),
-                        contentScale = ContentScale.FillBounds)
-                else Column(Modifier.fillMaxSize().background(Mahogany).padding(6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center) {
-                    Text("✦", color = Brass, fontSize = 15.sp)
-                    Text(displayTitle(book), color = Paper, fontFamily = FontFamily.Serif,
-                        fontSize = 10.sp, lineHeight = 12.sp, maxLines = 3,
-                        textAlign = TextAlign.Center)
-                }
-                Box(Modifier.align(Alignment.CenterStart).fillMaxHeight().width(hinge)
-                    .background(Brush.horizontalGradient(listOf(
-                        Color.Black.copy(alpha = 0.24f),
-                        Color.Black.copy(alpha = 0.06f),
-                        Color.White.copy(alpha = 0.10f)))))
+            if (bmp != null)
+                Image(bmp!!.asImageBitmap(), book.title, Modifier.fillMaxSize(),
+                    contentScale = ContentScale.FillBounds)
+            else Column(Modifier.fillMaxSize().background(Mahogany).padding(6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center) {
+                Text("✦", color = Brass, fontSize = 15.sp)
+                Text(displayTitle(book), color = Paper, fontFamily = FontFamily.Serif,
+                    fontSize = 10.sp, lineHeight = 12.sp, maxLines = 3,
+                    textAlign = TextAlign.Center)
             }
         }
     }
