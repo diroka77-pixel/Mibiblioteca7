@@ -3957,11 +3957,9 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
     }
     val depth = (w.value * 0.033f).coerceIn(2.3f, 5.8f).dp
     val foot = (w.value * 0.058f).coerceIn(3.5f, 10.5f).dp
-    val tilt = ((book.uri.hashCode() and 7) - 3.5f) * 0.27f
     val bookShape = androidx.compose.foundation.shape.RoundedCornerShape(
         topStart = 2.dp, topEnd = 3.dp, bottomStart = 2.dp, bottomEnd = 3.dp)
     Box(Modifier.width(w).height(h)
-        .graphicsLayer { rotationZ = tilt }
         .shadow(13.dp, bookShape,
             ambientColor = Color(0x442B2019), spotColor = Color(0x8833251B))) {
         Canvas(Modifier.matchParentSize()) {
@@ -4100,12 +4098,9 @@ private fun BookOpeningTransition(
     val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Box(Modifier.fillMaxSize()
         .clickable(interactionSource = source, indication = null) { }) {
-        Box(Modifier.matchParentSize().graphicsLayer {
-            val p = transition.value.coerceIn(0f, 1f)
-            val approach = FastOutSlowInEasing.transform(((p - 0.32f) / 0.52f).coerceIn(0f, 1f))
-            val exit = FastOutSlowInEasing.transform(((1f - p) / 0.16f).coerceIn(0f, 1f))
-            alpha = (0.10f + approach * 0.90f) * exit
-        }.background(Parchment))
+        // Cover the detail screen immediately so its static cover never appears
+        // behind the animated book.
+        Box(Modifier.matchParentSize().background(Parchment))
         Box(Modifier.align(Alignment.Center).size(185.dp, 265.dp).graphicsLayer {
             val p = transition.value.coerceIn(0f, 1f)
             val approach = FastOutSlowInEasing.transform(((p - 0.32f) / 0.52f).coerceIn(0f, 1f))
@@ -4748,7 +4743,11 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 Spacer(Modifier.height(6.dp))
                 OutlinedButton(onClick = { moreActionsExpanded = !moreActionsExpanded },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Mahogany.copy(alpha = .62f)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = Paper.copy(alpha = .94f),
+                        contentColor = Mahogany)) {
                     ActionLabel(if (moreActionsExpanded) "Menos opciones" else "Más opciones", "Más", 12.sp)
                 }
                 AnimatedVisibility(visible = moreActionsExpanded,
@@ -4870,20 +4869,28 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { openGoodreads(context, book) },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Paper.copy(alpha = .94f),
+                            contentColor = Mahogany)) {
                         ActionLabel("Abrir reseña del libro", "Reseña")
                     }
                     OutlinedButton(onClick = {
                         searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book))
                     }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Paper.copy(alpha = .94f),
+                            contentColor = Mahogany)) {
                         ActionLabel("Consultar en Google", "Google")
                     }
                     OutlinedButton(onClick = { confirmDelete = true },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFB54A42)),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF9D332D))) {
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Paper.copy(alpha = .94f),
+                            contentColor = Color(0xFF9D332D))) {
                         ActionLabel("Borrar este archivo de Drive", "Borrar")
                     }
                 }
