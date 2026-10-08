@@ -3967,6 +3967,14 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
         Canvas(Modifier.matchParentSize()) {
             val d = depth.toPx()
             val f = foot.toPx()
+            val seed = kotlin.math.abs(book.uri.hashCode())
+            // A soft contact shadow anchors the book to the surface.
+            drawOval(Brush.radialGradient(listOf(
+                Color(0x66241812), Color(0x24241812), Color.Transparent),
+                center = Offset(size.width * .53f, size.height - f * .40f),
+                radius = size.width * .54f),
+                topLeft = Offset(size.width * .02f, size.height - f * 1.35f),
+                size = Size(size.width * .96f, f * 1.32f))
             // Page edges sit beneath the cover; each fine contour is a separate sheet.
             val pageSide = androidx.compose.ui.graphics.Path().apply {
                 moveTo(size.width - d - .5.dp.toPx(), .8.dp.toPx())
@@ -3993,34 +4001,51 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 Color(0xFFA89983), Color(0xFFEDE4D3),
                 Color(0xFFD6C9B6), Color(0xFFB6A894)),
                 startY = size.height - f, endY = size.height))
-            val sideSheets = (d / .43.dp.toPx()).toInt().coerceIn(4, 18)
+            val sideSheets = (d / .34.dp.toPx()).toInt().coerceIn(6, 22)
             for (n in 1 until sideSheets) {
                 val t = n.toFloat() / sideSheets
+                val jitter = (((seed shr (n % 12)) and 3) - 1.5f) * .16.dp.toPx()
                 val x = size.width - d + d * t
-                val top = d * (.08f + .48f * t)
-                val bottom = size.height - f * (1f - .74f * t)
+                val top = d * (.08f + .48f * t) + jitter
+                val bottom = size.height - f * (1f - .74f * t) - jitter
                 val contour = androidx.compose.ui.graphics.Path().apply {
                     moveTo(x, top)
-                    quadraticTo(x + (n % 3 - 1) * .38.dp.toPx(),
-                        size.height * .47f, x + .12.dp.toPx(), bottom)
+                    quadraticTo(x + jitter * .42f, size.height * .34f,
+                        x - jitter * .20f, size.height * .57f)
+                    quadraticTo(x + jitter * .32f, size.height * .78f,
+                        x + .10.dp.toPx(), bottom)
                 }
-                drawPath(contour, Color(0xFF675B4B).copy(
-                    alpha = if (n % 4 == 0) .23f else .12f),
-                    style = Stroke(width = .28.dp.toPx()))
+                drawPath(contour, Color(0xFF665A4B).copy(
+                    alpha = if ((n + seed) % 5 == 0) .25f else .105f),
+                    style = Stroke(width = (if (n % 6 == 0) .36f else .22f).dp.toPx()))
             }
-            val footSheets = (f / .52.dp.toPx()).toInt().coerceIn(5, 25)
+            val footSheets = (f / .34.dp.toPx()).toInt().coerceIn(8, 34)
             for (n in 1 until footSheets) {
                 val t = n.toFloat() / footSheets
+                val variation = (((seed shr (n % 15)) and 7) - 3.5f)
                 val y = size.height - f + f * t
+                val start = (1.2f + (variation + 3.5f) * .13f).dp.toPx()
+                val end = size.width - d * (1f - .32f * t) -
+                    kotlin.math.abs(variation) * .10.dp.toPx()
+                val wave = variation * .095.dp.toPx()
                 val contour = androidx.compose.ui.graphics.Path().apply {
-                    moveTo(2.dp.toPx(), y)
-                    quadraticTo(size.width * .46f,
-                        y + (n % 3 - 1) * .25.dp.toPx(),
-                        size.width - d * (1f - .32f * t), y + f * .015f)
+                    moveTo(start, y)
+                    quadraticTo(size.width * .29f, y + wave,
+                        size.width * .53f, y - wave * .40f)
+                    quadraticTo(size.width * .76f, y + wave * .55f,
+                        end, y + f * .012f)
                 }
-                drawPath(contour, Color(0xFF756857).copy(
-                    alpha = if (n % 5 == 0) .26f else .13f),
-                    style = Stroke(width = .27.dp.toPx()))
+                drawPath(contour, Color(0xFF706252).copy(
+                    alpha = if ((n + seed) % 7 == 0) .28f else .105f),
+                    style = Stroke(width = (if (n % 8 == 0) .34f else .20f).dp.toPx()))
+            }
+            // Slightly darker signatures suggest groups of bound sheets.
+            for (n in 1..3) {
+                val y = size.height - f + f * (n / 4f)
+                drawLine(Color(0xFF55483A).copy(alpha = .16f),
+                    Offset(3.dp.toPx(), y),
+                    Offset(size.width - d * (.92f - n * .08f), y + .12.dp.toPx()),
+                    .46.dp.toPx())
             }
             drawLine(Color(0xFF55483A).copy(alpha = .20f),
                 Offset(2.dp.toPx(), size.height - f),
@@ -4315,12 +4340,15 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                     drift * 5.dp.toPx() else 0f
                 // Keep the art visible at the edges and the book metadata readable in the center.
                 drawRect(Brush.verticalGradient(listOf(
-                    Color(0xA3F7F3E9), Color(0xC8F7F3E9),
-                    Color(0xD2F7F3E9), Color(0x9EF7F3E9)),
+                    Color(0x74F7F3E9), Color(0xA8F7F3E9),
+                    Color(0xB8F7F3E9), Color(0x6CF7F3E9)),
                     startY = 0f, endY = h))
                 drawRect(Brush.radialGradient(listOf(
                     Color(0xFFFDF8EF).copy(alpha = glimmer), Color.Transparent),
                     center = Offset(w * .70f + shift, h * .24f), radius = w * .85f))
+                drawRect(Brush.radialGradient(listOf(
+                    Color(0x5CFBF7EE), Color.Transparent),
+                    center = Offset(w * .50f, h * .52f), radius = w * .72f))
                 val band = androidx.compose.ui.graphics.Path().apply {
                     moveTo(0f, h * .13f)
                     lineTo(w * .38f, h * .08f)
@@ -4406,6 +4434,34 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                             drawOval(color.copy(alpha = .13f),
                                 topLeft = Offset(x, y),
                                 size = Size(2.dp.toPx(), 5.dp.toPx()))
+                        }
+                    }
+                    "Novela histórica", "Historia", "Clásicos" -> {
+                        for (n in 0..7) {
+                            val y = h * (.12f + n * .105f)
+                            val length = w * (.08f + (n % 3) * .045f)
+                            val x = w * ((n * 29 % 71 + 6) / 100f) + shift * .35f
+                            drawLine(color.copy(alpha = .105f),
+                                Offset(x, y), Offset((x + length).coerceAtMost(w), y),
+                                .65.dp.toPx())
+                        }
+                    }
+                    "Juvenil", "Humor", "Cómic y novela gráfica" -> {
+                        for (n in 0..11) {
+                            val x = w * ((n * 43 % 93 + 3) / 100f) - shift * .45f
+                            val y = h * ((n * 31 % 89 + 5) / 100f)
+                            val r = (if (n % 3 == 0) 2.1f else 1.05f).dp.toPx()
+                            drawCircle(color.copy(alpha = .11f), r, Offset(x, y),
+                                style = Stroke(width = .7.dp.toPx()))
+                        }
+                    }
+                    "Biografía", "Ensayo", "No ficción", "Teatro" -> {
+                        for (n in 0..5) {
+                            val y = h * (.18f + n * .125f) + shift * .16f
+                            drawLine(color.copy(alpha = .085f),
+                                Offset(w * .11f, y),
+                                Offset(w * (.29f + (n % 2) * .08f), y),
+                                .7.dp.toPx())
                         }
                     }
                 }
