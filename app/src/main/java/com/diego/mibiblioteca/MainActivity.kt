@@ -2469,7 +2469,7 @@ private fun openCasaDelLibro(context: Context) {
     val pageMotion = remember { Animatable(0f) }
     val pageDrag = remember { mutableFloatStateOf(0f) }
     val pageWidthPx = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
-    val pageTravelPx = pageWidthPx * 0.22f
+    val pageTravelPx = pageWidthPx * 0.18f
     var tabTransitionJob by remember { mutableStateOf<Job?>(null) }
     LaunchedEffect(Unit) { if (tab == "Pendientes") tab = "Secciones" }
     var addingSection by remember { mutableStateOf(false) }
@@ -2480,7 +2480,7 @@ private fun openCasaDelLibro(context: Context) {
         tabTransitionJob?.cancel()
         tabTransitionJob = scope.launch {
             if (pageDrag.floatValue != 0f) {
-                pageMotion.snapTo((pageDrag.floatValue * 0.22f).coerceIn(-pageTravelPx, pageTravelPx))
+                pageMotion.snapTo((pageDrag.floatValue * 0.18f).coerceIn(-pageTravelPx, pageTravelPx))
                 pageDrag.floatValue = 0f
             }
             if (name == tab) {
@@ -2490,7 +2490,7 @@ private fun openCasaDelLibro(context: Context) {
             }
             val direction = if (tabs.indexOf(name) > tabs.indexOf(tab)) -1f else 1f
             val distance = pageTravelPx
-            pageMotion.animateTo(direction * distance, tween(160, easing = FastOutSlowInEasing))
+            pageMotion.animateTo(direction * distance, tween(175, easing = FastOutSlowInEasing))
             tab = name
             showWishList = showPending
             vm.selectedSection = null
@@ -2500,15 +2500,15 @@ private fun openCasaDelLibro(context: Context) {
             pageMotion.snapTo(-direction * distance)
             // Compose the destination while fully transparent, then bring it gently into view.
             withFrameNanos { }
-            pageMotion.animateTo(0f, tween(280, easing = FastOutSlowInEasing))
+            pageMotion.animateTo(0f, tween(300, easing = FastOutSlowInEasing))
         }
     }
     fun settlePage() {
         tabTransitionJob?.cancel()
         tabTransitionJob = scope.launch {
-            pageMotion.snapTo((pageDrag.floatValue * 0.22f).coerceIn(-pageTravelPx, pageTravelPx))
+            pageMotion.snapTo((pageDrag.floatValue * 0.18f).coerceIn(-pageTravelPx, pageTravelPx))
             pageDrag.floatValue = 0f
-            pageMotion.animateTo(0f, tween(170, easing = FastOutSlowInEasing))
+            pageMotion.animateTo(0f, tween(210, easing = FastOutSlowInEasing))
         }
     }
     var bookMenu by remember { mutableStateOf<Book?>(null) }
@@ -3337,11 +3337,12 @@ private fun openCasaDelLibro(context: Context) {
         Box(Modifier.fillMaxWidth().weight(1f)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().graphicsLayer {
-                val travel = (pageMotion.value + pageDrag.floatValue * 0.22f)
+                val travel = (pageMotion.value + pageDrag.floatValue * 0.18f)
                     .coerceIn(-pageTravelPx, pageTravelPx)
                 translationX = travel
-                alpha = (1f - kotlin.math.abs(travel) / pageTravelPx.coerceAtLeast(1f))
-                    .coerceIn(0f, 1f)
+                alpha = 1f - FastOutSlowInEasing.transform(
+                    (kotlin.math.abs(travel) / pageTravelPx.coerceAtLeast(1f))
+                        .coerceIn(0f, 1f))
             },
             state = listState,
             contentPadding = PaddingValues(bottom = 24.dp),
@@ -3940,7 +3941,7 @@ private fun decodeCover(book: Book, targetWidthPx: Int, targetHeightPx: Int): Bi
 
 @Composable
 private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compose.ui.unit.Dp) {
-    val density = androidx.compose.ui.platform.LocalDensity.current
+    val density = LocalDensity.current
     val targetWidthPx = with(density) { w.roundToPx() }
     val targetHeightPx = with(density) { h.roundToPx() }
     val cacheKey = remember(book.cover, book.uri, targetWidthPx, targetHeightPx) {
@@ -3954,54 +3955,86 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 withContext(Dispatchers.Default) { decodeCover(book, targetWidthPx, targetHeightPx) }
             }
     }
-    val depth = (w.value * 0.030f).coerceIn(2f, 5.5f).dp
-    val bottom = depth * 0.58f
+    val depth = (w.value * 0.072f).coerceIn(4f, 11f).dp
+    val foot = depth * 0.68f
+    val tilt = ((book.uri.hashCode() and 7) - 3.5f) * 0.27f
     val bookShape = androidx.compose.foundation.shape.RoundedCornerShape(
         topStart = 2.dp, topEnd = 3.dp, bottomStart = 2.dp, bottomEnd = 3.dp)
-    Box(Modifier.width(w).height(h).shadow(10.dp, bookShape)) {
+    Box(Modifier.width(w).height(h)
+        .graphicsLayer { rotationZ = tilt }
+        .shadow(16.dp, bookShape,
+            ambientColor = Color(0x442B2019), spotColor = Color(0x8833251B))) {
         Canvas(Modifier.matchParentSize()) {
             val d = depth.toPx()
-            val foot = bottom.toPx()
-            val edge = androidx.compose.ui.graphics.Path().apply {
-                moveTo(size.width - d, 1.dp.toPx())
-                lineTo(size.width - d * 0.32f, d * 0.42f)
-                lineTo(size.width, size.height - foot * 0.35f)
-                lineTo(size.width - d, size.height - foot)
+            val f = foot.toPx()
+            // The page block tapers under the cover like a bound book resting on a table.
+            val pages = androidx.compose.ui.graphics.Path().apply {
+                moveTo(size.width - d - 1.dp.toPx(), 1.dp.toPx())
+                quadraticTo(size.width - d * .08f, d * .16f,
+                    size.width - .6.dp.toPx(), d * .56f)
+                lineTo(size.width - .6.dp.toPx(), size.height - f * .32f)
+                quadraticTo(size.width - d * .36f, size.height,
+                    size.width - d, size.height - f)
                 close()
             }
-            drawPath(edge, Brush.horizontalGradient(listOf(
-                Color(0xFF9F917E), Color(0xFFE9DFCC), Color(0xFFB5A793)),
-                startX = size.width - d, endX = size.width))
+            drawPath(pages, Brush.horizontalGradient(listOf(
+                Color(0xFF756554), Color(0xFFC4B9A6), Color(0xFFF4EBD9),
+                Color(0xFFD3C6B3)), startX = size.width - d, endX = size.width))
             val lower = androidx.compose.ui.graphics.Path().apply {
-                moveTo(2.dp.toPx(), size.height - foot)
-                lineTo(size.width - d, size.height - foot)
-                lineTo(size.width, size.height - foot * 0.35f)
-                lineTo(size.width - d * 0.30f, size.height)
-                lineTo(3.dp.toPx(), size.height)
+                moveTo(1.dp.toPx(), size.height - f - .5.dp.toPx())
+                lineTo(size.width - d, size.height - f)
+                quadraticTo(size.width - d * .25f, size.height - f * .1f,
+                    size.width - d * .40f, size.height - .5.dp.toPx())
+                lineTo(2.dp.toPx(), size.height - .5.dp.toPx())
                 close()
             }
             drawPath(lower, Brush.verticalGradient(listOf(
-                Color(0xFFAD9D85), Color(0xFFE8DDC9), Color(0xFF9C8B74)),
-                startY = size.height - foot, endY = size.height))
-        }
-        Surface(Modifier.fillMaxSize().padding(end = depth, bottom = bottom)
-            .graphicsLayer {
-                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
-                rotationY = -6f
-                cameraDistance = 30.dp.toPx()
+                Color(0xFF786757), Color(0xFFE5DACA), Color(0xFFC5B8A3)),
+                startY = size.height - f, endY = size.height))
+            // Sparse paper seams follow the perspective of the right edge.
+            for (n in 1..6) {
+                val y = size.height * n / 7f
+                drawLine(Color(0xFF796F63).copy(alpha = .18f),
+                    Offset(size.width - d * .49f, y),
+                    Offset(size.width - d * .11f, y + d * .13f),
+                    .45.dp.toPx())
             }
-            .shadow(5.dp, bookShape), shape = bookShape,
-            color = Mahogany, tonalElevation = 0.dp) {
-            if (bmp != null)
-                Image(bmp!!.asImageBitmap(), book.title, Modifier.fillMaxSize(),
-                    contentScale = ContentScale.FillBounds)
-            else Column(Modifier.fillMaxSize().background(Mahogany).padding(6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center) {
-                Text("✦", color = Brass, fontSize = 15.sp)
-                Text(displayTitle(book), color = Paper, fontFamily = FontFamily.Serif,
-                    fontSize = 10.sp, lineHeight = 12.sp, maxLines = 3,
-                    textAlign = TextAlign.Center)
+        }
+        Surface(Modifier.fillMaxSize().padding(end = depth, bottom = foot)
+            .graphicsLayer {
+                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, .5f)
+                rotationY = -3f
+                cameraDistance = 36.dp.toPx()
+            }
+            .shadow(4.dp, bookShape,
+                ambientColor = Color(0x3B21180F), spotColor = Color(0x6030251C)),
+            shape = bookShape, color = Mahogany, tonalElevation = 0.dp) {
+            Box(Modifier.fillMaxSize()) {
+                if (bmp != null)
+                    Image(bmp!!.asImageBitmap(), book.title, Modifier.fillMaxSize(),
+                        contentScale = ContentScale.FillBounds)
+                else Column(Modifier.fillMaxSize().background(Mahogany).padding(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center) {
+                    Text("✦", color = Brass, fontSize = 15.sp)
+                    Text(displayTitle(book), color = Paper, fontFamily = FontFamily.Serif,
+                        fontSize = 10.sp, lineHeight = 12.sp, maxLines = 3,
+                        textAlign = TextAlign.Center)
+                }
+                Canvas(Modifier.matchParentSize()) {
+                    drawRect(Brush.horizontalGradient(listOf(
+                        Color(0x700E0B09), Color(0x112A211D), Color.Transparent),
+                        startX = 0f, endX = size.width * .17f))
+                    drawRect(Brush.horizontalGradient(listOf(
+                        Color.Transparent, Color(0x10FFFFFF), Color(0x4A1D1712)),
+                        startX = size.width * .78f, endX = size.width))
+                    drawRect(Brush.verticalGradient(listOf(
+                        Color(0x24FFFFFF), Color.Transparent),
+                        startY = 0f, endY = size.height * .22f))
+                    drawRoundRect(Color(0x2E20160F), cornerRadius =
+                        androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()),
+                        style = Stroke(width = .7.dp.toPx()))
+                }
             }
         }
     }
@@ -4229,65 +4262,83 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     }
     val motion = rememberInfiniteTransition(label = "Fondo suave")
     val drift by motion.animateFloat(-1f, 1f,
-        infiniteRepeatable(tween(26000, easing = LinearEasing), RepeatMode.Reverse),
-        label = "Deriva lenta")
+        infiniteRepeatable(tween(24000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "Paralaje")
+    val glimmer by motion.animateFloat(.07f, .15f,
+        infiniteRepeatable(tween(12000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "Luz ambiental")
     Crossfade(targetState = genre to palette,
-        animationSpec = tween(1400, easing = FastOutSlowInEasing),
+        animationSpec = tween(1700, easing = FastOutSlowInEasing),
         label = "Cambio de género") { (activeGenre, color) ->
         val glyphs = remember(activeGenre) { wallpaperGlyph(activeGenre) }
-        Canvas(Modifier.fillMaxSize().background(Parchment)) {
-            val w = size.width
-            val h = size.height
-            val shift = if (android.animation.ValueAnimator.areAnimatorsEnabled())
-                drift * 3.dp.toPx() else 0f
-            val wash = Color(0xFFF5F0E7)
-            drawRect(wash)
-            val band = androidx.compose.ui.graphics.Path().apply {
-                moveTo(0f, h * .13f)
-                lineTo(w * .38f, h * .08f)
-                lineTo(w, h * .19f)
-                lineTo(w, h * .41f)
-                lineTo(w * .62f, h * .35f)
-                lineTo(0f, h * .44f)
-                close()
-            }
-            drawPath(band, color.copy(alpha = .065f))
-            val lower = androidx.compose.ui.graphics.Path().apply {
-                moveTo(0f, h * .76f)
-                lineTo(w * .38f, h * .71f)
-                lineTo(w, h * .82f)
-                lineTo(w, h)
-                lineTo(0f, h)
-                close()
-            }
-            drawPath(lower, color.copy(alpha = .065f))
-            fun facet(points: FloatArray, centerX: Float, centerY: Float,
-                      scale: Float, opacity: Float, index: Int) {
-                val path = androidx.compose.ui.graphics.Path().apply {
-                    moveTo(centerX + (points[0] - 50f) * scale + shift,
-                        centerY + (points[1] - 50f) * scale)
-                    var n = 2
-                    while (n < points.size) {
-                        lineTo(centerX + (points[n] - 50f) * scale + shift,
-                            centerY + (points[n + 1] - 50f) * scale)
-                        n += 2
-                    }
+        val imageId = wallpaperImages[wallpaperGenres.indexOf(activeGenre).coerceAtLeast(0)]
+        Box(Modifier.fillMaxSize().background(Parchment)) {
+            Image(painterResource(imageId), contentDescription = null,
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    val move = if (android.animation.ValueAnimator.areAnimatorsEnabled()) drift else 0f
+                    scaleX = 1.04f
+                    scaleY = 1.04f
+                    translationX = move * 6.dp.toPx()
+                    translationY = move * 3.dp.toPx()
+                }, contentScale = ContentScale.Crop)
+            Canvas(Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
+                val shift = if (android.animation.ValueAnimator.areAnimatorsEnabled())
+                    drift * 5.dp.toPx() else 0f
+                // Keep the art visible at the edges and the book metadata readable in the center.
+                drawRect(Brush.verticalGradient(listOf(
+                    Color(0xB8F7F3E9), Color(0xD2F7F3E9),
+                    Color(0xD8F7F3E9), Color(0xB2F7F3E9)),
+                    startY = 0f, endY = h))
+                drawRect(Brush.radialGradient(listOf(
+                    Color(0xFFFDF8EF).copy(alpha = glimmer), Color.Transparent),
+                    center = Offset(w * .70f + shift, h * .24f), radius = w * .85f))
+                val band = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(0f, h * .13f)
+                    lineTo(w * .38f, h * .08f)
+                    lineTo(w, h * .19f)
+                    lineTo(w, h * .41f)
+                    lineTo(w * .62f, h * .35f)
+                    lineTo(0f, h * .44f)
                     close()
                 }
-                drawPath(path, color.copy(alpha = opacity * (if (index == 0) 1f else .64f)))
-                drawPath(path, color.copy(alpha = opacity * .44f),
-                    style = Stroke(width = 1.3.dp.toPx()))
+                drawPath(band, color.copy(alpha = .055f))
+                val lower = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(0f, h * .76f)
+                    lineTo(w * .38f, h * .71f)
+                    lineTo(w, h * .82f)
+                    lineTo(w, h)
+                    lineTo(0f, h)
+                    close()
+                }
+                drawPath(lower, color.copy(alpha = .055f))
+                fun facet(points: FloatArray, centerX: Float, centerY: Float,
+                          scale: Float, opacity: Float, index: Int) {
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(centerX + (points[0] - 50f) * scale + shift,
+                            centerY + (points[1] - 50f) * scale)
+                        var n = 2
+                        while (n < points.size) {
+                            lineTo(centerX + (points[n] - 50f) * scale + shift,
+                                centerY + (points[n + 1] - 50f) * scale)
+                            n += 2
+                        }
+                        close()
+                    }
+                    drawPath(path, color.copy(alpha = opacity * (if (index == 0) 1f else .64f)))
+                    drawPath(path, color.copy(alpha = opacity * .44f),
+                        style = Stroke(width = 1.3.dp.toPx()))
+                }
+                val scale = w * .0062f
+                glyphs.forEachIndexed { index, points ->
+                    facet(points, w * .70f, h * .27f, scale, .17f, index)
+                    facet(points, w * .20f, h * .80f, scale * .46f, .09f, index)
+                }
+                drawCircle(color.copy(alpha = .065f), w * .31f,
+                    Offset(w * .72f + shift, h * .30f),
+                    style = Stroke(width = 1.dp.toPx()))
             }
-            val scale = w * .0057f
-            glyphs.forEachIndexed { index, points ->
-                facet(points, w * .70f, h * .29f, scale, .19f, index)
-                facet(points, w * .20f, h * .80f, scale * .46f, .10f, index)
-            }
-            drawCircle(color.copy(alpha = .055f), w * .31f,
-                Offset(w * .72f + shift, h * .30f),
-                style = Stroke(width = 1.dp.toPx()))
-            drawLine(color.copy(alpha = .12f), Offset(w * .09f, h * .63f),
-                Offset(w * .42f, h * .63f), 1.dp.toPx())
         }
     }
     val unclassified = book != null && normalizeBookGenres(book.genre)
@@ -4327,7 +4378,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
         onOpened()
         if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
             opening.snapTo(0f)
-            opening.animateTo(1f, tween(420, easing = FastOutSlowInEasing))
+            opening.animateTo(1f, tween(520, easing = FastOutSlowInEasing))
         } else opening.snapTo(1f)
     }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -4476,11 +4527,11 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(Modifier.graphicsLayer {
                         val p = opening.value
-                        alpha = 0.80f + 0.20f * p
-                        scaleX = 0.80f + 0.20f * p
-                        scaleY = 0.80f + 0.20f * p
-                        rotationY = -26f * (1f - p)
-                        translationY = (1f - p) * 38.dp.toPx()
+                        alpha = 0.88f + 0.12f * p
+                        scaleX = 0.88f + 0.12f * p
+                        scaleY = 0.88f + 0.12f * p
+                        rotationY = -12f * (1f - p)
+                        translationY = (1f - p) * 24.dp.toPx()
                         cameraDistance = 18.dp.toPx()
                     }) {
                         Cover(book, 165.dp, 240.dp)
