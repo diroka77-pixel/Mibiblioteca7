@@ -4053,8 +4053,8 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
         Surface(Modifier.fillMaxSize().padding(end = depth, bottom = foot)
             .graphicsLayer {
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, .5f)
-                rotationY = -3f
-                cameraDistance = 36.dp.toPx()
+                rotationY = -1.2f
+                cameraDistance = 42.dp.toPx()
             }
             .shadow(4.dp, bookShape,
                 ambientColor = Color(0x3B21180F), spotColor = Color(0x6030251C)),
@@ -4099,8 +4099,12 @@ private fun BookOpeningTransition(
     Box(Modifier.fillMaxSize()
         .clickable(interactionSource = source, indication = null) { }) {
         // Cover the detail screen immediately so its static cover never appears
-        // behind the animated book.
-        Box(Modifier.matchParentSize().background(Parchment))
+        // behind the animated book. Fade only after the reader is already composed.
+        Box(Modifier.matchParentSize().graphicsLayer {
+            val p = transition.value.coerceIn(0f, 1f)
+            alpha = 1f - FastOutSlowInEasing.transform(
+                ((p - .84f) / .16f).coerceIn(0f, 1f))
+        }.background(Parchment))
         Box(Modifier.align(Alignment.Center).size(185.dp, 265.dp).graphicsLayer {
             val p = transition.value.coerceIn(0f, 1f)
             val approach = FastOutSlowInEasing.transform(((p - 0.32f) / 0.52f).coerceIn(0f, 1f))
@@ -4307,13 +4311,16 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
         "Infantil", "Juvenil", "Humor" -> Color(0xFFAF925D)
         else -> Color(0xFF817A65)
     }
-    val motion = rememberInfiniteTransition(label = "Fondo suave")
-    val drift by motion.animateFloat(-1f, 1f,
-        infiniteRepeatable(tween(24000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "Paralaje")
-    val glimmer by motion.animateFloat(.07f, .15f,
-        infiniteRepeatable(tween(12000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "Luz ambiental")
+    val sceneReveal = remember(genre) { Animatable(0f) }
+    LaunchedEffect(genre) {
+        if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            sceneReveal.snapTo(0f)
+            sceneReveal.animateTo(1f, tween(1650, easing = FastOutSlowInEasing))
+        } else sceneReveal.snapTo(1f)
+    }
+    val reveal = sceneReveal.value
+    val drift = 1f - reveal
+    val glimmer = .07f + .08f * reveal
     Crossfade(targetState = genre to palette,
         animationSpec = tween(1700, easing = FastOutSlowInEasing),
         label = "Cambio de género") { (activeGenre, color) ->
@@ -4323,16 +4330,17 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
             Image(painterResource(imageId), contentDescription = null,
                 modifier = Modifier.fillMaxSize().graphicsLayer {
                     val move = if (android.animation.ValueAnimator.areAnimatorsEnabled()) drift else 0f
-                    scaleX = 1.04f
-                    scaleY = 1.04f
-                    translationX = move * 6.dp.toPx()
-                    translationY = move * 3.dp.toPx()
+                    scaleX = 1.10f - reveal * .06f
+                    scaleY = 1.10f - reveal * .06f
+                    translationX = move * 14.dp.toPx()
+                    translationY = move * 7.dp.toPx()
+                    alpha = .52f + reveal * .48f
                 }, contentScale = ContentScale.Crop)
             Canvas(Modifier.fillMaxSize()) {
                 val w = size.width
                 val h = size.height
                 val shift = if (android.animation.ValueAnimator.areAnimatorsEnabled())
-                    drift * 5.dp.toPx() else 0f
+                    drift * 16.dp.toPx() else 0f
                 // Keep the art visible at the edges and the book metadata readable in the center.
                 drawRect(Brush.verticalGradient(listOf(
                     Color(0x74F7F3E9), Color(0xA8F7F3E9),
@@ -4344,6 +4352,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 drawRect(Brush.radialGradient(listOf(
                     Color(0x5CFBF7EE), Color.Transparent),
                     center = Offset(w * .50f, h * .52f), radius = w * .72f))
+                drawRect(Color(0xFFF7F3E9).copy(alpha = (1f - reveal) * .32f))
                 val band = androidx.compose.ui.graphics.Path().apply {
                     moveTo(0f, h * .13f)
                     lineTo(w * .38f, h * .08f)
