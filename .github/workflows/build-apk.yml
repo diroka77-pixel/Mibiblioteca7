@@ -49,7 +49,7 @@ jobs:
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 app/build/outputs/apk/release/app-release.apk
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: MiBiblioteca-v0.95-firmada
           path: app/build/outputs/apk/release/app-release.apk
@@ -59,17 +59,17 @@ jobs:
           split -b 28m -d -a 2 app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/MiBiblioteca.part-"
           sha256sum app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/MiBiblioteca.sha256"
           test "$(find "$RUNNER_TEMP" -maxdepth 1 -name 'MiBiblioteca.part-*' | wc -l)" -eq 3
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: MiBiblioteca-parte-00
           path: ${{ runner.temp }}/MiBiblioteca.part-00
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: MiBiblioteca-parte-01
           path: ${{ runner.temp }}/MiBiblioteca.part-01
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: MiBiblioteca-parte-02
           path: |
