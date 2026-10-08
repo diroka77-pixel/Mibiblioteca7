@@ -3962,7 +3962,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
         topStart = 2.dp, topEnd = 3.dp, bottomStart = 2.dp, bottomEnd = 3.dp)
     Box(Modifier.width(w).height(h)
         .graphicsLayer { rotationZ = tilt }
-        .shadow(16.dp, bookShape,
+        .shadow(13.dp, bookShape,
             ambientColor = Color(0x442B2019), spotColor = Color(0x8833251B))) {
         Canvas(Modifier.matchParentSize()) {
             val d = depth.toPx()
