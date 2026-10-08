@@ -3955,8 +3955,8 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 withContext(Dispatchers.Default) { decodeCover(book, targetWidthPx, targetHeightPx) }
             }
     }
-    val depth = (w.value * 0.072f).coerceIn(4f, 11f).dp
-    val foot = depth * 0.68f
+    val depth = (w.value * 0.033f).coerceIn(2.3f, 5.8f).dp
+    val foot = (w.value * 0.058f).coerceIn(3.5f, 10.5f).dp
     val tilt = ((book.uri.hashCode() and 7) - 3.5f) * 0.27f
     val bookShape = androidx.compose.foundation.shape.RoundedCornerShape(
         topStart = 2.dp, topEnd = 3.dp, bottomStart = 2.dp, bottomEnd = 3.dp)
@@ -3967,38 +3967,65 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
         Canvas(Modifier.matchParentSize()) {
             val d = depth.toPx()
             val f = foot.toPx()
-            // The page block tapers under the cover like a bound book resting on a table.
-            val pages = androidx.compose.ui.graphics.Path().apply {
-                moveTo(size.width - d - 1.dp.toPx(), 1.dp.toPx())
-                quadraticTo(size.width - d * .08f, d * .16f,
-                    size.width - .6.dp.toPx(), d * .56f)
-                lineTo(size.width - .6.dp.toPx(), size.height - f * .32f)
-                quadraticTo(size.width - d * .36f, size.height,
+            // Page edges sit beneath the cover; each fine contour is a separate sheet.
+            val pageSide = androidx.compose.ui.graphics.Path().apply {
+                moveTo(size.width - d - .5.dp.toPx(), .8.dp.toPx())
+                quadraticTo(size.width - d * .15f, d * .14f,
+                    size.width - .4.dp.toPx(), d * .55f)
+                lineTo(size.width - .4.dp.toPx(), size.height - f * .25f)
+                quadraticTo(size.width - d * .25f, size.height - f * .02f,
                     size.width - d, size.height - f)
                 close()
             }
-            drawPath(pages, Brush.horizontalGradient(listOf(
-                Color(0xFF756554), Color(0xFFC4B9A6), Color(0xFFF4EBD9),
-                Color(0xFFD3C6B3)), startX = size.width - d, endX = size.width))
-            val lower = androidx.compose.ui.graphics.Path().apply {
-                moveTo(1.dp.toPx(), size.height - f - .5.dp.toPx())
+            drawPath(pageSide, Brush.horizontalGradient(listOf(
+                Color(0xFFB8AA95), Color(0xFFF3ECDD),
+                Color(0xFFE0D5C2), Color(0xFFC9BDAA)),
+                startX = size.width - d, endX = size.width))
+            val pageFoot = androidx.compose.ui.graphics.Path().apply {
+                moveTo(1.dp.toPx(), size.height - f - .3.dp.toPx())
                 lineTo(size.width - d, size.height - f)
-                quadraticTo(size.width - d * .25f, size.height - f * .1f,
-                    size.width - d * .40f, size.height - .5.dp.toPx())
+                quadraticTo(size.width - d * .32f, size.height - f * .1f,
+                    size.width - d * .65f, size.height - .5.dp.toPx())
                 lineTo(2.dp.toPx(), size.height - .5.dp.toPx())
                 close()
             }
-            drawPath(lower, Brush.verticalGradient(listOf(
-                Color(0xFF786757), Color(0xFFE5DACA), Color(0xFFC5B8A3)),
+            drawPath(pageFoot, Brush.verticalGradient(listOf(
+                Color(0xFFA89983), Color(0xFFEDE4D3),
+                Color(0xFFD6C9B6), Color(0xFFB6A894)),
                 startY = size.height - f, endY = size.height))
-            // Sparse paper seams follow the perspective of the right edge.
-            for (n in 1..6) {
-                val y = size.height * n / 7f
-                drawLine(Color(0xFF796F63).copy(alpha = .18f),
-                    Offset(size.width - d * .49f, y),
-                    Offset(size.width - d * .11f, y + d * .13f),
-                    .45.dp.toPx())
+            val sideSheets = (d / .43.dp.toPx()).toInt().coerceIn(4, 18)
+            for (n in 1 until sideSheets) {
+                val t = n.toFloat() / sideSheets
+                val x = size.width - d + d * t
+                val top = d * (.08f + .48f * t)
+                val bottom = size.height - f * (1f - .74f * t)
+                val contour = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(x, top)
+                    quadraticTo(x + (n % 3 - 1) * .38.dp.toPx(),
+                        size.height * .47f, x + .12.dp.toPx(), bottom)
+                }
+                drawPath(contour, Color(0xFF675B4B).copy(
+                    alpha = if (n % 4 == 0) .23f else .12f),
+                    style = Stroke(width = .28.dp.toPx()))
             }
+            val footSheets = (f / .52.dp.toPx()).toInt().coerceIn(5, 25)
+            for (n in 1 until footSheets) {
+                val t = n.toFloat() / footSheets
+                val y = size.height - f + f * t
+                val contour = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(2.dp.toPx(), y)
+                    quadraticTo(size.width * .46f,
+                        y + (n % 3 - 1) * .25.dp.toPx(),
+                        size.width - d * (1f - .32f * t), y + f * .015f)
+                }
+                drawPath(contour, Color(0xFF756857).copy(
+                    alpha = if (n % 5 == 0) .26f else .13f),
+                    style = Stroke(width = .27.dp.toPx()))
+            }
+            drawLine(Color(0xFF55483A).copy(alpha = .20f),
+                Offset(2.dp.toPx(), size.height - f),
+                Offset(size.width - d, size.height - f),
+                .55.dp.toPx())
         }
         Surface(Modifier.fillMaxSize().padding(end = depth, bottom = foot)
             .graphicsLayer {
@@ -4023,11 +4050,11 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 }
                 Canvas(Modifier.matchParentSize()) {
                     drawRect(Brush.horizontalGradient(listOf(
-                        Color(0x700E0B09), Color(0x112A211D), Color.Transparent),
-                        startX = 0f, endX = size.width * .17f))
+                        Color(0x350E0B09), Color(0x082A211D), Color.Transparent),
+                        startX = 0f, endX = size.width * .10f))
                     drawRect(Brush.horizontalGradient(listOf(
-                        Color.Transparent, Color(0x10FFFFFF), Color(0x4A1D1712)),
-                        startX = size.width * .78f, endX = size.width))
+                        Color.Transparent, Color(0x0AFFFFFF), Color(0x301D1712)),
+                        startX = size.width * .92f, endX = size.width))
                     drawRect(Brush.verticalGradient(listOf(
                         Color(0x24FFFFFF), Color.Transparent),
                         startY = 0f, endY = size.height * .22f))
@@ -4288,8 +4315,8 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                     drift * 5.dp.toPx() else 0f
                 // Keep the art visible at the edges and the book metadata readable in the center.
                 drawRect(Brush.verticalGradient(listOf(
-                    Color(0xB8F7F3E9), Color(0xD2F7F3E9),
-                    Color(0xD8F7F3E9), Color(0xB2F7F3E9)),
+                    Color(0xA3F7F3E9), Color(0xC8F7F3E9),
+                    Color(0xD2F7F3E9), Color(0x9EF7F3E9)),
                     startY = 0f, endY = h))
                 drawRect(Brush.radialGradient(listOf(
                     Color(0xFFFDF8EF).copy(alpha = glimmer), Color.Transparent),
@@ -4338,6 +4365,50 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 drawCircle(color.copy(alpha = .065f), w * .31f,
                     Offset(w * .72f + shift, h * .30f),
                     style = Stroke(width = 1.dp.toPx()))
+                when (activeGenre) {
+                    "Fantasía", "Aventuras", "Infantil" -> {
+                        for (n in 0..14) {
+                            val x = w * ((n * 37 % 91 + 4) / 100f) + shift * (n % 3 + 1)
+                            val y = h * ((n * 23 % 83 + 8) / 100f)
+                            drawCircle(Color(0xFFB68C51).copy(alpha = .18f),
+                                (if (n % 4 == 0) 1.4f else .7f).dp.toPx(),
+                                Offset(x, y))
+                        }
+                    }
+                    "Ciencia ficción", "Divulgación" -> {
+                        drawArc(color.copy(alpha = .16f), -58f + drift * 7f,
+                            124f, false,
+                            topLeft = Offset(w * .22f + shift, h * .08f),
+                            size = Size(w * .68f, w * .68f),
+                            style = Stroke(width = 1.2.dp.toPx()))
+                        drawArc(color.copy(alpha = .10f), 108f - drift * 5f,
+                            90f, false,
+                            topLeft = Offset(w * .12f - shift, h * .72f),
+                            size = Size(w * .54f, w * .54f),
+                            style = Stroke(width = .8.dp.toPx()))
+                    }
+                    "Terror", "Thriller", "Misterio" -> {
+                        for (n in 0..3) {
+                            val y = h * (.25f + n * .19f) + shift * (n % 2 * 2 - 1)
+                            val mist = androidx.compose.ui.graphics.Path().apply {
+                                moveTo(-w * .06f, y)
+                                quadraticTo(w * .50f, y - 8.dp.toPx(),
+                                    w * 1.06f, y + 3.dp.toPx())
+                            }
+                            drawPath(mist, color.copy(alpha = .09f),
+                                style = Stroke(width = (8 + n * 3).dp.toPx()))
+                        }
+                    }
+                    "Romance", "Poesía" -> {
+                        for (n in 0..8) {
+                            val x = w * ((n * 31 % 87 + 7) / 100f) + shift
+                            val y = h * ((n * 41 % 85 + 8) / 100f)
+                            drawOval(color.copy(alpha = .13f),
+                                topLeft = Offset(x, y),
+                                size = Size(2.dp.toPx(), 5.dp.toPx()))
+                        }
+                    }
+                }
             }
         }
     }
