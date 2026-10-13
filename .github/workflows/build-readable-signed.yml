@@ -3,7 +3,7 @@ on:
   push:
     branches: [redisenio-biblioteca-096]
     paths:
-      - '.github/workflows/build-transparent-signed.yml'
+      - '.github/workflows/build-readable-signed.yml'
 permissions:
   contents: read
 jobs:
