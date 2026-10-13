@@ -3291,7 +3291,7 @@ private fun openCasaDelLibro(context: Context) {
                 OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
                     tab = "Biblioteca"; vm.qualityFilter = "Ninguno"
                 } },
-                    modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 16.dp, vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
                     singleLine = true, placeholder = { Text("Buscar título, saga o autor") },
                     leadingIcon = { AppIcon("Buscar") },
                     trailingIcon = {
@@ -3340,13 +3340,12 @@ private fun openCasaDelLibro(context: Context) {
             }
         }
     ) { p ->
-      Box(Modifier.padding(p).fillMaxSize()) {
+      Box(Modifier.padding(p).fillMaxSize()
+          .background(if (tab == "Biblioteca") Color.Transparent else Paper.copy(alpha = 0.88f))) {
         Column(Modifier.fillMaxSize()) {
         if (tab == "Biblioteca") ConceptQuickAccess(
             onReview = { openGoodreads(context) },
-            onAi = { openGoogleAi(context) },
-            onGoodreads = { openGoodreads(context) },
-            onGoogle = { searchInGoogleApp(context, "libros") })
+            onAi = { openGoogleAi(context) })
         if (vm.offlineDownloadUri != null) {
             LinearProgressIndicator(progress = { vm.offlineDownloadPercent / 100f },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), color = Teal)
@@ -3792,28 +3791,25 @@ private fun openCasaDelLibro(context: Context) {
 }
 
 @Composable private fun ConceptQuickAccess(
-    onReview: () -> Unit, onAi: () -> Unit,
-    onGoodreads: () -> Unit, onGoogle: () -> Unit
+    onReview: () -> Unit, onAi: () -> Unit
 ) {
     val actions = listOf(
         Triple("Reseña", "Reseña", Teal) to onReview,
-        Triple("Búsqueda IA", "Búsqueda IA", Color(0xFFE46F5D)) to onAi,
-        Triple("Goodreads", "Goodreads", Color(0xFFB59A55)) to onGoodreads,
-        Triple("Google", "Google", Color(0xFF4285F4)) to onGoogle
+        Triple("Búsqueda IA", "Búsqueda IA", Color(0xFFE46F5D)) to onAi
     )
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         actions.forEach { (item, action) ->
-            Surface(Modifier.weight(1f).height(40.dp).clickable(onClick = action),
-                color = Paper.copy(alpha = .97f),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+            Surface(Modifier.weight(1f).height(46.dp).clickable(onClick = action),
+                color = Color.White,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = .55f))) {
-                Row(Modifier.fillMaxSize().padding(horizontal = 5.dp),
+                Row(Modifier.fillMaxSize().padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center) {
-                    AppIcon(item.second, tint = item.third, size = 17.dp)
-                    Spacer(Modifier.width(4.dp))
-                    Text(item.first, maxLines = 1, fontSize = 10.sp,
+                    AppIcon(item.second, tint = item.third, size = 20.dp)
+                    Spacer(Modifier.width(7.dp))
+                    Text(item.first, maxLines = 1, fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold, color = Ink)
                 }
             }
@@ -3981,10 +3977,11 @@ private fun openCasaDelLibro(context: Context) {
         val coverWidth = maxWidth
         Card(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongPress),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Paper.copy(alpha = 0.97f)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = 0.28f))) {
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White)) {
             Box(Modifier.fillMaxWidth()) {
-                Cover(book, coverWidth, coverWidth * .98f)
+                FlatCover(book, coverWidth, coverWidth * 1.42f)
                 Surface(Modifier.align(Alignment.TopEnd).padding(6.dp),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
                     color = Ink.copy(alpha = 0.70f)) {
@@ -4002,7 +3999,7 @@ private fun openCasaDelLibro(context: Context) {
                 }
                 if (offline) OfflineBadge(Modifier.align(Alignment.BottomEnd).padding(6.dp))
             }
-            Column(Modifier.fillMaxWidth().height(90.dp).padding(horizontal = 9.dp, vertical = 6.dp)) {
+            Column(Modifier.fillMaxWidth().height(108.dp).padding(horizontal = 10.dp, vertical = 7.dp)) {
                 Text(title, fontSize = 14.sp, lineHeight = 17.sp,
                     fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
                     minLines = 2, maxLines = 2, color = Ink,
@@ -4080,6 +4077,40 @@ private fun decodeCover(book: Book, targetWidthPx: Int, targetHeightPx: Int): Bi
         BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
     synchronized(coverBitmapCache) { coverBitmapCache.put(key, bitmap) }
     return bitmap
+}
+
+@Composable
+private fun FlatCover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compose.ui.unit.Dp) {
+    val density = LocalDensity.current
+    val targetWidthPx = with(density) { w.roundToPx() }
+    val targetHeightPx = with(density) { h.roundToPx() }
+    val cacheKey = remember(book.cover, book.uri, targetWidthPx, targetHeightPx) {
+        coverKey(book, targetWidthPx, targetHeightPx)
+    }
+    val cached = remember(cacheKey) {
+        synchronized(coverBitmapCache) { coverBitmapCache.get(cacheKey) }
+    }
+    val bmp by produceState<Bitmap?>(cached, book.uri, book.cover, targetWidthPx, targetHeightPx) {
+        value = cached
+        if (cached == null && book.cover != null) {
+            value = coverDecodeSlots.withPermit {
+                withContext(Dispatchers.Default) { decodeCover(book, targetWidthPx, targetHeightPx) }
+            }
+        }
+    }
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 15.dp, topEnd = 15.dp)
+    Surface(Modifier.width(w).height(h), color = Color.White, shape = shape) {
+        val bitmap = bmp
+        if (bitmap != null) {
+            Image(bitmap.asImageBitmap(), contentDescription = "Portada de ${displayTitle(book)}",
+                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        } else {
+            Box(Modifier.fillMaxSize().background(Color(0xFFF0E8DC)),
+                contentAlignment = Alignment.Center) {
+                AppIcon("Libros", tint = Mahogany.copy(alpha = .65f), size = 38.dp)
+            }
+        }
+    }
 }
 
 @Composable
