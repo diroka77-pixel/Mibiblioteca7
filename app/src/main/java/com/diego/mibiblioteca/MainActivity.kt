@@ -3340,8 +3340,7 @@ private fun openCasaDelLibro(context: Context) {
             }
         }
     ) { p ->
-      Box(Modifier.padding(p).fillMaxSize()
-          .background(if (tab == "Biblioteca") Color.Transparent else Paper.copy(alpha = 0.88f))) {
+      Box(Modifier.padding(p).fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
         if (tab == "Biblioteca") ConceptQuickAccess(
             onReview = { openGoodreads(context) },
@@ -3437,16 +3436,17 @@ private fun openCasaDelLibro(context: Context) {
                         style = MaterialTheme.typography.labelMedium)
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Historias por descubrir", fontFamily = FontFamily.Serif,
-                            style = MaterialTheme.typography.headlineSmall, color = Ink,
+                            style = MaterialTheme.typography.headlineSmall, color = Color.White,
                             modifier = Modifier.weight(1f))
                     }
                     HorizontalDivider(color = Brass.copy(alpha = 0.4f), thickness = 1.dp)
                     }
                     if (tab == "Secciones") Text("Tus secciones",
-                        fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall, color = Mahogany)
+                        fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall,
+                        color = Color.White, fontWeight = FontWeight.Bold)
                     if (tab == "Favoritos") Text("Tus favoritos",
                         fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold, color = Mahogany)
+                        fontWeight = FontWeight.Bold, color = Color.White)
                     if (vm.syncing) {
                         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
                         Text("Revisando ${vm.syncCount} libros…", modifier = Modifier.padding(vertical = 8.dp),
@@ -3551,15 +3551,15 @@ private fun openCasaDelLibro(context: Context) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Actualidad literaria en España", fontFamily = FontFamily.Serif,
-                                fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Mahogany,
+                                fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Color.White,
                                 modifier = Modifier.weight(1f))
                         }
                         if (vm.newsRefreshing && vm.launchNews.isEmpty())
-                            Text("Buscando noticias literarias…", color = Mahogany, fontSize = 12.sp)
+                            Text("Buscando noticias literarias…", color = Color.White, fontSize = 12.sp)
                         if (vm.newsLastChecked > 0L) Text("Actualizado " +
                             java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale("es", "ES"))
                                 .format(java.util.Date(vm.newsLastChecked)), fontSize = 11.sp,
-                            color = Mahogany)
+                            color = Color.White.copy(alpha = .82f))
                     }
                 }
                 items(visibleNews, key = { "news:" + it.url }, contentType = { "news" }) { news ->
@@ -3658,7 +3658,7 @@ private fun openCasaDelLibro(context: Context) {
                 genreDisplayGroups.forEach { (name, group) ->
                     if (name.isNotBlank()) item(key = "group:$name") {
                         Text(name, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                            color = Mahogany, modifier = Modifier.padding(start = 12.dp, top = 10.dp))
+                            color = Color.White, modifier = Modifier.padding(start = 12.dp, top = 10.dp))
                         if (groupMode == "Sagas" && name != "Sin saga") {
                             val numbers = group.map { sagaNumber(it) }
                                 .filter { it.isFinite() && it >= 1 && it <= 100 && it % 1.0 == 0.0 }
@@ -3871,7 +3871,7 @@ private fun openCasaDelLibro(context: Context) {
     onLongPress: (Book) -> Unit, onCarouselTouch: () -> Unit, onOpen: (Book) -> Unit) {
     Column {
         Text("Continuar leyendo", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-            fontSize = 21.sp, color = Mahogany,
+            fontSize = 21.sp, color = Color.White,
             modifier = Modifier.padding(start = 12.dp, top = 16.dp, bottom = 12.dp))
         BoxWithConstraints(Modifier.fillMaxWidth()) {
         val coverWidth = (maxWidth - 36.dp) / 2
@@ -3887,23 +3887,30 @@ private fun openCasaDelLibro(context: Context) {
         }, horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(horizontal = 12.dp)) {
             items(books, key = { "reading:" + it.uri }) { book ->
-                Column(Modifier.width(coverWidth).height(coverWidth * 1.40f + 104.dp).combinedClickable(
-                    onClick = { onOpen(book) }, onLongClick = { onLongPress(book) })) {
+                Card(Modifier.width(coverWidth).combinedClickable(
+                    onClick = { onOpen(book) }, onLongClick = { onLongPress(book) }),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                     Box {
-                        Cover(book, coverWidth, coverWidth * 1.40f)
+                        FlatCover(book, coverWidth, coverWidth * 1.42f)
                         if (isOffline(book)) OfflineBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Text(displayTitle(book), fontSize = 13.sp, lineHeight = 17.sp,
-                        minLines = 2, maxLines = 2, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                        color = Ink)
-                    Text(displayAuthor(book), fontSize = 11.sp, maxLines = 1,
-                        color = Mahogany.copy(alpha = 0.75f))
-                    Spacer(Modifier.height(6.dp))
-                    LinearProgressIndicator(progress = { progress(book.uri).coerceIn(0, 100) / 100f },
-                        modifier = Modifier.fillMaxWidth(), color = Teal,
-                        trackColor = Brass.copy(alpha = 0.15f))
-                    Text("${progress(book.uri)} % leído", fontSize = 10.sp, color = Teal)
+                    Column(Modifier.fillMaxWidth().height(105.dp)
+                        .padding(horizontal = 10.dp, vertical = 8.dp)) {
+                        Text(displayTitle(book), fontSize = 13.sp, lineHeight = 17.sp,
+                            minLines = 2, maxLines = 2, fontFamily = FontFamily.Serif,
+                            fontWeight = FontWeight.Bold, color = Ink,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        Text(displayAuthor(book), fontSize = 11.sp, maxLines = 1,
+                            color = Mahogany.copy(alpha = 0.75f),
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        Spacer(Modifier.weight(1f))
+                        LinearProgressIndicator(progress = { progress(book.uri).coerceIn(0, 100) / 100f },
+                            modifier = Modifier.fillMaxWidth(), color = Teal,
+                            trackColor = Brass.copy(alpha = 0.15f))
+                        Text("${progress(book.uri)} % leído", fontSize = 10.sp, color = Teal)
+                    }
                 }
             }
         }
