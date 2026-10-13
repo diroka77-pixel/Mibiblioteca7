@@ -3055,7 +3055,7 @@ private fun openCasaDelLibro(context: Context) {
             else when (sortMode) {
                 "Autor" -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { authors.getValue(it.uri) })
                 "Género" -> group.sortedWith(
-                    compareBy<Book>(String.CASE_INSENSITIVE_ORDER) { genres.getValue(it.uri) }
+                    compareBy(String.CASE_INSENSITIVE_ORDER) { value: Book -> genres.getValue(value.uri) }
                         .thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
                 "Recientes" -> group.sortedByDescending { it.sourceModified }
                 else -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
