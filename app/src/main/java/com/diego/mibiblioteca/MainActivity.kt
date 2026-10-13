@@ -2365,6 +2365,7 @@ private fun openCasaDelLibro(context: Context) {
         "Favoritos" -> Icons.Outlined.FavoriteBorder
         "Favorito" -> Icons.Outlined.Favorite
         "Leyendo", "Leer", "Reseña", "Sincronizar" -> Icons.Outlined.AutoStories
+        "Goodreads" -> Icons.Outlined.Bookmarks
         "Leídos", "Leído", "Revisado" -> Icons.Outlined.CheckCircle
         "Autores", "Autor", "Biografía" -> Icons.Outlined.PersonOutline
         "Sagas" -> Icons.Outlined.Layers
@@ -3265,7 +3266,7 @@ private fun openCasaDelLibro(context: Context) {
         }) {
     val wallpaperBook = vm.books.firstOrNull { it.uri == vm.lastOpenedUri }
     val immersive = vm.wallpaperMode != "Clásico"
-    val immersedBar = HeaderBrown.copy(alpha = 0.94f)
+    val immersedBar = Color(0xFF211711).copy(alpha = 0.60f)
     Box(Modifier.fillMaxSize().background(Parchment)) {
     LibraryWallpaper(vm.wallpaperMode, wallpaperBook)
     Scaffold(
@@ -3273,7 +3274,7 @@ private fun openCasaDelLibro(context: Context) {
         containerColor = Color.Transparent,
         topBar = {
             Column(Modifier.fillMaxWidth().background(if (immersive) immersedBar else HeaderBrown).statusBarsPadding()) {
-                Box(Modifier.fillMaxWidth().height(60.dp)) {
+                Box(Modifier.fillMaxWidth().height(50.dp)) {
                     IconButton(onClick = { scope.launch { drawerState.open() } },
                         modifier = Modifier.align(Alignment.CenterStart)
                             .semantics { contentDescription = "Abrir menú" }) {
@@ -3290,19 +3291,23 @@ private fun openCasaDelLibro(context: Context) {
                 OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
                     tab = "Biblioteca"; vm.qualityFilter = "Ninguno"
                 } },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 16.dp, vertical = 4.dp),
                     singleLine = true, placeholder = { Text("Buscar título, saga o autor") },
                     leadingIcon = { AppIcon("Buscar") },
-                    trailingIcon = { if (vm.query.isNotEmpty()) IconButton(onClick = { vm.query = "" }) { AppIcon("Cerrar", "Borrar búsqueda") } },
+                    trailingIcon = {
+                        if (vm.query.isNotEmpty()) IconButton(onClick = { vm.query = "" }) {
+                            AppIcon("Cerrar", "Borrar búsqueda")
+                        } else Icon(Icons.Outlined.Mic, "Búsqueda por voz", tint = Mahogany)
+                    },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = Paper, unfocusedContainerColor = Paper,
                         focusedTextColor = Ink, unfocusedTextColor = Ink),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp))
             }
         },
         bottomBar = {
-            NavigationBar(containerColor = if (immersive) Paper.copy(alpha = 0.96f) else Paper,
-                contentColor = Mahogany,
+            NavigationBar(containerColor = Color(0xE822201E),
+                contentColor = Color.White,
                 tonalElevation = 4.dp) {
                 listOf(
                     Triple("Inicio", "Inicio", "Inicio"),
@@ -3316,18 +3321,32 @@ private fun openCasaDelLibro(context: Context) {
                         icon = { AppIcon(icon, description = label, size = 22.dp) },
                         label = { Text(label, maxLines = 1, fontSize = 10.sp) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Ink,
-                            selectedTextColor = Mahogany,
-                            indicatorColor = Color(0xFFE9DCC6),
-                            unselectedIconColor = Teal,
-                            unselectedTextColor = Mahogany.copy(alpha = 0.72f))
+                            selectedIconColor = Color.White,
+                            selectedTextColor = Color.White,
+                            indicatorColor = Color(0xFF7D6754),
+                            unselectedIconColor = Color.White.copy(alpha = 0.82f),
+                            unselectedTextColor = Color.White.copy(alpha = 0.78f))
                     )
                 }
+            }
+        },
+        floatingActionButton = {
+            if (tab == "Biblioteca") FloatingActionButton(
+                onClick = { folderPicker.launch(null) },
+                containerColor = Color(0xFF9A6843), contentColor = Color.White,
+                shape = androidx.compose.foundation.shape.CircleShape,
+                modifier = Modifier.size(58.dp)) {
+                Icon(Icons.Outlined.Add, "Añadir libros", modifier = Modifier.size(30.dp))
             }
         }
     ) { p ->
       Box(Modifier.padding(p).fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
+        if (tab == "Biblioteca") ConceptQuickAccess(
+            onReview = { openGoodreads(context) },
+            onAi = { openGoogleAi(context) },
+            onGoodreads = { openGoodreads(context) },
+            onGoogle = { searchInGoogleApp(context, "libros") })
         if (vm.offlineDownloadUri != null) {
             LinearProgressIndicator(progress = { vm.offlineDownloadPercent / 100f },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), color = Teal)
@@ -3439,22 +3458,23 @@ private fun openCasaDelLibro(context: Context) {
                         Text("Buscando portadas ${vm.coverUpdateDone}/${vm.coverUpdateTotal}…", fontSize = 12.sp, color = Mahogany)
                     }
                     if (tab == "Biblioteca") {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        Row(Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
                             verticalAlignment = Alignment.CenterVertically) {
-                            CatalogChip("Todos", !showWishList && !vm.onlyFavorites && vm.statusFilter == null) {
+                            ConceptFilterChip("Todos", "Libros", Modifier.weight(.78f),
+                                !showWishList && !vm.onlyFavorites && vm.statusFilter == null) {
                                 showWishList = false; vm.onlyFavorites = false; vm.statusFilter = null
                             }
-                            CatalogChip("Favoritos", !showWishList && vm.onlyFavorites) {
+                            ConceptFilterChip("Favoritos", "Favoritos", Modifier.weight(1.05f),
+                                !showWishList && vm.onlyFavorites) {
                                 showWishList = false; vm.onlyFavorites = true; vm.statusFilter = null
                             }
-                            CatalogChip("Pendientes", !showWishList && !vm.onlyFavorites && vm.statusFilter == ReadingStatus.PENDING) {
+                            ConceptFilterChip("Pendientes", "Pendientes", Modifier.weight(1.12f),
+                                !showWishList && !vm.onlyFavorites && vm.statusFilter == ReadingStatus.PENDING) {
                                 showWishList = false; vm.onlyFavorites = false; vm.statusFilter = ReadingStatus.PENDING
                             }
-                            Box {
-                                LibraryTextButton(onClick = { sortMenu = true }) {
-                                    ActionLabel("Orden: $sortMode", "Sagas", 12.sp)
-                                }
+                            Box(Modifier.weight(1.35f)) {
+                                ConceptSortButton("Orden: $sortMode", Modifier.fillMaxWidth()) { sortMenu = true }
                                 DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                                     listOf("Título", "Autor", "Recientes").forEach { option ->
                                         DropdownMenuItem(text = { Text(option) }, onClick = {
@@ -3464,7 +3484,7 @@ private fun openCasaDelLibro(context: Context) {
                                 }
                             }
                         }
-                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        Row(Modifier.fillMaxWidth().padding(top = 7.dp, bottom = 5.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(when {
@@ -3474,26 +3494,23 @@ private fun openCasaDelLibro(context: Context) {
                                     vm.statusFilter == ReadingStatus.READING -> "Leyendo"
                                     vm.statusFilter == ReadingStatus.READ -> "Libros leídos"
                                     else -> "Todos los libros"
-                                }, fontFamily = FontFamily.Serif, fontSize = 23.sp,
-                                    fontWeight = FontWeight.Bold, color = Mahogany)
+                                }, fontFamily = FontFamily.Serif, fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold, color = Color.White)
                                 Text("${if (showWishList) vm.wishList.size else filteredBooks.size} libros",
-                                    color = Mahogany, fontSize = 13.sp)
+                                    color = Color.White.copy(alpha = .85f), fontSize = 13.sp)
                             }
                             if (!showWishList) {
-                                Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                                    color = Paper.copy(alpha = 0.95f)) {
-                                    Row {
-                                        listOf("Galería", "Lista").forEach { mode ->
-                                            IconToggleButton(checked = vm.viewModeFor(vm.selectedSection) == mode,
-                                                onCheckedChange = { if (it) vm.chooseViewMode(mode) }) {
-                                                AppIcon(mode, "Vista $mode", tint =
-                                                    if (vm.viewModeFor(vm.selectedSection) == mode) Teal else Mahogany)
-                                            }
-                                        }
+                                ConceptViewSelector(vm.viewModeFor(vm.selectedSection),
+                                    onGallery = { vm.chooseViewMode("Galería") },
+                                    onList = { vm.chooseViewMode("Lista") })
+                                Spacer(Modifier.width(6.dp))
+                                Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                    color = Color(0xB3211D1A),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha=.42f))) {
+                                    IconButton(onClick = { scope.launch { drawerState.open() } },
+                                        modifier = Modifier.size(44.dp)) {
+                                        Icon(Icons.Outlined.FilterList, "Filtros y agrupación", tint = Color.White)
                                     }
-                                }
-                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                    Icon(Icons.Outlined.FilterList, "Filtros y agrupación", tint = Mahogany)
                                 }
                             }
                         }
@@ -3774,6 +3791,84 @@ private fun openCasaDelLibro(context: Context) {
     }
 }
 
+@Composable private fun ConceptQuickAccess(
+    onReview: () -> Unit, onAi: () -> Unit,
+    onGoodreads: () -> Unit, onGoogle: () -> Unit
+) {
+    val actions = listOf(
+        Triple("Reseña", "Reseña", Teal) to onReview,
+        Triple("Búsqueda IA", "Búsqueda IA", Color(0xFFE46F5D)) to onAi,
+        Triple("Goodreads", "Goodreads", Color(0xFFB59A55)) to onGoodreads,
+        Triple("Google", "Google", Color(0xFF4285F4)) to onGoogle
+    )
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        actions.forEach { (item, action) ->
+            Surface(Modifier.weight(1f).height(40.dp).clickable(onClick = action),
+                color = Paper.copy(alpha = .97f),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = .55f))) {
+                Row(Modifier.fillMaxSize().padding(horizontal = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center) {
+                    AppIcon(item.second, tint = item.third, size = 17.dp)
+                    Spacer(Modifier.width(4.dp))
+                    Text(item.first, maxLines = 1, fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold, color = Ink)
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun ConceptFilterChip(label: String, icon: String,
+    modifier: Modifier = Modifier, selected: Boolean, onClick: () -> Unit) {
+    Surface(modifier.height(34.dp).clickable(onClick = onClick),
+        color = if (selected) Color(0xFF9A6843) else Color(0x991D1B19),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(13.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .42f))) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center) {
+            AppIcon(icon, tint = Color.White, size = 15.dp)
+            Spacer(Modifier.width(3.dp))
+            Text(label, color = Color.White, fontSize = 10.sp, maxLines = 1)
+        }
+    }
+}
+
+@Composable private fun ConceptSortButton(label: String, modifier: Modifier = Modifier,
+    onClick: () -> Unit) {
+    Surface(modifier.height(34.dp).clickable(onClick = onClick),
+        color = Teal, shape = androidx.compose.foundation.shape.RoundedCornerShape(13.dp)) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center) {
+            AppIcon("Sagas", tint = Color.White, size = 15.dp)
+            Spacer(Modifier.width(3.dp))
+            Text(label, Modifier.weight(1f), color = Color.White, fontSize = 10.sp, maxLines = 1)
+            Icon(Icons.Outlined.KeyboardArrowDown, null, tint = Color.White, modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+@Composable private fun ConceptViewSelector(current: String,
+    onGallery: () -> Unit, onList: () -> Unit) {
+    Surface(color = Color(0xD31D1B19),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha=.32f))) {
+        Row {
+            listOf("Galería" to onGallery, "Lista" to onList).forEach { (mode, action) ->
+                Box(Modifier.size(44.dp).background(
+                    if (current == mode) Color(0xFF9A6843) else Color.Transparent)
+                    .clickable(onClick = action), contentAlignment = Alignment.Center) {
+                    AppIcon(mode, "Vista $mode", tint = Color.White, size = 21.dp)
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable private fun ReadingShelf(books: List<Book>, progress: (Uri) -> Int,
     isOffline: (Book) -> Boolean,
@@ -3889,29 +3984,30 @@ private fun openCasaDelLibro(context: Context) {
             colors = CardDefaults.cardColors(containerColor = Paper.copy(alpha = 0.97f)),
             border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = 0.28f))) {
             Box(Modifier.fillMaxWidth()) {
-                Cover(book, coverWidth, coverWidth * 1.42f)
+                Cover(book, coverWidth, coverWidth * .98f)
                 Surface(Modifier.align(Alignment.TopEnd).padding(6.dp),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
                     color = Ink.copy(alpha = 0.70f)) {
                     Row {
-                        if (onToggleFavorite != null) IconButton(onClick = onToggleFavorite) {
+                        if (onToggleFavorite != null) IconButton(onClick = onToggleFavorite,
+                            modifier = Modifier.size(36.dp)) {
                             AppIcon(if (book.favorite) "Favorito" else "Favoritos",
                                 if (book.favorite) "Quitar de favoritos" else "Añadir a favoritos",
                                 tint = Color.White, size = 22.dp)
                         }
-                        IconButton(onClick = onLongPress) {
+                        IconButton(onClick = onLongPress, modifier = Modifier.size(36.dp)) {
                             AppIcon("Opciones", "Opciones del libro", tint = Color.White, size = 22.dp)
                         }
                     }
                 }
                 if (offline) OfflineBadge(Modifier.align(Alignment.BottomEnd).padding(6.dp))
             }
-            Column(Modifier.fillMaxWidth().height(132.dp).padding(horizontal = 10.dp, vertical = 8.dp)) {
-                Text(title, fontSize = 15.sp, lineHeight = 19.sp,
+            Column(Modifier.fillMaxWidth().height(90.dp).padding(horizontal = 9.dp, vertical = 6.dp)) {
+                Text(title, fontSize = 14.sp, lineHeight = 17.sp,
                     fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
                     minLines = 2, maxLines = 2, color = Ink,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                Text(author, fontSize = 12.sp, maxLines = 1,
+                Text(author, fontSize = 11.sp, maxLines = 1,
                     color = Mahogany.copy(alpha = 0.85f),
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 Spacer(Modifier.height(6.dp))
@@ -4447,18 +4543,18 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 val h = size.height
                 val shift = if (android.animation.ValueAnimator.areAnimatorsEnabled())
                     drift * 16.dp.toPx() else 0f
-                // Keep the art visible at the edges and the book metadata readable in the center.
+                // Dark, warm library atmosphere from the approved catalogue concept.
                 drawRect(Brush.verticalGradient(listOf(
-                    Color(0x74F7F3E9), Color(0xA8F7F3E9),
-                    Color(0xB8F7F3E9), Color(0x6CF7F3E9)),
+                    Color(0x8A160E09), Color(0x701B110B),
+                    Color(0x82130D09), Color(0xA00B0806)),
                     startY = 0f, endY = h))
                 drawRect(Brush.radialGradient(listOf(
-                    Color(0xFFFDF8EF).copy(alpha = glimmer), Color.Transparent),
+                    Color(0xFFFFB75E).copy(alpha = glimmer), Color.Transparent),
                     center = Offset(w * .70f + shift, h * .24f), radius = w * .85f))
                 drawRect(Brush.radialGradient(listOf(
-                    Color(0x5CFBF7EE), Color.Transparent),
+                    Color(0x3A8D572F), Color.Transparent),
                     center = Offset(w * .50f, h * .52f), radius = w * .72f))
-                drawRect(Color(0xFFF7F3E9).copy(alpha = (1f - reveal) * .32f))
+                drawRect(Color(0xFF120C08).copy(alpha = (1f - reveal) * .24f))
                 val band = androidx.compose.ui.graphics.Path().apply {
                     moveTo(0f, h * .13f)
                     lineTo(w * .38f, h * .08f)
