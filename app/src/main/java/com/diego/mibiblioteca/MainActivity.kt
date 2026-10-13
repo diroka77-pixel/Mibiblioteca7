@@ -77,6 +77,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontFamily
@@ -1570,6 +1571,24 @@ private fun readableSize(size: Long): String = when {
     else -> "${"%.1f".format(java.util.Locale.ROOT, size / 1048576.0)} MB"
 }
 
+private val WallpaperTextShadow = Shadow(
+    color = Color.Black.copy(alpha = 0.90f),
+    offset = Offset(0f, 2f),
+    blurRadius = 7f
+)
+
+@Composable
+private fun WallpaperLabel(
+    text: String,
+    modifier: Modifier = Modifier,
+    fontSize: androidx.compose.ui.unit.TextUnit = 13.sp,
+    fontWeight: FontWeight? = null
+) {
+    Text(text, modifier = modifier, color = Color.White, fontSize = fontSize,
+        fontWeight = fontWeight,
+        style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+}
+
 internal fun displayAuthor(book: Book): String =
     cleanCatalogText(book.customAuthor.ifBlank { book.author })
         .takeUnless(::unknownAuthor) ?: "Biblioteca de Diroka77"
@@ -2434,7 +2453,7 @@ private fun openCasaDelLibro(context: Context) {
 ) {
     Button(onClick = onClick, modifier = modifier, enabled = enabled,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Ink),
+        colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         content = content)
 }
@@ -3348,8 +3367,8 @@ private fun openCasaDelLibro(context: Context) {
         if (vm.offlineDownloadUri != null) {
             LinearProgressIndicator(progress = { vm.offlineDownloadPercent / 100f },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), color = Teal)
-            Text("Descargando libro · ${vm.offlineDownloadPercent} %",
-                modifier = Modifier.padding(horizontal = 16.dp), fontSize = 12.sp, color = Mahogany)
+            WallpaperLabel("Descargando libro · ${vm.offlineDownloadPercent} %",
+                modifier = Modifier.padding(horizontal = 16.dp), fontSize = 12.sp)
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
         LazyColumn(
@@ -3374,7 +3393,9 @@ private fun openCasaDelLibro(context: Context) {
                                 draftAllGenres = genreAllSelected
                                 draftGenres = selectedGenres
                                 genrePickerOpen = true
-                            }) {
+                            }, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp, Color.White.copy(alpha = .55f))) {
                                 Icon(Icons.Outlined.FilterList, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
                                 Text(if (genreAllSelected) "Géneros" else "${selectedGenres.size} seleccionados",
@@ -3393,11 +3414,13 @@ private fun openCasaDelLibro(context: Context) {
                     Row(Modifier.fillMaxWidth().padding(top = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.End) {
-                            Text("Vista", color = Teal,
-                                style = MaterialTheme.typography.labelMedium,
+                            Text("Vista", color = Color.White,
+                                style = MaterialTheme.typography.labelMedium.copy(shadow = WallpaperTextShadow),
                                 modifier = Modifier.padding(end = 6.dp))
                             Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-                                color = Color(0xFFEFE6D8)) {
+                                color = Color(0xB3211D1A),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp, Color.White.copy(alpha = .38f))) {
                             Row(Modifier.padding(3.dp)) {
                             IconToggleButton(
                                 checked = genreCarousel == "Horizontal",
@@ -3406,7 +3429,7 @@ private fun openCasaDelLibro(context: Context) {
                                     .background(if (genreCarousel == "Horizontal") Teal else Color.Transparent)
                             ) {
                                 Icon(Icons.Outlined.ViewCarousel, "Carrusel horizontal",
-                                    tint = if (genreCarousel == "Horizontal") Color.White else Mahogany)
+                                    tint = Color.White)
                             }
                             IconToggleButton(
                                 checked = genreCarousel == "Vertical",
@@ -3415,7 +3438,7 @@ private fun openCasaDelLibro(context: Context) {
                                     .background(if (genreCarousel == "Vertical") Teal else Color.Transparent)
                             ) {
                                 Icon(Icons.Outlined.ViewStream, "Vista vertical",
-                                    tint = if (genreCarousel == "Vertical") Color.White else Mahogany)
+                                    tint = Color.White)
                             }
                             }
                             }
@@ -3433,19 +3456,22 @@ private fun openCasaDelLibro(context: Context) {
                     if (tab == "Inicio") {
                     Spacer(Modifier.height(12.dp))
                     Text("✦  ENTRE ESTANTERÍAS  ✦", color = Brass, fontFamily = FontFamily.Serif,
-                        style = MaterialTheme.typography.labelMedium)
+                        style = MaterialTheme.typography.labelMedium.copy(shadow = WallpaperTextShadow))
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Historias por descubrir", fontFamily = FontFamily.Serif,
-                            style = MaterialTheme.typography.headlineSmall, color = Color.White,
+                            style = MaterialTheme.typography.headlineSmall.copy(shadow = WallpaperTextShadow),
+                            color = Color.White,
                             modifier = Modifier.weight(1f))
                     }
                     HorizontalDivider(color = Brass.copy(alpha = 0.4f), thickness = 1.dp)
                     }
                     if (tab == "Secciones") Text("Tus secciones",
-                        fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall,
+                        fontFamily = FontFamily.Serif,
+                        style = MaterialTheme.typography.headlineSmall.copy(shadow = WallpaperTextShadow),
                         color = Color.White, fontWeight = FontWeight.Bold)
                     if (tab == "Favoritos") Text("Tus favoritos",
-                        fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall,
+                        fontFamily = FontFamily.Serif,
+                        style = MaterialTheme.typography.headlineSmall.copy(shadow = WallpaperTextShadow),
                         fontWeight = FontWeight.Bold, color = Color.White)
                     if (vm.syncing) {
                         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
@@ -3454,7 +3480,8 @@ private fun openCasaDelLibro(context: Context) {
                     }
                     if (vm.coverUpdateRunning && (tab == "Inicio" || tab == "Biblioteca")) {
                         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Teal)
-                        Text("Buscando portadas ${vm.coverUpdateDone}/${vm.coverUpdateTotal}…", fontSize = 12.sp, color = Mahogany)
+                        WallpaperLabel("Buscando portadas ${vm.coverUpdateDone}/${vm.coverUpdateTotal}…",
+                            fontSize = 12.sp)
                     }
                     if (tab == "Biblioteca") {
                         Row(Modifier.fillMaxWidth(),
@@ -3494,9 +3521,10 @@ private fun openCasaDelLibro(context: Context) {
                                     vm.statusFilter == ReadingStatus.READ -> "Libros leídos"
                                     else -> "Todos los libros"
                                 }, fontFamily = FontFamily.Serif, fontSize = 24.sp,
-                                    fontWeight = FontWeight.Bold, color = Color.White)
-                                Text("${if (showWishList) vm.wishList.size else filteredBooks.size} libros",
-                                    color = Color.White.copy(alpha = .85f), fontSize = 13.sp)
+                                    fontWeight = FontWeight.Bold, color = Color.White,
+                                    style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+                                WallpaperLabel("${if (showWishList) vm.wishList.size else filteredBooks.size} libros",
+                                    fontSize = 13.sp)
                             }
                             if (!showWishList) {
                                 ConceptViewSelector(vm.viewModeFor(vm.selectedSection),
@@ -3514,7 +3542,7 @@ private fun openCasaDelLibro(context: Context) {
                             }
                         }
                         if (vm.bulkInfoLoading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
-                        vm.message?.let { Text(it, color = Mahogany, fontSize = 12.sp) }
+                        vm.message?.let { WallpaperLabel(it, fontSize = 12.sp) }
                     }
                     if (tab == "Secciones") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -3552,14 +3580,16 @@ private fun openCasaDelLibro(context: Context) {
                             horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Actualidad literaria en España", fontFamily = FontFamily.Serif,
                                 fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Color.White,
-                                modifier = Modifier.weight(1f))
+                                modifier = Modifier.weight(1f),
+                                style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
                         }
                         if (vm.newsRefreshing && vm.launchNews.isEmpty())
-                            Text("Buscando noticias literarias…", color = Color.White, fontSize = 12.sp)
+                            WallpaperLabel("Buscando noticias literarias…", fontSize = 12.sp)
                         if (vm.newsLastChecked > 0L) Text("Actualizado " +
                             java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale("es", "ES"))
                                 .format(java.util.Date(vm.newsLastChecked)), fontSize = 11.sp,
-                            color = Color.White.copy(alpha = .82f))
+                            color = Color.White,
+                            style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
                     }
                 }
                 items(visibleNews, key = { "news:" + it.url }, contentType = { "news" }) { news ->
@@ -3633,8 +3663,9 @@ private fun openCasaDelLibro(context: Context) {
                 item(key = "empty") {
                     Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            AppIcon("Libros", size = 48.dp)
-                            Text("Elige tu carpeta de libros en Drive", fontFamily = FontFamily.Serif)
+                            AppIcon("Libros", tint = Color.White, size = 48.dp)
+                            WallpaperLabel("Elige tu carpeta de libros en Drive", fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(12.dp))
                             Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta") }
                         }
@@ -3642,13 +3673,13 @@ private fun openCasaDelLibro(context: Context) {
                 }
             } else if (filteredBooks.isEmpty()) {
                 item(key = "no-results") {
-                    Text(if (vm.onlyFavorites) "Todavía no hay libros favoritos."
+                    WallpaperLabel(if (vm.onlyFavorites) "Todavía no hay libros favoritos."
                         else "No hay libros con estos filtros.", modifier = Modifier.padding(20.dp))
                 }
             } else if (tab == "Géneros" && !genreAllSelected && selectedGenres.isEmpty()) {
                 item(key = "no-genres-selected") {
-                    Text("No has marcado ningún género. Abre el filtro y selecciona los que quieras ver.",
-                        modifier = Modifier.padding(20.dp), color = Mahogany)
+                    WallpaperLabel("No has marcado ningún género. Abre el filtro y selecciona los que quieras ver.",
+                        modifier = Modifier.padding(20.dp))
                 }
             } else if (genreDisplayGroups.isEmpty()) {
                 item(key = "organizing-books") {
@@ -3658,7 +3689,8 @@ private fun openCasaDelLibro(context: Context) {
                 genreDisplayGroups.forEach { (name, group) ->
                     if (name.isNotBlank()) item(key = "group:$name") {
                         Text(name, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                            color = Color.White, modifier = Modifier.padding(start = 12.dp, top = 10.dp))
+                            color = Color.White, modifier = Modifier.padding(start = 12.dp, top = 10.dp),
+                            style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
                         if (groupMode == "Sagas" && name != "Sin saga") {
                             val numbers = group.map { sagaNumber(it) }
                                 .filter { it.isFinite() && it >= 1 && it <= 100 && it % 1.0 == 0.0 }
@@ -3667,7 +3699,8 @@ private fun openCasaDelLibro(context: Context) {
                                 .filterNot(numbers::contains) else emptyList()
                             if (missing.isNotEmpty()) Text(
                                 "Sin EPUB en la biblioteca: " + missing.joinToString(", "),
-                                fontSize = 11.sp, color = Mahogany)
+                                fontSize = 11.sp, color = Color.White,
+                                style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
                         }
                     }
                     val ordered = group
@@ -3872,7 +3905,8 @@ private fun openCasaDelLibro(context: Context) {
     Column {
         Text("Continuar leyendo", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
             fontSize = 21.sp, color = Color.White,
-            modifier = Modifier.padding(start = 12.dp, top = 16.dp, bottom = 12.dp))
+            modifier = Modifier.padding(start = 12.dp, top = 16.dp, bottom = 12.dp),
+            style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
         BoxWithConstraints(Modifier.fillMaxWidth()) {
         val coverWidth = (maxWidth - 36.dp) / 2
         LazyRow(Modifier.fillMaxWidth().pointerInput(Unit) {
@@ -4586,6 +4620,8 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                     Color(0x8A160E09), Color(0x701B110B),
                     Color(0x82130D09), Color(0xA00B0806)),
                     startY = 0f, endY = h))
+                drawRect(Brush.horizontalGradient(listOf(
+                    Color(0x52000000), Color(0x26000000), Color(0x42000000))))
                 drawRect(Brush.radialGradient(listOf(
                     Color(0xFFFFB75E).copy(alpha = glimmer), Color.Transparent),
                     center = Offset(w * .70f + shift, h * .24f), radius = w * .85f))
