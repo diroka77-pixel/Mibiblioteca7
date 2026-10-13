@@ -50,3 +50,5 @@ jobs:
       - name: Eliminar clave temporal
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
+
+# Ejecutar compilación
