@@ -2663,7 +2663,9 @@ private fun openCasaDelLibro(context: Context) {
             restoreListPosition = false
         }
     }
-    val swipeThreshold = with(LocalDensity.current) { 36.dp.toPx() }
+    // Require a deliberate horizontal gesture. A low threshold made vertical scrolling and
+    // taps on cards feel as if the whole screen was trying to change tab.
+    val swipeThreshold = with(LocalDensity.current) { 56.dp.toPx() }
     val pullRefreshTopInset = with(LocalDensity.current) { 148.dp.toPx() }
     val pullRefreshBottomInset = with(LocalDensity.current) { 80.dp.toPx() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -2844,7 +2846,7 @@ private fun openCasaDelLibro(context: Context) {
     }
     val groupedBooks by key(groupingKey, visibleBooks) {
       produceState(groupingCache[groupingKey].orEmpty(), visibleBooks, groupingKey) {
-        groupingCache[groupingKey]?.let { cached ->
+        groupingCache[groupingKey]?.takeIf { it.isNotEmpty() || visibleBooks.isEmpty() }?.let { cached ->
             value = cached
             return@produceState
         }
@@ -3068,7 +3070,7 @@ private fun openCasaDelLibro(context: Context) {
                 { vm.downloadForOffline(shown) }, vm.offlineDownloadUri == shown.uri,
                 vm.offlineDownloadPercent, vm.offlineDownloadMessage,
                 shown.uri in offlineBookUris, { vm.removeOfflineCopy(shown) },
-                vm.wallpaperMode)
+                vm.wallpaperMode, vm.books)
         } else {
     val currentTab by rememberUpdatedState(tab)
     val currentSwitch by rememberUpdatedState<(String) -> Unit>({ switchTab(it) })
@@ -3090,12 +3092,12 @@ private fun openCasaDelLibro(context: Context) {
                 if (!change.pressed) break
                 val horizontal = end.x - start.x
                 val vertical = end.y - start.y
-                if (!draggingPage && kotlin.math.abs(vertical) > swipeThreshold * 0.35f &&
-                    kotlin.math.abs(vertical) > kotlin.math.abs(horizontal) * 1.15f)
+                if (!draggingPage && kotlin.math.abs(vertical) > swipeThreshold * 0.30f &&
+                    kotlin.math.abs(vertical) > kotlin.math.abs(horizontal) * 1.35f)
                     verticalGesture = true
                 if (!verticalGesture && !startedOnCarousel &&
-                    (draggingPage || (kotlin.math.abs(horizontal) > swipeThreshold * 0.35f &&
-                        kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.25f))) {
+                    (draggingPage || (kotlin.math.abs(horizontal) > swipeThreshold * 0.55f &&
+                        kotlin.math.abs(horizontal) > kotlin.math.abs(vertical) * 1.65f))) {
                     draggingPage = true
                     pageDrag.floatValue = horizontal.coerceIn(-pageWidthPx, pageWidthPx)
                     change.consume()
@@ -3349,15 +3351,7 @@ private fun openCasaDelLibro(context: Context) {
                 }
             }
         },
-        floatingActionButton = {
-            if (tab == "Biblioteca") FloatingActionButton(
-                onClick = { folderPicker.launch(null) },
-                containerColor = Color(0xFF9A6843), contentColor = Color.White,
-                shape = androidx.compose.foundation.shape.CircleShape,
-                modifier = Modifier.size(58.dp)) {
-                Icon(Icons.Outlined.Add, "Añadir libros", modifier = Modifier.size(30.dp))
-            }
-        }
+        floatingActionButton = { }
     ) { p ->
       Box(Modifier.padding(p).fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -3530,15 +3524,6 @@ private fun openCasaDelLibro(context: Context) {
                                 ConceptViewSelector(vm.viewModeFor(vm.selectedSection),
                                     onGallery = { vm.chooseViewMode("Galería") },
                                     onList = { vm.chooseViewMode("Lista") })
-                                Spacer(Modifier.width(6.dp))
-                                Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-                                    color = Color(0xB3211D1A),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha=.42f))) {
-                                    IconButton(onClick = { scope.launch { drawerState.open() } },
-                                        modifier = Modifier.size(44.dp)) {
-                                        Icon(Icons.Outlined.FilterList, "Filtros y agrupación", tint = Color.White)
-                                    }
-                                }
                             }
                         }
                         if (vm.bulkInfoLoading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
@@ -3681,9 +3666,32 @@ private fun openCasaDelLibro(context: Context) {
                     WallpaperLabel("No has marcado ningún género. Abre el filtro y selecciona los que quieras ver.",
                         modifier = Modifier.padding(20.dp))
                 }
+            } else if (tab == "Secciones" && genreDisplayGroups.isEmpty()) {
+                item(key = "empty-sections") {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(20.dp),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+                        color = Color(0xDB211D1A),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp, Color.White.copy(alpha = .28f))
+                    ) {
+                        Column(Modifier.padding(18.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally) {
+                            AppIcon("Secciones", tint = Color.White, size = 36.dp)
+                            Spacer(Modifier.height(8.dp))
+                            Text("Todavía no hay libros en secciones",
+                                color = Color.White, fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center)
+                            Text("Crea una sección y asígnale libros desde su ficha.",
+                                color = Color.White.copy(alpha = .86f), fontSize = 12.sp,
+                                textAlign = TextAlign.Center)
+                        }
+                    }
+                }
             } else if (genreDisplayGroups.isEmpty()) {
                 item(key = "organizing-books") {
-                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(20.dp), color = Teal)
+                    WallpaperLabel("Preparando la biblioteca…",
+                        modifier = Modifier.padding(20.dp))
                 }
             } else {
                 genreDisplayGroups.forEach { (name, group) ->
@@ -4776,7 +4784,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     downloadForOffline: () -> Unit, offlineDownloading: Boolean,
     offlineDownloadPercent: Int, offlineDownloadMessage: String?,
     offlineAvailable: Boolean, removeOfflineCopy: () -> Unit,
-    wallpaperMode: String
+    wallpaperMode: String, libraryBooks: List<Book>
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -4908,6 +4916,21 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
         book.description.takeIf { book.language.lowercase().startsWith("es") ||
             book.language.lowercase().startsWith("spa") }.orEmpty()
     }
+    val sagaBooks = remember(book.saga, libraryBooks) {
+        if (book.saga.isBlank()) emptyList() else libraryBooks
+            .filter { it.saga.equals(book.saga, ignoreCase = true) }
+            .sortedWith(compareBy<Book> { sagaNumber(it) }
+                .thenBy(String.CASE_INSENSITIVE_ORDER) { displayTitle(it) })
+    }
+    val sagaNumbers = remember(sagaBooks) {
+        sagaBooks.map { sagaNumber(it) }
+            .filter { it.isFinite() && it >= 1 && it <= 100 && it % 1.0 == 0.0 }
+            .map { it.toInt() }.toSet()
+    }
+    val sagaMissing = remember(sagaNumbers) {
+        val last = sagaNumbers.maxOrNull() ?: 0
+        if (last > 1) (1..last).filterNot(sagaNumbers::contains) else emptyList()
+    }
     Box(Modifier.fillMaxSize().background(Parchment)) {
     LibraryWallpaper(wallpaperMode, book)
     Scaffold(containerColor = Color.Transparent, topBar = {
@@ -4920,7 +4943,9 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     }) { p ->
         LazyColumn(Modifier.padding(p).fillMaxSize().padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 14.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            (detailMessage ?: message)?.let { notice -> item { Text(notice, color = Mahogany, fontSize = 12.sp) } }
+            (detailMessage ?: message)?.let { notice -> item {
+                WallpaperLabel(notice, fontSize = 12.sp)
+            } }
             if (needsReview) item(key = "review-details") {
                 Card(colors = CardDefaults.cardColors(containerColor = Paper)) {
                     Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -4948,22 +4973,25 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         .height(3.dp)
                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(3.dp))
                         .background(Brass))
-                    if (book.cover == null && coverSearching) Text("Buscando portada…",
-                        fontSize = 11.sp, color = Mahogany)
-                    if (book.cover != null) Text("Portada: " + book.coverSource.ifBlank {
+                    if (book.cover == null && coverSearching)
+                        WallpaperLabel("Buscando portada…", fontSize = 11.sp)
+                    if (book.cover != null) WallpaperLabel("Portada: " + book.coverSource.ifBlank {
                         if (book.hadEmbeddedCover) "EPUB" else "No registrada"
-                    }, fontSize = 11.sp, color = Mahogany)
+                    }, fontSize = 11.sp)
                     Spacer(Modifier.height(12.dp))
-                    Text(displayTitle(book), fontSize = 16.sp, lineHeight = 20.sp,
+                    Text(displayTitle(book), fontSize = 18.sp, lineHeight = 22.sp,
                         modifier = Modifier.graphicsLayer {
                             alpha = opening.value
                             translationY = (1f - opening.value) * 22.dp.toPx()
                         },
-                        fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                        fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
                     Spacer(Modifier.height(4.dp))
-                    Text(displayAuthor(book), fontSize = 13.sp, color = Mahogany)
-                    if (book.saga.isNotBlank()) Text("Saga: ${book.saga}" +
-                        book.sagaOrder.takeIf { it.isNotBlank() }?.let { " · nº $it" }.orEmpty(), fontSize = 12.sp)
+                    WallpaperLabel(displayAuthor(book), fontSize = 14.sp)
+                    if (book.saga.isNotBlank()) WallpaperLabel("Saga: ${book.saga}" +
+                        book.sagaOrder.takeIf { it.isNotBlank() }?.let { " · nº $it" }.orEmpty(),
+                        fontSize = 12.sp)
                     Spacer(Modifier.height(14.dp))
                 Button(onClick = {
                     openBook()
@@ -4998,9 +5026,10 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 if (offlineDownloading) {
                     LinearProgressIndicator(progress = { offlineDownloadPercent / 100f },
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp), color = Teal)
-                    Text("Descargando en el teléfono · $offlineDownloadPercent %", fontSize = 12.sp)
+                    WallpaperLabel("Descargando en el teléfono · $offlineDownloadPercent %",
+                        fontSize = 12.sp)
                 } else if (offlineDownloadMessage != null) {
-                    Text(offlineDownloadMessage, fontSize = 12.sp, color = Mahogany)
+                    WallpaperLabel(offlineDownloadMessage, fontSize = 12.sp)
                 }
                 if (offlineAvailable) {
                     Surface(Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -5076,7 +5105,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 }
             }
             item {
-                Text("Estado", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Mahogany)
+                WallpaperLabel("Estado", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ReadingStatus.entries.forEach { status ->
                         CatalogChip(status.label, book.status == status) { setStatus(status) }
@@ -5086,7 +5115,42 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
             item {
                 Text("Datos del libro", fontFamily = FontFamily.Serif,
                     fontWeight = FontWeight.Bold, fontSize = 17.sp,
-                    color = Mahogany, modifier = Modifier.padding(top = 8.dp))
+                    color = Color.White, modifier = Modifier.padding(top = 8.dp),
+                    style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+            }
+            item {
+                BookPanel("Saga y orden de lectura", book.uri.toString(), initiallyExpanded = true) {
+                    if (book.saga.isBlank()) {
+                        Text("No hay una saga asignada a este libro.",
+                            fontSize = 12.sp, color = Mahogany)
+                        Text("Puedes añadirla con «Editar datos».",
+                            fontSize = 12.sp, color = Mahogany.copy(alpha = .76f))
+                    } else {
+                        Text(book.saga, fontWeight = FontWeight.Bold, color = Mahogany)
+                        Text(
+                            if (book.sagaOrder.isNotBlank()) "Este libro es el número ${book.sagaOrder}."
+                            else "Este libro no tiene número de saga asignado.",
+                            fontSize = 12.sp, color = Mahogany
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        sagaBooks.forEach { sagaBook ->
+                            val order = sagaBook.sagaOrder.ifBlank { "?" }
+                            Text("$order. ${displayTitle(sagaBook)}" +
+                                if (sagaBook.uri == book.uri) "  · Este libro" else "",
+                                fontSize = 12.sp,
+                                fontWeight = if (sagaBook.uri == book.uri) FontWeight.Bold else FontWeight.Normal,
+                                color = Mahogany)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            if (sagaMissing.isEmpty()) "No se detectan números anteriores ausentes."
+                            else "Faltan en tu biblioteca: ${sagaMissing.joinToString(", ")}.",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (sagaMissing.isEmpty()) Teal else Color(0xFF9A4C32)
+                        )
+                    }
+                }
             }
             item {
                 BookPanel("Géneros", book.uri.toString(), initiallyExpanded = true) {
