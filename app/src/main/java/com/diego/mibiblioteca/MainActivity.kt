@@ -2420,11 +2420,11 @@ private fun openCasaDelLibro(context: Context) {
     }, leadingIcon = { AppIcon(label.removePrefix("★ ").substringBefore(" ("), size = 18.dp) },
         shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp,
-            if (selected) Color.White.copy(alpha = 0.8f) else accent.copy(alpha = 0.8f)),
+            if (selected) accent else Brass.copy(alpha = 0.35f)),
         colors = FilterChipDefaults.filterChipColors(
-            containerColor = accent, labelColor = Ink,
-            iconColor = Ink, selectedLeadingIconColor = Ink,
-            selectedContainerColor = accent, selectedLabelColor = Ink))
+            containerColor = Paper.copy(alpha = 0.95f), labelColor = Ink,
+            iconColor = Teal, selectedLeadingIconColor = Color.White,
+            selectedContainerColor = accent, selectedLabelColor = Color.White))
 }
 
 @Composable private fun LibraryActionButton(
@@ -3280,8 +3280,12 @@ private fun openCasaDelLibro(context: Context) {
                         Icon(Icons.Outlined.Menu, "Abrir menú", tint = Color.White)
                     }
                     Text("Mi Biblioteca", modifier = Modifier.align(Alignment.Center),
-                        color = Color.White, fontSize = 20.sp,
+                        color = Color.White, fontSize = 26.sp,
                         fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Serif)
+                    IconButton(onClick = { vm.sync() }, enabled = !vm.syncing,
+                        modifier = Modifier.align(Alignment.CenterEnd)) {
+                        Icon(Icons.Outlined.Sync, "Sincronizar biblioteca", tint = Color.White)
+                    }
                 }
                 OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
                     tab = "Biblioteca"; vm.qualityFilter = "Ninguno"
@@ -3303,7 +3307,6 @@ private fun openCasaDelLibro(context: Context) {
                 listOf(
                     Triple("Inicio", "Inicio", "Inicio"),
                     Triple("Biblioteca", "Libros", "Libros"),
-                    Triple("Géneros", "Géneros", "Géneros"),
                     Triple("Secciones", "Secciones", "Secciones"),
                     Triple("Favoritos", "Favoritos", "Favoritos")
                 ).forEach { (targetTab, label, icon) ->
@@ -3325,9 +3328,6 @@ private fun openCasaDelLibro(context: Context) {
     ) { p ->
       Box(Modifier.padding(p).fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-        QuickAccess(
-            onGoodreads = { openGoodreads(context) },
-            onGoogle = { openGoogleAi(context) }, immersive = immersive)
         if (vm.offlineDownloadUri != null) {
             LinearProgressIndicator(progress = { vm.offlineDownloadPercent / 100f },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), color = Teal)
@@ -3424,9 +3424,6 @@ private fun openCasaDelLibro(context: Context) {
                     }
                     HorizontalDivider(color = Brass.copy(alpha = 0.4f), thickness = 1.dp)
                     }
-                    if (tab == "Biblioteca") Text("Todos los libros",
-                        fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold, color = Mahogany)
                     if (tab == "Secciones") Text("Tus secciones",
                         fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall, color = Mahogany)
                     if (tab == "Favoritos") Text("Tus favoritos",
@@ -3442,8 +3439,18 @@ private fun openCasaDelLibro(context: Context) {
                         Text("Buscando portadas ${vm.coverUpdateDone}/${vm.coverUpdateTotal}…", fontSize = 12.sp, color = Mahogany)
                     }
                     if (tab == "Biblioteca") {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("${filteredBooks.size} libros", Modifier.weight(1f), color = Mahogany)
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            CatalogChip("Todos", !showWishList && !vm.onlyFavorites && vm.statusFilter == null) {
+                                showWishList = false; vm.onlyFavorites = false; vm.statusFilter = null
+                            }
+                            CatalogChip("Favoritos", !showWishList && vm.onlyFavorites) {
+                                showWishList = false; vm.onlyFavorites = true; vm.statusFilter = null
+                            }
+                            CatalogChip("Pendientes", !showWishList && !vm.onlyFavorites && vm.statusFilter == ReadingStatus.PENDING) {
+                                showWishList = false; vm.onlyFavorites = false; vm.statusFilter = ReadingStatus.PENDING
+                            }
                             Box {
                                 LibraryTextButton(onClick = { sortMenu = true }) {
                                     ActionLabel("Orden: $sortMode", "Sagas", 12.sp)
@@ -3454,6 +3461,39 @@ private fun openCasaDelLibro(context: Context) {
                                             sortMode = option; sortMenu = false
                                         })
                                     }
+                                }
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(when {
+                                    showWishList -> "Quiero leer"
+                                    vm.onlyFavorites -> "Tus favoritos"
+                                    vm.statusFilter == ReadingStatus.PENDING -> "Libros pendientes"
+                                    vm.statusFilter == ReadingStatus.READING -> "Leyendo"
+                                    vm.statusFilter == ReadingStatus.READ -> "Libros leídos"
+                                    else -> "Todos los libros"
+                                }, fontFamily = FontFamily.Serif, fontSize = 23.sp,
+                                    fontWeight = FontWeight.Bold, color = Mahogany)
+                                Text("${if (showWishList) vm.wishList.size else filteredBooks.size} libros",
+                                    color = Mahogany, fontSize = 13.sp)
+                            }
+                            if (!showWishList) {
+                                Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                                    color = Paper.copy(alpha = 0.95f)) {
+                                    Row {
+                                        listOf("Galería", "Lista").forEach { mode ->
+                                            IconToggleButton(checked = vm.viewModeFor(vm.selectedSection) == mode,
+                                                onCheckedChange = { if (it) vm.chooseViewMode(mode) }) {
+                                                AppIcon(mode, "Vista $mode", tint =
+                                                    if (vm.viewModeFor(vm.selectedSection) == mode) Teal else Mahogany)
+                                            }
+                                        }
+                                    }
+                                }
+                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                    Icon(Icons.Outlined.FilterList, "Filtros y agrupación", tint = Mahogany)
                                 }
                             }
                         }
@@ -3633,7 +3673,8 @@ private fun openCasaDelLibro(context: Context) {
                                 items(ordered, key = { "carousel:$name:" + it.uri },
                                     contentType = { "genre-book" }) { book ->
                                     BookGalleryCard(book, Modifier.width(148.dp), book.uri in offlineBookUris,
-                                        vm.readingPercent(book.uri), { bookMenu = book }) { openBookFromList(book) }
+                                        vm.readingPercent(book.uri), { bookMenu = book },
+                                        onToggleFavorite = { vm.toggleFavorite(book.uri) }) { openBookFromList(book) }
                                 }
                             }
                         }
@@ -3648,12 +3689,14 @@ private fun openCasaDelLibro(context: Context) {
                             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 BookGalleryCard(first, Modifier.weight(1f), first.uri in offlineBookUris,
-                                    vm.readingPercent(first.uri), { bookMenu = first }) {
+                                    vm.readingPercent(first.uri), { bookMenu = first },
+                                    onToggleFavorite = { vm.toggleFavorite(first.uri) }) {
                                     openBookFromList(first)
                                 }
                                 if (second != null) {
                                     BookGalleryCard(second, Modifier.weight(1f), second.uri in offlineBookUris,
-                                        vm.readingPercent(second.uri), { bookMenu = second }) {
+                                        vm.readingPercent(second.uri), { bookMenu = second },
+                                        onToggleFavorite = { vm.toggleFavorite(second.uri) }) {
                                         openBookFromList(second)
                                     }
                                 } else Spacer(Modifier.weight(1f))
@@ -3728,39 +3771,6 @@ private fun openCasaDelLibro(context: Context) {
             .offset { androidx.compose.ui.unit.IntOffset(0, (trackHeight * progress).toInt()) }
             .width(5.dp).height(48.dp).background(Brass.copy(alpha = 0.55f),
                 androidx.compose.foundation.shape.RoundedCornerShape(3.dp)))
-    }
-}
-
-@Composable private fun QuickAccess(
-    onGoodreads: () -> Unit, onGoogle: () -> Unit, immersive: Boolean
-) {
-    val shortcuts = listOf(
-        Triple("Reseña", "Reseña", Teal) to onGoodreads,
-        Triple("Búsqueda IA", "Búsqueda IA", Color(0xFFB96056)) to onGoogle
-    )
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        shortcuts.forEachIndexed { index, (item, action) ->
-            Surface(
-                modifier = Modifier.weight(1f).heightIn(min = 50.dp).clickable(onClick = action),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                color = if (immersive) Paper.copy(alpha = 0.92f) else Paper,
-                tonalElevation = 0.dp,
-                border = androidx.compose.foundation.BorderStroke(1.dp,
-                    item.third.copy(alpha = 0.30f))
-            ) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center) {
-                    AppIcon(item.second, tint = item.third, size = 21.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text(item.first, fontSize = 13.sp, maxLines = 1,
-                        color = Mahogany.copy(alpha = 0.85f),
-                        textAlign = TextAlign.Center)
-                }
-            }
-        }
     }
 }
 
@@ -3863,30 +3873,67 @@ private fun openCasaDelLibro(context: Context) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable private fun BookGalleryCard(book: Book, modifier: Modifier = Modifier,
-    offline: Boolean, progress: Int, onLongPress: () -> Unit, onClick: () -> Unit) {
+    offline: Boolean, progress: Int, onLongPress: () -> Unit,
+    onToggleFavorite: (() -> Unit)? = null, onClick: () -> Unit) {
     val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
-    BoxWithConstraints(modifier.combinedClickable(
-        onClick = onClick, onLongClick = onLongPress).padding(bottom = 8.dp)) {
+    val statusColor = when (book.status) {
+        ReadingStatus.READING -> Color(0xFF245B76)
+        ReadingStatus.READ -> Teal
+        ReadingStatus.PENDING -> Color(0xFF936B43)
+    }
+    BoxWithConstraints(modifier.padding(bottom = 8.dp)) {
         val coverWidth = maxWidth
-        Column(Modifier.fillMaxWidth().height(coverWidth * 1.42f + 104.dp)) {
-            Box {
+        Card(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongPress),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Paper.copy(alpha = 0.97f)),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = 0.28f))) {
+            Box(Modifier.fillMaxWidth()) {
                 Cover(book, coverWidth, coverWidth * 1.42f)
-                if (offline) OfflineBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
+                Surface(Modifier.align(Alignment.TopEnd).padding(6.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                    color = Ink.copy(alpha = 0.70f)) {
+                    Row {
+                        if (onToggleFavorite != null) IconButton(onClick = onToggleFavorite) {
+                            AppIcon(if (book.favorite) "Favorito" else "Favoritos",
+                                if (book.favorite) "Quitar de favoritos" else "Añadir a favoritos",
+                                tint = Color.White, size = 22.dp)
+                        }
+                        IconButton(onClick = onLongPress) {
+                            AppIcon("Opciones", "Opciones del libro", tint = Color.White, size = 22.dp)
+                        }
+                    }
+                }
+                if (offline) OfflineBadge(Modifier.align(Alignment.BottomEnd).padding(6.dp))
             }
-            Spacer(Modifier.height(7.dp))
-            Text(title, fontSize = 13.sp, lineHeight = 17.sp,
-                fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                minLines = 2, maxLines = 2, color = Ink)
-            Text(author, fontSize = 11.sp, maxLines = 1,
-                color = Mahogany.copy(alpha = 0.75f))
-            if (book.status == ReadingStatus.READING) {
-                Spacer(Modifier.height(5.dp))
-                LinearProgressIndicator(progress = { progress.coerceIn(0, 100) / 100f },
-                    modifier = Modifier.fillMaxWidth(), color = Teal,
-                    trackColor = Brass.copy(alpha = 0.15f))
-                Text("$progress %", fontSize = 10.sp, color = Teal)
-            } else Spacer(Modifier.height(24.dp))
+            Column(Modifier.fillMaxWidth().height(132.dp).padding(horizontal = 10.dp, vertical = 8.dp)) {
+                Text(title, fontSize = 15.sp, lineHeight = 19.sp,
+                    fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                    minLines = 2, maxLines = 2, color = Ink,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Text(author, fontSize = 12.sp, maxLines = 1,
+                    color = Mahogany.copy(alpha = 0.85f),
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Spacer(Modifier.height(6.dp))
+                if (book.status == ReadingStatus.READING) Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    LinearProgressIndicator(progress = { progress.coerceIn(0, 100) / 100f },
+                        modifier = Modifier.weight(1f), color = statusColor,
+                        trackColor = Brass.copy(alpha = 0.25f))
+                    Text("${progress.coerceIn(0, 100)} %", fontSize = 10.sp, color = statusColor)
+                }
+                Spacer(Modifier.weight(1f))
+                Surface(color = statusColor,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)) {
+                    Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        AppIcon(book.status.label, tint = Color.White, size = 14.dp)
+                        Text(if (book.status == ReadingStatus.READ) "Completado" else book.status.label,
+                            fontSize = 11.sp, color = Color.White)
+                    }
+                }
+            }
         }
     }
 }
