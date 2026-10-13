@@ -1,4 +1,5 @@
 name: Compilar revisión funcional completa
+# Reintento tras validar el orden por género
 on:
   push:
     branches: [redisenio-biblioteca-096]
