@@ -4386,12 +4386,11 @@ private fun openCasaDelLibro(context: Context) {
                             if (!showWishList) {
                                 ConceptViewSelector(vm.viewModeFor(vm.selectedSection),
                                     onGallery = {
+                                        // Preserve the current position when switching presentation.
                                         vm.chooseViewMode("Galería")
-                                        scope.launch { libraryListState.scrollToItem(0) }
                                     },
                                     onList = {
                                         vm.chooseViewMode("Lista")
-                                        scope.launch { libraryListState.scrollToItem(0) }
                                     })
                             }
                         }
