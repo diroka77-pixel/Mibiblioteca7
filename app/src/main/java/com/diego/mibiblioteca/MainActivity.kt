@@ -4317,6 +4317,14 @@ private fun openCasaDelLibro(context: Context) {
             if (tab == "Inicio") item(key = "home-summary") {
                 HomeReadingSummary(vm.books, vm::readingPercent)
             }
+            if (tab == "Inicio") item(key = "home-recommendations") {
+                val recommendations = vm.books.filter { it.status != ReadingStatus.READING }
+                    .sortedWith(compareByDescending<Book> { it.favorite }.thenBy { displayTitle(it) })
+                    .take(12)
+                HomeRecommendations(recommendations, offlineBookUris, onLongPress = { bookMenu = it }) {
+                    startReader(it)
+                }
+            }
             item(key = "controls") {
                 Column(Modifier.padding(horizontal = 12.dp)) {
                     if (tab == "Inicio") {
@@ -4877,6 +4885,44 @@ private fun HomeMetricCard(label: String, value: String, accent: Color, modifier
         Column(Modifier.padding(11.dp)) {
             Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = accent)
             Text(label, fontSize = 11.sp, color = Ink, maxLines = 1)
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HomeRecommendations(books: List<Book>, offline: Set<Uri>,
+    onLongPress: (Book) -> Unit, onOpen: (Book) -> Unit) {
+    if (books.isEmpty()) return
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("Recomendados para ti", fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Bold, fontSize = 21.sp, color = Color.White,
+                modifier = Modifier.weight(1f),
+                style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+            Text("Ver todos", color = Color.White.copy(alpha = .78f), fontSize = 12.sp)
+        }
+        LazyRow(Modifier.fillMaxWidth().padding(top = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp)) {
+            items(books, key = { "recommendation:" + it.uri }) { book ->
+                Column(Modifier.width(112.dp).combinedClickable(
+                    onClick = { onOpen(book) }, onLongClick = { onLongPress(book) })) {
+                    Box {
+                        FlatCover(book, 112.dp, 164.dp)
+                        if (book.uri in offline) OfflineBadge(
+                            Modifier.align(Alignment.TopEnd).padding(4.dp), compact = true)
+                    }
+                    Text(displayTitle(book), color = Color.White, fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold, maxLines = 2,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 5.dp))
+                    Text(displayAuthor(book), color = Color.White.copy(alpha = .72f),
+                        fontSize = 10.sp, maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                }
+            }
         }
     }
 }
