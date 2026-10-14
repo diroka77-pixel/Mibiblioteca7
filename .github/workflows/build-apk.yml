@@ -1,6 +1,9 @@
 name: Compilar APK firmada
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - desarrollo/optimizacion-integral
 permissions:
   contents: read
   actions: read
