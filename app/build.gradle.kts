@@ -44,6 +44,7 @@ dependencies {
     implementation("androidx.metrics:metrics-performance:1.0.0")
     implementation("com.google.mlkit:translate:17.0.3")
     implementation("com.google.mlkit:language-id:17.0.6")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation("org.jsoup:jsoup:1.23.2")
     implementation("com.google.code.gson:gson:2.11.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
