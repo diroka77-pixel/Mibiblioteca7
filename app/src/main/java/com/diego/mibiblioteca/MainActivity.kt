@@ -4193,8 +4193,8 @@ private fun openCasaDelLibro(context: Context) {
             }
         },
         bottomBar = {
-            NavigationBar(containerColor = Color(0xE822201E),
-                contentColor = Color.White,
+            NavigationBar(containerColor = LibraryVisualTokens.overlay,
+                contentColor = LibraryVisualTokens.onDark,
                 tonalElevation = 4.dp) {
                 listOf(
                     Triple("Inicio", "Inicio", "Inicio"),
