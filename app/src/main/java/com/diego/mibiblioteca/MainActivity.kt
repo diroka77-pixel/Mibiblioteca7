@@ -3192,11 +3192,11 @@ private fun openCasaDelLibro(context: Context) {
                 pendingReader = book
                 // Finish the physical movement before composing the reader behind the page.
                 readerTransition.animateTo(0.84f,
-                    tween(1180, easing = LinearEasing))
+                    tween(540, easing = FastOutSlowInEasing))
                 readingUri = book.uri.toString()
                 withFrameNanos { }
                 readerTransition.animateTo(1f,
-                    tween(340, easing = FastOutSlowInEasing))
+                    tween(180, easing = FastOutSlowInEasing))
             } finally {
                 pendingReader = null
                 readerTransitionBusy = false
@@ -5671,7 +5671,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
         Box(Modifier.fillMaxSize()) {
             Box(Modifier.align(Alignment.TopEnd).padding(top = 24.dp, end = 16.dp)
                 .graphicsLayer { alpha = .10f; rotationZ = -8f }) {
-                Cover(book, 180.dp, 255.dp)
+                FlatCover(book, 180.dp, 255.dp)
             }
         }
     }
