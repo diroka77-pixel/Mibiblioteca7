@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
     <shortcut android:shortcutId="continue_reading" android:enabled="true"
-        android:icon="@mipmap/ic_launcher" android:shortcutShortLabel="Continuar leyendo"
-        android:shortcutLongLabel="Continuar el último libro">
+        android:icon="@mipmap/ic_launcher" android:shortcutShortLabel="@string/shortcut_continue_short"
+        android:shortcutLongLabel="@string/shortcut_continue_long">
         <intent android:action="android.intent.action.VIEW" android:targetPackage="com.diego.mibiblioteca"
             android:targetClass="com.diego.mibiblioteca.MainActivity" />
     </shortcut>
     <shortcut android:shortcutId="open_library" android:enabled="true"
-        android:icon="@mipmap/ic_launcher" android:shortcutShortLabel="Abrir biblioteca"
-        android:shortcutLongLabel="Abrir Mi Biblioteca">
+        android:icon="@mipmap/ic_launcher" android:shortcutShortLabel="@string/shortcut_library_short"
+        android:shortcutLongLabel="@string/shortcut_library_long">
         <intent android:action="android.intent.action.MAIN" android:targetPackage="com.diego.mibiblioteca"
             android:targetClass="com.diego.mibiblioteca.MainActivity" />
     </shortcut>
