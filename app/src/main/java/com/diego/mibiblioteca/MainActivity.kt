@@ -175,6 +175,8 @@ data class InfoCandidate(
     val plotSource: String, val bioSource: String
 )
 
+data class SagaVolume(val order: String, val title: String)
+
 private class BookStore(context: Context) : SQLiteOpenHelper(context, "catalog.db", null, 1) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE books (uri TEXT PRIMARY KEY, content TEXT NOT NULL)")
@@ -305,6 +307,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var genreProgress by mutableIntStateOf(0); private set
     var genreTotal by mutableIntStateOf(0); private set
     var sagaSearches by mutableStateOf<Set<Uri>>(emptySet()); private set
+    var sagaCatalogs by mutableStateOf<Map<String, List<SagaVolume>>>(emptyMap()); private set
+    var sagaCatalogSearches by mutableStateOf<Set<String>>(emptySet()); private set
     private var bulkJob: Job? = null
     private var coverRefreshJob: Job? = null
     var coverUpdateRunning by mutableStateOf(false); private set
@@ -418,6 +422,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         showHomeNews = prefs.getBoolean("show_home_news", true)
         readingFirst = prefs.getBoolean("reading_first", true)
         loadWishList()
+        sagaCatalogs = try {
+            val saved = JSONObject(prefs.getString("saga_catalogs", "{}") ?: "{}")
+            saved.keys().asSequence().associateWith { key ->
+                val array = saved.optJSONArray(key) ?: org.json.JSONArray()
+                (0 until array.length()).mapNotNull { index ->
+                    array.optJSONObject(index)?.let { item ->
+                        SagaVolume(item.optString("order"), item.optString("title"))
+                    }?.takeIf { it.title.isNotBlank() }
+                }
+            }
+        } catch (_: Exception) { emptyMap() }
         wallpaperMode = prefs.getString("wallpaper_mode", "Automático") ?: "Automático"
         lastOpenedUri = prefs.getString("last_opened_book", null)?.let(Uri::parse)
         folderName = prefs.getString("folder_name", null)
@@ -924,10 +939,40 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     saveBooks()
                     detailMessage = "Saga encontrada: ${found.first}" +
                         found.second.takeIf(String::isNotBlank)?.let { " · número $it" }.orEmpty()
+                    searchSagaCatalog(found.first, book)
                 }
             } catch (e: Exception) {
                 detailMessage = "No se pudo consultar la saga: ${e.localizedMessage ?: "sin conexión"}"
             } finally { sagaSearches = sagaSearches - uri }
+        }
+    }
+
+    fun searchSagaCatalog(saga: String, reference: Book? = null) {
+        val clean = saga.trim()
+        val key = clean.lowercase()
+        if (clean.isBlank() || key in sagaCatalogSearches) return
+        val book = reference ?: books.firstOrNull { it.saga.equals(clean, true) }
+        viewModelScope.launch {
+            sagaCatalogSearches = sagaCatalogSearches + key
+            try {
+                val found = withContext(Dispatchers.IO) { fetchSagaCatalog(clean, book) }
+                if (found.isEmpty()) {
+                    detailMessage = "No se ha podido obtener el catálogo completo de «$clean»."
+                } else {
+                    sagaCatalogs = sagaCatalogs + (key to found)
+                    val root = JSONObject()
+                    sagaCatalogs.forEach { (savedKey, volumes) ->
+                        root.put(savedKey, org.json.JSONArray().apply {
+                            volumes.forEach { volume -> put(JSONObject()
+                                .put("order", volume.order).put("title", volume.title)) }
+                        })
+                    }
+                    prefs.edit().putString("saga_catalogs", root.toString()).apply()
+                    detailMessage = "Saga comprobada: ${found.size} volúmenes encontrados."
+                }
+            } catch (e: Exception) {
+                detailMessage = "No se pudo comprobar la saga: ${e.localizedMessage ?: "sin conexión"}"
+            } finally { sagaCatalogSearches = sagaCatalogSearches - key }
         }
     }
 
@@ -2165,6 +2210,69 @@ private fun fetchSagaMetadata(book: Book): Pair<String, String> {
     return "" to ""
 }
 
+private fun fetchSagaCatalog(saga: String, reference: Book?): List<SagaVolume> {
+    val found = linkedMapOf<String, SagaVolume>()
+    val sagaKey = saga.lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
+    fun add(order: String, title: String) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) return
+        val cleanOrder = order.trim().replace(',', '.')
+        val key = cleanOrder.takeIf(String::isNotBlank)?.let { "n:$it" }
+            ?: "t:" + cleanTitle.lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
+        found.putIfAbsent(key, SagaVolume(cleanOrder, cleanTitle))
+    }
+
+    // Open Library supplies the edition-independent series label for many works.
+    try {
+        val encoded = java.net.URLEncoder.encode(saga, "UTF-8")
+        val docs = getJson("https://openlibrary.org/search.json?series=$encoded" +
+            "&fields=title,author_name,series,first_publish_year&limit=100").optJSONArray("docs")
+        for (i in 0 until (docs?.length() ?: 0)) {
+            val item = docs?.optJSONObject(i) ?: continue
+            val series = item.optJSONArray("series") ?: continue
+            val matching = (0 until series.length()).map { series.optString(it) }
+                .firstOrNull { raw ->
+                    raw.lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "").contains(sagaKey) ||
+                        sagaKey.contains(raw.lowercase().replace(Regex("[^\\p{L}\\p{N}]"), ""))
+                } ?: continue
+            val parsed = parseSagaLabel(matching)
+            add(parsed.second, item.optString("title"))
+        }
+    } catch (_: Exception) { }
+
+    // Wikidata models “part of the series” (P179) and the series ordinal (P1545).
+    try {
+        val escaped = saga.replace("\\", "\\\\").replace("\"", "\\\"")
+        val authorFilter = reference?.let(::displayAuthor)?.takeUnless(::unknownAuthor)
+            ?.replace("\\", "\\\\")?.replace("\"", "\\\"").orEmpty()
+        val query = "SELECT DISTINCT ?work ?workLabel ?ordinal WHERE { " +
+            "?series rdfs:label ?seriesLabel . " +
+            "FILTER(LANG(?seriesLabel) IN (\"es\",\"en\")) " +
+            "FILTER(CONTAINS(LCASE(STR(?seriesLabel)), LCASE(\"$escaped\"))) " +
+            "?work p:P179 ?statement . ?statement ps:P179 ?series . " +
+            "OPTIONAL { ?statement pq:P1545 ?ordinal . } " +
+            (if (authorFilter.isNotBlank())
+                "OPTIONAL { ?work wdt:P50 ?author . ?author rdfs:label ?authorLabel . " +
+                    "FILTER(LANG(?authorLabel) IN (\"es\",\"en\")) } " else "") +
+            "SERVICE wikibase:label { bd:serviceParam wikibase:language \"es,en\". } } LIMIT 100"
+        val url = "https://query.wikidata.org/sparql?format=json&query=" +
+            java.net.URLEncoder.encode(query, "UTF-8")
+        val bindings = getJson(url).optJSONObject("results")?.optJSONArray("bindings")
+        for (i in 0 until (bindings?.length() ?: 0)) {
+            val row = bindings?.optJSONObject(i) ?: continue
+            val title = row.optJSONObject("workLabel")?.optString("value").orEmpty()
+            val order = row.optJSONObject("ordinal")?.optString("value").orEmpty()
+            add(order, title)
+        }
+    } catch (_: Exception) { }
+
+    // Ensure the books already present are represented even if public data is incomplete.
+    reference?.let { add(it.sagaOrder, displayTitle(it)) }
+    return found.values.sortedWith(compareBy<SagaVolume> {
+        it.order.toDoubleOrNull() ?: Double.POSITIVE_INFINITY
+    }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title }).take(100)
+}
+
 private fun wikipediaPage(query: String, expected: String): Pair<String, String>? {
     val term = java.net.URLEncoder.encode(query, "UTF-8")
     val matches = getJson("https://es.wikipedia.org/w/api.php?action=query&list=search" +
@@ -3380,6 +3488,9 @@ private fun openCasaDelLibro(context: Context) {
                 shown.uri in vm.genreSearches, { vm.searchGenre(shown.uri) },
                 { vm.updateGenre(shown.uri, it) },
                 shown.uri in vm.sagaSearches, { vm.searchSaga(shown.uri) },
+                vm.sagaCatalogs[shown.saga.lowercase()].orEmpty(),
+                shown.saga.lowercase() in vm.sagaCatalogSearches,
+                { vm.searchSagaCatalog(shown.saga, shown) },
                 { vm.downloadForOffline(shown) }, vm.offlineDownloadUri == shown.uri,
                 vm.offlineDownloadPercent, vm.offlineDownloadMessage,
                 shown.uri in offlineBookUris, { vm.removeOfflineCopy(shown) },
@@ -3526,6 +3637,16 @@ private fun openCasaDelLibro(context: Context) {
                     NavigationDrawerItem(label = { Text("Quiero leer") }, selected = showWishList,
                         icon = { AppIcon("Pendientes") }, onClick = {
                             switchTab("Biblioteca", showPending = true)
+                            scope.launch { drawerState.close() }
+                        })
+                    NavigationDrawerItem(label = { Text("Sagas y colecciones") },
+                        selected = tab == "Biblioteca" && vm.groupMode == "Sagas" && !showWishList,
+                        icon = { AppIcon("Sagas") }, onClick = {
+                            showWishList = false
+                            vm.onlyFavorites = false
+                            vm.statusFilter = null
+                            vm.groupMode = "Sagas"
+                            switchTab("Biblioteca")
                             scope.launch { drawerState.close() }
                         })
                     if (showWishList) LibraryTextButton(onClick = { addWishDialog = true }) { Text("Añadir reseña") }
@@ -3830,6 +3951,7 @@ private fun openCasaDelLibro(context: Context) {
                                     vm.statusFilter == ReadingStatus.PENDING -> "Libros pendientes"
                                     vm.statusFilter == ReadingStatus.READING -> "Leyendo"
                                     vm.statusFilter == ReadingStatus.READ -> "Libros leídos"
+                                    groupMode == "Sagas" -> "Sagas y colecciones"
                                     else -> "Todos los libros"
                                 }, fontFamily = FontFamily.Serif, fontSize = 24.sp,
                                     fontWeight = FontWeight.Bold, color = Color.White,
@@ -4026,6 +4148,33 @@ private fun openCasaDelLibro(context: Context) {
                                 "Sin EPUB en la biblioteca: " + missing.joinToString(", "),
                                 fontSize = 11.sp, color = Color.White,
                                 style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+                            val catalog = vm.sagaCatalogs[name.lowercase()].orEmpty()
+                            if (catalog.isNotEmpty()) {
+                                val ownedOrders = group.map { it.sagaOrder.trim().replace(',', '.') }
+                                    .filter(String::isNotBlank).toSet()
+                                val ownedTitles = group.map { displayTitle(it).lowercase()
+                                    .replace(Regex("[^\\p{L}\\p{N}]"), "") }.toSet()
+                                val absent = catalog.filter { volume ->
+                                    volume.order !in ownedOrders && volume.title.lowercase()
+                                        .replace(Regex("[^\\p{L}\\p{N}]"), "") !in ownedTitles
+                                }
+                                Text(if (absent.isEmpty())
+                                    "✓ Completa · ${catalog.size} volúmenes"
+                                else "Faltan ${absent.size}: " + absent.joinToString { volume ->
+                                    volume.order.takeIf(String::isNotBlank)?.let { "$it. " }.orEmpty() +
+                                        volume.title
+                                }, fontSize = 11.sp,
+                                    color = if (absent.isEmpty()) Color(0xFF8FE0CE) else Color(0xFFFFC2A7),
+                                    style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+                            }
+                            TextButton(onClick = { vm.searchSagaCatalog(name, group.firstOrNull()) },
+                                enabled = name.lowercase() !in vm.sagaCatalogSearches,
+                                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)) {
+                                Text(if (name.lowercase() in vm.sagaCatalogSearches)
+                                    "Comprobando catálogo…" else if (catalog.isEmpty())
+                                    "Comprobar saga completa" else "Actualizar comprobación",
+                                    color = Color.White, fontSize = 11.sp)
+                            }
                         }
                     }
                     val ordered = group
@@ -5099,6 +5248,8 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     editIdentity: (String, String, String, String) -> Unit,
     genreSearching: Boolean, searchGenre: () -> Unit, updateGenre: (String) -> Unit,
     sagaSearching: Boolean, searchSaga: () -> Unit,
+    sagaCatalog: List<SagaVolume>, sagaCatalogSearching: Boolean,
+    searchSagaCatalog: () -> Unit,
     downloadForOffline: () -> Unit, offlineDownloading: Boolean,
     offlineDownloadPercent: Int, offlineDownloadMessage: String?,
     offlineAvailable: Boolean, removeOfflineCopy: () -> Unit,
@@ -5248,6 +5399,19 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     val sagaMissing = remember(sagaNumbers) {
         val last = sagaNumbers.maxOrNull() ?: 0
         if (last > 1) (1..last).filterNot(sagaNumbers::contains) else emptyList()
+    }
+    val ownedSagaOrders = remember(sagaBooks) {
+        sagaBooks.map { it.sagaOrder.trim().replace(',', '.') }
+            .filter(String::isNotBlank).toSet()
+    }
+    val ownedSagaTitles = remember(sagaBooks) {
+        sagaBooks.map { displayTitle(it).lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "") }.toSet()
+    }
+    val missingCatalogVolumes = remember(sagaCatalog, ownedSagaOrders, ownedSagaTitles) {
+        sagaCatalog.filter { volume ->
+            val titleKey = volume.title.lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
+            volume.order !in ownedSagaOrders && titleKey !in ownedSagaTitles
+        }
     }
     Box(Modifier.fillMaxSize().background(Parchment)) {
     LibraryWallpaper(wallpaperMode, book)
@@ -5453,29 +5617,55 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                             else "Este libro no tiene número de saga asignado.",
                             fontSize = 12.sp, color = Mahogany
                         )
-                        Spacer(Modifier.height(6.dp))
-                        sagaBooks.forEach { sagaBook ->
-                            val order = sagaBook.sagaOrder.ifBlank { "?" }
-                            Text("$order. ${displayTitle(sagaBook)}" +
-                                if (sagaBook.uri == book.uri) "  · Este libro" else "",
-                                fontSize = 12.sp,
-                                fontWeight = if (sagaBook.uri == book.uri) FontWeight.Bold else FontWeight.Normal,
-                                color = Mahogany)
+                        Spacer(Modifier.height(8.dp))
+                        if (sagaCatalog.isNotEmpty()) {
+                            Text(if (missingCatalogVolumes.isEmpty())
+                                "Saga completa según el catálogo consultado."
+                            else "Te faltan ${missingCatalogVolumes.size} volúmenes:",
+                                fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                color = if (missingCatalogVolumes.isEmpty()) Teal else Color(0xFF9A4C32))
+                            sagaCatalog.forEach { volume ->
+                                val titleKey = volume.title.lowercase()
+                                    .replace(Regex("[^\\p{L}\\p{N}]"), "")
+                                val owned = volume.order in ownedSagaOrders || titleKey in ownedSagaTitles
+                                Text((if (owned) "✓ " else "○ ") +
+                                    volume.order.takeIf(String::isNotBlank)?.let { "$it. " }.orEmpty() +
+                                    volume.title,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (owned) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (owned) Teal else Color(0xFF9A4C32))
+                            }
+                        } else {
+                            sagaBooks.forEach { sagaBook ->
+                                val order = sagaBook.sagaOrder.ifBlank { "?" }
+                                Text("$order. ${displayTitle(sagaBook)}" +
+                                    if (sagaBook.uri == book.uri) "  · Este libro" else "",
+                                    fontSize = 12.sp,
+                                    fontWeight = if (sagaBook.uri == book.uri) FontWeight.Bold else FontWeight.Normal,
+                                    color = Mahogany)
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Text(if (sagaMissing.isEmpty())
+                                "Pulsa «Comprobar saga completa» para buscar volúmenes posteriores."
+                            else "Faltan entre los números conocidos: ${sagaMissing.joinToString(", ")}.",
+                                fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                color = if (sagaMissing.isEmpty()) Mahogany else Color(0xFF9A4C32))
                         }
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            if (sagaMissing.isEmpty()) "No se detectan números anteriores ausentes."
-                            else "Faltan en tu biblioteca: ${sagaMissing.joinToString(", ")}.",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (sagaMissing.isEmpty()) Teal else Color(0xFF9A4C32)
-                        )
                     }
                     Spacer(Modifier.height(8.dp))
                     LibraryActionButton(onClick = searchSaga, enabled = !sagaSearching,
                         modifier = Modifier.fillMaxWidth()) {
                         ActionLabel(if (sagaSearching) "Buscando saga…" else
                             "Buscar saga y número", "Buscar", 12.sp)
+                    }
+                    if (book.saga.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        LibraryActionButton(onClick = searchSagaCatalog,
+                            enabled = !sagaCatalogSearching,
+                            modifier = Modifier.fillMaxWidth()) {
+                            ActionLabel(if (sagaCatalogSearching) "Comprobando catálogo…"
+                                else "Comprobar saga completa", "Sagas", 12.sp)
+                        }
                     }
                 }
             }
