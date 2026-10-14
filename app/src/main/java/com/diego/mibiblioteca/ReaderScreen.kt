@@ -1535,7 +1535,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("Página ${currentPage + 1} de $totalTextPages", fontSize = 11.sp)
+                                    Text("Página ${textPage.coerceIn(0, totalTextPages - 1) + 1} de $totalTextPages", fontSize = 11.sp)
                                     Text("$percent %", fontSize = 11.sp)
                                 }
                             }
