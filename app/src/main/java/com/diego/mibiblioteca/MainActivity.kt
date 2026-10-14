@@ -3193,11 +3193,11 @@ private fun openCasaDelLibro(context: Context) {
                 pendingReader = book
                 // Finish the physical movement before composing the reader behind the page.
                 readerTransition.animateTo(0.84f,
-                    tween(1050, easing = FastOutSlowInEasing))
+                    tween(1750, easing = FastOutSlowInEasing))
                 readingUri = book.uri.toString()
                 withFrameNanos { }
                 readerTransition.animateTo(1f,
-                    tween(360, easing = FastOutSlowInEasing))
+                    tween(520, easing = FastOutSlowInEasing))
             } finally {
                 pendingReader = null
                 readerTransitionBusy = false
@@ -5300,7 +5300,7 @@ private fun BookOpeningTransition(
         }
         Box(Modifier.align(Alignment.Center).size(185.dp, 265.dp).graphicsLayer {
             val p = transition.value.coerceIn(0f, 1f)
-            val approach = FastOutSlowInEasing.transform(((p - 0.32f) / 0.52f).coerceIn(0f, 1f))
+            val approach = FastOutSlowInEasing.transform(((p - 0.42f) / 0.42f).coerceIn(0f, 1f))
             val exit = FastOutSlowInEasing.transform(((1f - p) / 0.16f).coerceIn(0f, 1f))
             scaleX = 0.92f + approach * 3.02f
             scaleY = scaleX
