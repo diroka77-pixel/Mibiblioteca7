@@ -1924,6 +1924,12 @@ internal fun displayTitle(book: Book): String {
         title = title.replace(Regex("^" + Regex.escape(author) + "\\s*[-–—|:]\\s*", RegexOption.IGNORE_CASE), "")
             .replace(Regex("\\s*[-–—|]\\s*" + Regex.escape(author) + "$", RegexOption.IGNORE_CASE), "")
     }
+    // Algunos EPUB incorporan en el título el identificador técnico del
+    // archivo y el origen de la biblioteca. Nunca deben aparecer en pantalla.
+    title = title
+        .replace(Regex("(?i)\\s*[-–—|:]?\\s*[0-9a-f]{24,}\\s*"), " ")
+        .replace(Regex("(?i)\\s*[-–—|:]?\\s*(?:Anna'?s Archive|Library Genesis|LibGen|Z-Library)\\s*$"), "")
+        .replace(Regex("(?i)\\s*[-–—|:]?\\s*(?:epub|mobi|azw3|pdf)\\s*$"), "")
     return title.replace(Regex("""\s+"""), " ").trim(' ', '-', '–', '—', '|', ',', ':')
         .ifBlank { "Libro sin título" }
 }
@@ -3341,6 +3347,12 @@ private fun openCasaDelLibro(context: Context) {
         else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
     val readingBooks = remember(vm.books) { vm.readingBooks() }
+    LaunchedEffect(vm.message) {
+        if (vm.message != null) {
+            kotlinx.coroutines.delay(2200)
+            vm.clearMessage()
+        }
+    }
     val visibleNews = remember(vm.launchNews, vm.hiddenNewsSources, vm.hiddenNewsUrls) {
         vm.launchNews.filter(vm::isNewsVisible)
     }
