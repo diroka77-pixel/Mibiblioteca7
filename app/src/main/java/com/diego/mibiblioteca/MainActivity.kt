@@ -3347,7 +3347,7 @@ private fun openCasaDelLibro(context: Context) {
             return@produceState
         }
         val booksToGroup = visibleBooks
-        val result = withContext(Dispatchers.Default) {
+        val result: Map<String, List<Book>> = withContext(Dispatchers.Default) {
         val titles = if (sortMode !in setOf("Autor", "Recientes") || groupMode == "Sagas")
             booksToGroup.associate { it.uri to displayTitle(it) } else emptyMap()
         val authors = if (groupMode == "Autores" || sortMode == "Autor")
@@ -3390,11 +3390,11 @@ private fun openCasaDelLibro(context: Context) {
             sectionNames.filter(groups::containsKey) +
                 groups.keys.filterNot { it in sectionNames }.sortedWith(String.CASE_INSENSITIVE_ORDER)
         else groups.keys.sortedWith(String.CASE_INSENSITIVE_ORDER)
-        val result = rawNames.associate { rawName ->
+        val groupedResult: Map<String, List<Book>> = rawNames.associate { rawName: String ->
             val name = if (groupMode == "Sagas" && rawName != "Sin saga")
                 sagaDisplayNames[rawName].orEmpty().ifBlank { rawName } else rawName
             val group = groups[rawName].orEmpty()
-            if (groupMode == "Sagas") group.sortedWith(
+            val sortedGroup: List<Book> = if (groupMode == "Sagas") group.sortedWith(
                 compareBy<Book> { sagaOrders.getValue(it.uri) }.thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
             else when (sortMode) {
                 "Autor" -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { authors.getValue(it.uri) })
@@ -3403,9 +3403,10 @@ private fun openCasaDelLibro(context: Context) {
                         .thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
                 "Recientes" -> group.sortedByDescending { it.sourceModified }
                 else -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
-            }.let { name to it }
+            }
+            name to sortedGroup
         }
-        result
+        groupedResult
         }
         if (groupingCache.size >= 8) groupingCache.clear()
         groupingCache[groupingKey] = result
