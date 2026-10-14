@@ -184,6 +184,30 @@ data class InfoCandidate(
 
 data class SagaVolume(val order: String, val title: String)
 
+private fun normalizeSagaName(value: String): String = java.text.Normalizer
+    .normalize(cleanCatalogText(value).lowercase(), java.text.Normalizer.Form.NFD)
+    .replace(Regex("\\p{M}+"), "")
+    .replace(Regex("(?i)\\b(saga|serie|coleccion|collection)\\b"), " ")
+    .replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+
+private fun inferredSaga(book: Book): Pair<String, String> {
+    if (book.saga.isNotBlank()) return book.saga.trim() to book.sagaOrder.trim()
+    val source = listOf(displayTitle(book), Uri.decode(book.uri.lastPathSegment.orEmpty()))
+        .joinToString(" ")
+    val patterns = listOf(
+        Regex("(?i)\\[([^]]{2,80}?)\\s*(?:#|n[ºo.]?|vol(?:umen)?[.]?|tomo|libro)\\s*(\\d+(?:[.,]\\d+)?)\\]"),
+        Regex("(?i)([^\\[\\]()]{2,80}?)\\s+(?:#|n[ºo.]?|vol(?:umen)?[.]?|tomo|libro)\\s*(\\d+(?:[.,]\\d+)?)\\s*[-–—:]"),
+        Regex("(?i)\\(([^()]{2,80}?)\\s+(\\d+(?:[.,]\\d+)?)\\)")
+    )
+    patterns.forEach { pattern -> pattern.find(source)?.let { match ->
+        return match.groupValues[1].trim(' ', '-', '–', '—', ':') to
+            match.groupValues[2].replace(',', '.')
+    } }
+    return "" to book.sagaOrder.trim()
+}
+
+private fun sagaGroupKey(book: Book): String = normalizeSagaName(inferredSaga(book).first)
+
 private class BookStore(context: Context) : SQLiteOpenHelper(context, "catalog.db", null, 1) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE books (uri TEXT PRIMARY KEY, content TEXT NOT NULL)")
@@ -316,6 +340,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var sagaSearches by mutableStateOf<Set<Uri>>(emptySet()); private set
     var sagaCatalogs by mutableStateOf<Map<String, List<SagaVolume>>>(emptyMap()); private set
     var sagaCatalogSearches by mutableStateOf<Set<String>>(emptySet()); private set
+    var sagaOrganizing by mutableStateOf(false); private set
+    var sagaOrganized by mutableIntStateOf(0); private set
+    var sagaOrganizeTotal by mutableIntStateOf(0); private set
     private var bulkJob: Job? = null
     private var coverRefreshJob: Job? = null
     var coverUpdateRunning by mutableStateOf(false); private set
@@ -431,13 +458,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         loadWishList()
         sagaCatalogs = try {
             val saved = JSONObject(prefs.getString("saga_catalogs", "{}") ?: "{}")
-            saved.keys().asSequence().associateWith { key ->
+            saved.keys().asSequence().map { key -> normalizeSagaName(key) to run {
                 val array = saved.optJSONArray(key) ?: org.json.JSONArray()
                 (0 until array.length()).mapNotNull { index ->
                     array.optJSONObject(index)?.let { item ->
                         SagaVolume(item.optString("order"), item.optString("title"))
                     }?.takeIf { it.title.isNotBlank() }
                 }
+            } }.groupBy({ it.first }, { it.second }).mapValues { (_, lists) ->
+                lists.flatten().distinctBy { it.order + "|" + it.title.lowercase() }
             }
         } catch (_: Exception) { emptyMap() }
         wallpaperMode = prefs.getString("wallpaper_mode", "Automático") ?: "Automático"
@@ -982,9 +1011,38 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun organizeAllSagas() {
+        if (sagaOrganizing) return
+        viewModelScope.launch {
+            sagaOrganizing = true
+            val targets = books.filter { it.saga.isBlank() }
+            sagaOrganized = 0; sagaOrganizeTotal = targets.size
+            var changed = 0
+            try {
+                targets.forEach { original ->
+                    val local = inferredSaga(original)
+                    val found = if (local.first.isNotBlank()) local else try {
+                        withContext(Dispatchers.IO) { fetchSagaMetadata(original) }
+                    } catch (_: Exception) { "" to "" }
+                    if (found.first.isNotBlank()) {
+                        books = books.map { current -> if (current.uri == original.uri) current.copy(
+                            saga = found.first.trim(),
+                            sagaOrder = found.second.ifBlank { current.sagaOrder }) else current }
+                        changed++
+                        if (changed % 10 == 0) saveBooks()
+                    }
+                    sagaOrganized++
+                    delay(100)
+                }
+                if (changed > 0) saveBooks()
+                detailMessage = "Sagas revisadas: $changed libros identificados de ${targets.size}."
+            } finally { sagaOrganizing = false }
+        }
+    }
+
     fun searchSagaCatalog(saga: String, reference: Book? = null) {
         val clean = saga.trim()
-        val key = clean.lowercase()
+        val key = normalizeSagaName(clean)
         if (clean.isBlank() || key in sagaCatalogSearches) return
         val book = reference ?: books.firstOrNull { it.saga.equals(clean, true) }
         viewModelScope.launch {
@@ -1010,6 +1068,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             } finally { sagaCatalogSearches = sagaCatalogSearches - key }
         }
     }
+
+    fun sagaCatalog(saga: String): List<SagaVolume> = sagaCatalogs[normalizeSagaName(saga)].orEmpty()
+    fun sagaCatalogLoading(saga: String): Boolean = normalizeSagaName(saga) in sagaCatalogSearches
 
     fun updateGenre(uri: Uri, genre: String) {
         books = books.map { if (it.uri == uri)
@@ -1448,6 +1509,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun forceMissingCovers() {
+        if (coverUpdateRunning) return
+        googleBooksRetryAt = 0L
+        message = "Buscando portadas para ${books.count { it.cover == null }} libros…"
+        refreshMissingCovers()
+    }
+
     fun downloadCover(book: Book) {
         if (coverLoading != null) return
         viewModelScope.launch {
@@ -1744,6 +1812,7 @@ internal fun displayTitle(book: Book): String {
 
 private fun sagaNumber(book: Book): Double {
     book.sagaOrder.toDoubleOrNull()?.let { return it }
+    inferredSaga(book).second.toDoubleOrNull()?.let { return it }
     val match = Regex("(?:#|n[ºo.]?\\s*|vol\\.?\\s*|tomo\\s*|\\[)(\\d+(?:\\.\\d+)?)",
         RegexOption.IGNORE_CASE).find(book.title)
     return match?.groupValues?.get(1)?.toDoubleOrNull() ?: Double.POSITIVE_INFINITY
@@ -3288,9 +3357,16 @@ private fun openCasaDelLibro(context: Context) {
         } else emptyMap()
         val sagaOrders = if (groupMode == "Sagas") booksToGroup.associate { it.uri to sagaNumber(it) }
             else emptyMap()
+        val sagaDisplayNames = if (groupMode == "Sagas") booksToGroup
+            .map { sagaGroupKey(it) to inferredSaga(it).first }
+            .filter { it.first.isNotBlank() && it.second.isNotBlank() }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, names) -> names.groupingBy { it }.eachCount()
+                .maxByOrNull { it.value }?.key.orEmpty() }
+        else emptyMap()
         val groups = when (groupMode) {
             "Autores" -> booksToGroup.groupBy { authors.getValue(it.uri) }
-            "Sagas" -> booksToGroup.groupBy { it.saga.ifBlank { "Sin saga" } }
+            "Sagas" -> booksToGroup.groupBy { sagaGroupKey(it).ifBlank { "Sin saga" } }
             "Géneros" -> {
                 val genreGroups = linkedMapOf<String, MutableList<Book>>()
                 booksToGroup.forEach { book ->
@@ -3310,12 +3386,14 @@ private fun openCasaDelLibro(context: Context) {
             }.groupBy({ it.first }, { it.second })
             else -> mapOf("" to booksToGroup)
         }
-        val names = if (tab == "Secciones")
+        val rawNames = if (tab == "Secciones")
             sectionNames.filter(groups::containsKey) +
                 groups.keys.filterNot { it in sectionNames }.sortedWith(String.CASE_INSENSITIVE_ORDER)
         else groups.keys.sortedWith(String.CASE_INSENSITIVE_ORDER)
-        val result = names.associateWith { name ->
-            val group = groups[name].orEmpty()
+        val result = rawNames.associate { rawName ->
+            val name = if (groupMode == "Sagas" && rawName != "Sin saga")
+                sagaDisplayNames[rawName].orEmpty().ifBlank { rawName } else rawName
+            val group = groups[rawName].orEmpty()
             if (groupMode == "Sagas") group.sortedWith(
                 compareBy<Book> { sagaOrders.getValue(it.uri) }.thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
             else when (sortMode) {
@@ -3325,7 +3403,7 @@ private fun openCasaDelLibro(context: Context) {
                         .thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
                 "Recientes" -> group.sortedByDescending { it.sourceModified }
                 else -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
-            }
+            }.let { name to it }
         }
         result
         }
@@ -3578,8 +3656,8 @@ private fun openCasaDelLibro(context: Context) {
                 shown.uri in vm.genreSearches, { vm.searchGenre(shown.uri) },
                 { vm.updateGenre(shown.uri, it) },
                 shown.uri in vm.sagaSearches, { vm.searchSaga(shown.uri) },
-                vm.sagaCatalogs[shown.saga.lowercase()].orEmpty(),
-                shown.saga.lowercase() in vm.sagaCatalogSearches,
+                vm.sagaCatalog(shown.saga),
+                vm.sagaCatalogLoading(shown.saga),
                 { vm.searchSagaCatalog(shown.saga, shown) },
                 { vm.downloadForOffline(shown) }, vm.offlineDownloadUri == shown.uri,
                 vm.offlineDownloadPercent, vm.offlineDownloadMessage,
@@ -3587,6 +3665,12 @@ private fun openCasaDelLibro(context: Context) {
                 vm.wallpaperMode, vm.books,
                 { rating, started, finished, quotes ->
                     vm.saveReadingRecord(shown.uri, rating, started, finished, quotes)
+                }, {
+                    selected = null; vm.query = displayAuthor(shown); vm.groupMode = "Autores"
+                    switchTab("Biblioteca")
+                }, {
+                    selected = null; vm.query = shown.saga; vm.groupMode = "Sagas"
+                    switchTab("Biblioteca")
                 })
         } else {
     val currentTab by rememberUpdatedState(tab)
@@ -3670,6 +3754,18 @@ private fun openCasaDelLibro(context: Context) {
                                 if (vm.bulkInfoLoading) vm.cancelIncomplete() else vm.refreshIncomplete()
                             })
                         NavigationDrawerItem(
+                            label = { Text(if (vm.coverUpdateRunning)
+                                "Buscando portadas ${vm.coverUpdateDone}/${vm.coverUpdateTotal}…"
+                            else "Forzar portadas que faltan") },
+                            selected = vm.coverUpdateRunning, icon = { AppIcon("Portada") },
+                            onClick = { if (!vm.coverUpdateRunning) vm.forceMissingCovers() })
+                        NavigationDrawerItem(
+                            label = { Text(if (vm.sagaOrganizing)
+                                "Identificando sagas ${vm.sagaOrganized}/${vm.sagaOrganizeTotal}…"
+                            else "Identificar todas las sagas") },
+                            selected = vm.sagaOrganizing, icon = { AppIcon("Sagas") },
+                            onClick = { if (!vm.sagaOrganizing) vm.organizeAllSagas() })
+                        NavigationDrawerItem(
                             label = { Text(if (vm.genreClassifying)
                                 "Clasificando géneros " + vm.genreProgress + "/" + vm.genreTotal + "…" else "Clasificar biblioteca por géneros") },
                             selected = false, icon = { Icon(Icons.Outlined.Category, null) },
@@ -3729,7 +3825,7 @@ private fun openCasaDelLibro(context: Context) {
                         modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
                     NavigationDrawerItem(label = { Text("Quiero leer") }, selected = showWishList,
                         icon = { AppIcon("Pendientes") }, onClick = {
-                            switchTab("Biblioteca", showPending = true)
+                            switchTab("Biblioteca", showPending = !showWishList)
                             scope.launch { drawerState.close() }
                         })
                     NavigationDrawerItem(label = { Text("Sagas y colecciones") },
@@ -3738,7 +3834,7 @@ private fun openCasaDelLibro(context: Context) {
                             showWishList = false
                             vm.onlyFavorites = false
                             vm.statusFilter = null
-                            vm.groupMode = "Sagas"
+                            vm.groupMode = if (vm.groupMode == "Sagas" && tab == "Biblioteca") "Todos" else "Sagas"
                             switchTab("Biblioteca")
                             scope.launch { drawerState.close() }
                         })
@@ -3756,7 +3852,8 @@ private fun openCasaDelLibro(context: Context) {
                                     else -> null
                                 }
                                 CatalogChip(kind, vm.statusFilter == status && !vm.onlyFavorites) {
-                                    vm.statusFilter = status; vm.onlyFavorites = false
+                                    vm.statusFilter = if (status != null && vm.statusFilter == status) null else status
+                                    vm.onlyFavorites = false
                                 }
                             }
                         }
@@ -3764,14 +3861,17 @@ private fun openCasaDelLibro(context: Context) {
                             modifier = Modifier.padding(top = 14.dp))
                         listOf("Todos", "Autores", "Sagas", "Géneros", "Secciones").forEach { mode ->
                             NavigationDrawerItem(label = { Text(mode) }, selected = vm.groupMode == mode,
-                                onClick = { vm.groupMode = mode; scope.launch { drawerState.close() } })
+                                onClick = {
+                                    vm.groupMode = if (mode != "Todos" && vm.groupMode == mode) "Todos" else mode
+                                    scope.launch { drawerState.close() }
+                                })
                         }
                     }
                     if (tab == "Secciones") {
                         Text("Datos de las fichas", color = Mahogany, fontWeight = FontWeight.SemiBold)
                         listOf("Todos", "Revisar", "Portada", "Argumento", "Biografía", "Autor").forEach { kind ->
                             NavigationDrawerItem(label = { Text(kind) }, selected = vm.qualityFilter == kind,
-                                onClick = { vm.qualityFilter = if (kind == "Todos") "Ninguno" else kind;
+                                onClick = { vm.qualityFilter = if (kind == "Todos" || vm.qualityFilter == kind) "Ninguno" else kind;
                                     scope.launch { drawerState.close() } })
                         }
                     }
@@ -3852,9 +3952,14 @@ private fun openCasaDelLibro(context: Context) {
                     Text("Mi Biblioteca", modifier = Modifier.align(Alignment.Center),
                         color = Color.White, fontSize = 26.sp,
                         fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Serif)
-                    IconButton(onClick = { vm.sync() }, enabled = !vm.syncing,
-                        modifier = Modifier.align(Alignment.CenterEnd)) {
-                        Icon(Icons.Outlined.Sync, "Sincronizar biblioteca", tint = Color.White)
+                    TextButton(onClick = {
+                        vm.sync()
+                        android.widget.Toast.makeText(context,
+                            "Buscando libros nuevos y cambios en Drive…",
+                            android.widget.Toast.LENGTH_SHORT).show()
+                    }, enabled = !vm.syncing, modifier = Modifier.align(Alignment.CenterEnd)) {
+                        Text(if (vm.syncing) "Revisando…" else "Actualizar",
+                            color = Color.White, fontSize = 11.sp)
                     }
                 }
                 OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
@@ -4262,7 +4367,7 @@ private fun openCasaDelLibro(context: Context) {
                                 "Sin EPUB en la biblioteca: " + missing.joinToString(", "),
                                 fontSize = 11.sp, color = Color.White,
                                 style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
-                            val catalog = vm.sagaCatalogs[name.lowercase()].orEmpty()
+                            val catalog = vm.sagaCatalog(name)
                             if (catalog.isNotEmpty()) {
                                 val ownedOrders = group.map { it.sagaOrder.trim().replace(',', '.') }
                                     .filter(String::isNotBlank).toSet()
@@ -4282,9 +4387,9 @@ private fun openCasaDelLibro(context: Context) {
                                     style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
                             }
                             TextButton(onClick = { vm.searchSagaCatalog(name, group.firstOrNull()) },
-                                enabled = name.lowercase() !in vm.sagaCatalogSearches,
+                                enabled = !vm.sagaCatalogLoading(name),
                                 contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)) {
-                                Text(if (name.lowercase() in vm.sagaCatalogSearches)
+                                Text(if (vm.sagaCatalogLoading(name))
                                     "Comprobando catálogo…" else if (catalog.isEmpty())
                                     "Comprobar saga completa" else "Actualizar comprobación",
                                     color = Color.White, fontSize = 11.sp)
@@ -5368,7 +5473,8 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     offlineDownloadPercent: Int, offlineDownloadMessage: String?,
     offlineAvailable: Boolean, removeOfflineCopy: () -> Unit,
     wallpaperMode: String, libraryBooks: List<Book>,
-    saveReadingRecord: (Int, String, String, String) -> Unit
+    saveReadingRecord: (Int, String, String, String) -> Unit,
+    showAuthorBooks: () -> Unit, showSagaBooks: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -5593,6 +5699,19 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                     if (book.saga.isNotBlank()) WallpaperLabel("Saga: ${book.saga}" +
                         book.sagaOrder.takeIf { it.isNotBlank() }?.let { " · nº $it" }.orEmpty(),
                         fontSize = 12.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LibraryActionButton(onClick = showAuthorBooks,
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                            Text(displayAuthor(book), maxLines = 2, textAlign = TextAlign.Center,
+                                fontSize = 12.sp)
+                        }
+                        if (book.saga.isNotBlank()) LibraryActionButton(onClick = showSagaBooks,
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                            Text(book.saga, maxLines = 2, textAlign = TextAlign.Center,
+                                fontSize = 12.sp)
+                        }
+                    }
                     Spacer(Modifier.height(14.dp))
                 Button(onClick = {
                     openBook()
