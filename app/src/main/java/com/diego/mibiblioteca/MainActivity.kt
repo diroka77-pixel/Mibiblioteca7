@@ -3193,11 +3193,11 @@ private fun openCasaDelLibro(context: Context) {
                 pendingReader = book
                 // Finish the physical movement before composing the reader behind the page.
                 readerTransition.animateTo(0.84f,
-                    tween(1750, easing = FastOutSlowInEasing))
+                    tween(2600, easing = FastOutSlowInEasing))
                 readingUri = book.uri.toString()
                 withFrameNanos { }
                 readerTransition.animateTo(1f,
-                    tween(520, easing = FastOutSlowInEasing))
+                    tween(850, easing = FastOutSlowInEasing))
             } finally {
                 pendingReader = null
                 readerTransitionBusy = false
@@ -4161,14 +4161,20 @@ private fun openCasaDelLibro(context: Context) {
                     Text("Mi Biblioteca", modifier = Modifier.align(Alignment.Center),
                         color = Color.White, fontSize = 26.sp,
                         fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Serif)
-                    TextButton(onClick = {
+                    IconButton(onClick = {
                         vm.sync()
                         android.widget.Toast.makeText(context,
                             "Buscando libros nuevos y cambios en Drive…",
                             android.widget.Toast.LENGTH_SHORT).show()
-                    }, enabled = !vm.syncing, modifier = Modifier.align(Alignment.CenterEnd)) {
-                        Text(if (vm.syncing) "Revisando…" else "Actualizar",
-                            color = Color.White, fontSize = 11.sp)
+                    }, enabled = !vm.syncing, modifier = Modifier.align(Alignment.CenterEnd)
+                        .semantics { contentDescription = "Actualizar biblioteca" }) {
+                        if (vm.syncing) {
+                            CircularProgressIndicator(Modifier.size(22.dp), color = Color.White,
+                                strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Outlined.Sync, "Actualizar biblioteca", tint = Color.White,
+                                modifier = Modifier.size(25.dp))
+                        }
                     }
                 }
                 OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
@@ -4362,7 +4368,18 @@ private fun openCasaDelLibro(context: Context) {
                                 DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                                     listOf("Título", "Autor", "Género", "Recientes").forEach { option ->
                                         DropdownMenuItem(text = { Text(option) }, onClick = {
-                                            sortMode = option; sortMenu = false
+                                            sortMode = option
+                                            // Ordenar es independiente de agrupar. Al elegir un criterio
+                                            // se vuelve a la lista global para evitar conservar una
+                                            // agrupación anterior (por ejemplo, autores al elegir título).
+                                            if (option == "Título" || option == "Recientes") {
+                                                vm.groupMode = "Todos"
+                                            } else if (option == "Autor") {
+                                                vm.groupMode = "Autores"
+                                            } else if (option == "Género") {
+                                                vm.groupMode = "Géneros"
+                                            }
+                                            sortMenu = false
                                         })
                                     }
                                 }
@@ -5710,7 +5727,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
         onOpened()
         if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
             opening.snapTo(0f)
-            opening.animateTo(1f, tween(520, easing = FastOutSlowInEasing))
+            opening.animateTo(1f, tween(1050, easing = FastOutSlowInEasing))
         } else opening.snapTo(1f)
     }
     var confirmDelete by remember { mutableStateOf(false) }
