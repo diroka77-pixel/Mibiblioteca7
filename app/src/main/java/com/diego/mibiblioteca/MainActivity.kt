@@ -105,6 +105,9 @@ import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.TranslatorOptions
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.languageid.LanguageIdentification
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
@@ -158,7 +161,11 @@ data class Book(
     val hadEmbeddedCover: Boolean = false,
     val plotSource: String = "",
     val bioSource: String = "",
-    val coverSource: String = ""
+    val coverSource: String = "",
+    val rating: Int = 0,
+    val startedDate: String = "",
+    val finishedDate: String = "",
+    val quotes: String = ""
 )
 
 private data class BackupRestoreResult(val matched: Int, val pending: String?)
@@ -545,7 +552,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     sourceCoverChecked = j.optBoolean("sourceCoverChecked"),
                     hadEmbeddedCover = j.optBoolean("hadEmbeddedCover"),
                     plotSource = j.optString("plotSource"), bioSource = j.optString("bioSource"),
-                    coverSource = j.optString("coverSource"))
+                    coverSource = j.optString("coverSource"), rating = j.optInt("rating"),
+                    startedDate = j.optString("startedDate"), finishedDate = j.optString("finishedDate"),
+                    quotes = j.optString("quotes"))
                 } catch (_: Exception) { null }
             }
             }
@@ -578,7 +587,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .put("sagaOrder", b.sagaOrder).put("favorite", b.favorite).put("status", b.status.name)
             .put("sourceSize", b.sourceSize).put("sourceModified", b.sourceModified)
             .put("metadataRevision", b.metadataRevision).put("sourceCoverChecked", b.sourceCoverChecked).put("hadEmbeddedCover", b.hadEmbeddedCover)
-            .put("plotSource", b.plotSource).put("bioSource", b.bioSource).put("coverSource", b.coverSource)) }
+            .put("plotSource", b.plotSource).put("bioSource", b.bioSource).put("coverSource", b.coverSource)
+            .put("rating", b.rating).put("startedDate", b.startedDate)
+            .put("finishedDate", b.finishedDate).put("quotes", b.quotes)) }
                     bookStore.replaceAll(array)
                     prefs.edit().putString("books_cache", array.toString()).apply()
                 }
@@ -606,9 +617,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun addGoodreadsWish(title: String, url: String) {
         val clean = url.trim()
-        if (!clean.startsWith("https://www.goodreads.com/")) return
-        if (wishList.none { it.second == clean }) {
-            wishList = wishList + (title.trim().ifBlank { "Libro de reseñas" } to clean)
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) return
+        if (wishList.none { it.first.equals(cleanTitle, true) && it.second == clean }) {
+            wishList = wishList + (cleanTitle to clean)
             saveWishList()
         }
     }
@@ -666,6 +678,27 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 message = "Respaldo de MiBiblioteca guardado."
             } catch (e: Exception) { message = "No se pudo exportar: ${e.localizedMessage}" }
+        }
+    }
+
+    fun exportCatalogCsv(destination: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                fun cell(value: String) = "\"" + value.replace("\"", "\"\"") + "\""
+                val rows = buildString {
+                    appendLine("Título;Autor;Saga;Número;Géneros;ISBN;Estado;Valoración;Inicio;Fin;Secciones;Citas;Notas")
+                    books.forEach { b -> appendLine(listOf(displayTitle(b), displayAuthor(b), b.saga,
+                        b.sagaOrder, b.genre, b.isbn, b.status.label, b.rating.toString(),
+                        b.startedDate, b.finishedDate, bookSections(b).joinToString(", "),
+                        b.quotes, b.notes).joinToString(";") { cell(it) }) }
+                }
+                getApplication<Application>().contentResolver.openOutputStream(destination, "w")
+                    ?.bufferedWriter(Charsets.UTF_8)?.use { it.write("\uFEFF"); it.write(rows) }
+                    ?: error("No se pudo crear el archivo")
+                withContext(Dispatchers.Main) { message = "Catálogo exportado. Puedes abrirlo con Excel." }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { message = "No se pudo exportar el catálogo: ${e.localizedMessage}" }
+            }
         }
     }
 
@@ -761,6 +794,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     ?: book.status,
                 spanishPlot = record.optString("plot"), authorBio = record.optString("bio"),
                 plotSource = record.optString("plotSource"), bioSource = record.optString("bioSource"),
+                rating = record.optInt("rating"), startedDate = record.optString("startedDate"),
+                finishedDate = record.optString("finishedDate"), quotes = record.optString("quotes"),
                 cover = if (record.optBoolean("coverRemoved")) null else if (image.isNotBlank()) run {
                     coverFile(getApplication(), uri).readBytes()
                 } else book.cover)
@@ -1008,6 +1043,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun saveNotes(uri: Uri, notes: String) {
         books = books.map { if (it.uri == uri) it.copy(notes = notes) else it }
         saveBooks()
+    }
+
+    fun saveReadingRecord(uri: Uri, rating: Int, started: String, finished: String, quotes: String) {
+        books = books.map { if (it.uri == uri) it.copy(
+            rating = rating.coerceIn(0, 5), startedDate = started.trim(),
+            finishedDate = finished.trim(), quotes = quotes.trim()) else it }
+        saveBooks()
+        detailMessage = "Diario de lectura guardado."
     }
 
     fun saveManualInfo(uri: Uri, plot: String, bio: String) {
@@ -1305,7 +1348,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         favorite = prior?.favorite ?: false, status = prior?.status ?: ReadingStatus.PENDING,
                         plotSource = prior?.plotSource.orEmpty(), bioSource = prior?.bioSource.orEmpty(),
                         coverSource = prior?.coverSource?.takeIf(String::isNotBlank)
-                            ?: if (b.cover != null) "Portada del EPUB" else "")
+                            ?: if (b.cover != null) "Portada del EPUB" else "",
+                        rating = prior?.rating ?: 0, startedDate = prior?.startedDate.orEmpty(),
+                        finishedDate = prior?.finishedDate.orEmpty(), quotes = prior?.quotes.orEmpty())
                 }
                 books = (books + localBooks.filter { it.uri.scheme == "file" &&
                     books.none { current -> current.uri == it.uri } })
@@ -2856,10 +2901,10 @@ private fun openCasaDelLibro(context: Context) {
     ) }
     if (addWishDialog) AlertDialog(
         onDismissRequest = { addWishDialog = false },
-        title = { Text("Añadir desde una reseña") },
+        title = { Text("Añadir a la lista de deseos") },
         text = { Column {
             OutlinedTextField(wishTitle, { wishTitle = it }, label = { Text("Título") })
-            OutlinedTextField(wishUrl, { wishUrl = it }, label = { Text("Enlace de la reseña") })
+            OutlinedTextField(wishUrl, { wishUrl = it }, label = { Text("Enlace opcional") })
         } },
         confirmButton = { LibraryTextButton(onClick = {
             vm.addGoodreadsWish(wishTitle, wishUrl); addWishDialog = false; wishTitle = ""; wishUrl = ""
@@ -2961,6 +3006,7 @@ private fun openCasaDelLibro(context: Context) {
     var duplicateDialog by remember { mutableStateOf(false) }
     var libraryHealthOpen by remember { mutableStateOf(false) }
     var readingStatsOpen by remember { mutableStateOf(false) }
+    var releaseCalendarOpen by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var sortMode by rememberSaveable { mutableStateOf("Título") }
     val backupExport = rememberLauncherForActivityResult(
@@ -2969,6 +3015,24 @@ private fun openCasaDelLibro(context: Context) {
     }
     val backupImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(vm::importBackup)
+    }
+    val catalogExport = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv")) { uri -> uri?.let(vm::exportCatalogCsv) }
+    val isbnCamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+        if (bitmap != null) BarcodeScanning.getClient().process(InputImage.fromBitmap(bitmap, 0))
+            .addOnSuccessListener { codes ->
+                val isbn = codes.asSequence().filter { it.valueType == Barcode.TYPE_ISBN ||
+                    it.format == Barcode.FORMAT_EAN_13 || it.format == Barcode.FORMAT_EAN_8 }
+                    .mapNotNull { it.rawValue }.firstOrNull()
+                if (isbn != null) { vm.query = isbn; switchTab("Biblioteca") }
+                else android.widget.Toast.makeText(context, "No se ha detectado un ISBN. Acerca más la cámara.",
+                    android.widget.Toast.LENGTH_LONG).show()
+            }
+    }
+    var launchIsbnCamera by remember { mutableStateOf(false) }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted && launchIsbnCamera) isbnCamera.launch(null)
+        launchIsbnCamera = false
     }
     var voiceListening by remember { mutableStateOf(false) }
     var startVoiceWhenPermitted by remember { mutableStateOf(false) }
@@ -3391,6 +3455,16 @@ private fun openCasaDelLibro(context: Context) {
             Info("Pendientes", pending.toString())
             Info("Libros abiertos este mes", vm.openedThisMonth().toString())
             Info("Progreso medio de libros empezados", "$average %")
+            val rated = vm.books.filter { it.rating > 0 }
+            val averageRating = rated.map { it.rating }.average().takeIf { !it.isNaN() }
+            Info("Valoración media", averageRating?.let { String.format(java.util.Locale.getDefault(), "%.1f / 5", it) } ?: "Sin valorar")
+            Info("Libros con citas guardadas", vm.books.count { it.quotes.isNotBlank() }.toString())
+            Info("Sagas completas comprobadas", vm.sagaCatalogs.count { (name, catalog) ->
+                val owned = vm.books.filter { it.saga.equals(name, true) }
+                catalog.isNotEmpty() && catalog.all { volume -> owned.any { b ->
+                    b.sagaOrder == volume.order || displayTitle(b).equals(volume.title, true)
+                } }
+            }.toString())
             if (genres.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text("Géneros más presentes", fontWeight = FontWeight.Bold)
@@ -3400,6 +3474,22 @@ private fun openCasaDelLibro(context: Context) {
         confirmButton = { LibraryTextButton(onClick = { readingStatsOpen = false }) {
             Text("Cerrar")
         } })
+    if (releaseCalendarOpen) AlertDialog(onDismissRequest = { releaseCalendarOpen = false },
+        title = { Text("Calendario de publicaciones") },
+        text = { Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
+            Text("Próximos lanzamientos de tus fuentes literarias", fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            val dated = vm.launchNews.filter { it.releaseDate.isNotBlank() }
+                .sortedBy { it.releaseDate }
+            if (dated.isEmpty()) Text("Actualiza las noticias para consultar próximas fechas.")
+            dated.forEach { news ->
+                Text(news.releaseDate, color = Teal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(news.title, color = Mahogany, fontSize = 13.sp)
+                Text(news.source, color = Mahogany.copy(alpha = .7f), fontSize = 11.sp)
+                HorizontalDivider(Modifier.padding(vertical = 7.dp))
+            }
+        } },
+        confirmButton = { LibraryTextButton(onClick = { releaseCalendarOpen = false }) { Text("Cerrar") } })
     if (homeSettings) AlertDialog(onDismissRequest = { homeSettings = false },
         title = { Text("Organizar Inicio") },
         text = { Column {
@@ -3494,7 +3584,10 @@ private fun openCasaDelLibro(context: Context) {
                 { vm.downloadForOffline(shown) }, vm.offlineDownloadUri == shown.uri,
                 vm.offlineDownloadPercent, vm.offlineDownloadMessage,
                 shown.uri in offlineBookUris, { vm.removeOfflineCopy(shown) },
-                vm.wallpaperMode, vm.books)
+                vm.wallpaperMode, vm.books,
+                { rating, started, finished, quotes ->
+                    vm.saveReadingRecord(shown.uri, rating, started, finished, quotes)
+                })
         } else {
     val currentTab by rememberUpdatedState(tab)
     val currentSwitch by rememberUpdatedState<(String) -> Unit>({ switchTab(it) })
@@ -3649,7 +3742,7 @@ private fun openCasaDelLibro(context: Context) {
                             switchTab("Biblioteca")
                             scope.launch { drawerState.close() }
                         })
-                    if (showWishList) LibraryTextButton(onClick = { addWishDialog = true }) { Text("Añadir reseña") }
+                    if (showWishList) LibraryTextButton(onClick = { addWishDialog = true }) { Text("Añadir libro deseado") }
                     if (tab == "Biblioteca" && !showWishList) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         Text("MOSTRAR", color = Teal,
@@ -3715,6 +3808,24 @@ private fun openCasaDelLibro(context: Context) {
                     NavigationDrawerItem(label = { Text("Estadísticas de lectura") }, selected = false,
                         icon = { AppIcon("Pendientes") }, onClick = {
                             readingStatsOpen = true; scope.launch { drawerState.close() }
+                        })
+                    NavigationDrawerItem(label = { Text("Calendario de publicaciones") }, selected = false,
+                        icon = { Icon(Icons.Outlined.CalendarMonth, null) }, onClick = {
+                            releaseCalendarOpen = true; scope.launch { drawerState.close() }
+                        })
+                    NavigationDrawerItem(label = { Text("Escanear ISBN") }, selected = false,
+                        icon = { Icon(Icons.Outlined.QrCodeScanner, null) }, onClick = {
+                            scope.launch { drawerState.close() }
+                            launchIsbnCamera = true
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                                PackageManager.PERMISSION_GRANTED) {
+                                launchIsbnCamera = false; isbnCamera.launch(null)
+                            } else cameraPermission.launch(Manifest.permission.CAMERA)
+                        })
+                    NavigationDrawerItem(label = { Text("Exportar catálogo para Excel") }, selected = false,
+                        icon = { Icon(Icons.Outlined.TableView, null) }, onClick = {
+                            scope.launch { drawerState.close() }
+                            catalogExport.launch("MiBiblioteca-catalogo.csv")
                         })
                     NavigationDrawerItem(label = { Text("Ajustes") }, selected = false,
                         icon = { AppIcon("Ajustes") }, onClick = { settingsOpen = true })
@@ -4076,9 +4187,12 @@ private fun openCasaDelLibro(context: Context) {
                     }
                 }
             } else if (showWishList && tab == "Biblioteca") {
-                items(vm.wishList, key = { "wish:" + it.second }) { (title, url) ->
+                items(vm.wishList, key = { "wish:" + it.first + "|" + it.second }) { (title, url) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        LibraryActionButton(onClick = { openGoodreadsUrl(context, url) },
+                        LibraryActionButton(onClick = {
+                            if (url.startsWith("http")) openGoodreadsUrl(context, url)
+                            else searchInGoogleApp(context, "$title libro EPUB comprar préstamo")
+                        },
                             modifier = Modifier.weight(1f)) { Text(title.ifBlank { "Libro de reseñas" }) }
                         IconButton(onClick = { vm.removeGoodreadsWish(url) }) { AppIcon("Cerrar", "Quitar de pendientes") }
                     }
@@ -5253,7 +5367,8 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     downloadForOffline: () -> Unit, offlineDownloading: Boolean,
     offlineDownloadPercent: Int, offlineDownloadMessage: String?,
     offlineAvailable: Boolean, removeOfflineCopy: () -> Unit,
-    wallpaperMode: String, libraryBooks: List<Book>
+    wallpaperMode: String, libraryBooks: List<Book>,
+    saveReadingRecord: (Int, String, String, String) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -5281,6 +5396,10 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     }
     var editGenre by remember { mutableStateOf(false) }
     var notesDraft by remember(book.uri, book.notes) { mutableStateOf(book.notes) }
+    var ratingDraft by remember(book.uri, book.rating) { mutableIntStateOf(book.rating) }
+    var startedDraft by remember(book.uri, book.startedDate) { mutableStateOf(book.startedDate) }
+    var finishedDraft by remember(book.uri, book.finishedDate) { mutableStateOf(book.finishedDate) }
+    var quotesDraft by remember(book.uri, book.quotes) { mutableStateOf(book.quotes) }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
         it?.let(replaceCover)
     }
@@ -5706,6 +5825,19 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 17.sp))
                     if (book.authorBio.isNotBlank()) Text("Fuente: " + book.bioSource.ifBlank { "No registrada" },
                         fontSize = 11.sp, color = Mahogany)
+                    val authorBooks = libraryBooks.filter {
+                        displayAuthor(it).equals(displayAuthor(book), ignoreCase = true)
+                    }.sortedBy(::displayTitle)
+                    Spacer(Modifier.height(8.dp))
+                    Text("En tu biblioteca: ${authorBooks.size} libros", fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp, color = Mahogany)
+                    authorBooks.take(12).forEach { other ->
+                        Text("• ${displayTitle(other)}" + other.date.takeIf(String::isNotBlank)
+                            ?.let { " ($it)" }.orEmpty(), fontSize = 12.sp, color = Mahogany)
+                    }
+                    LibraryTextButton(onClick = {
+                        searchInGoogleApp(context, displayAuthor(book) + " bibliografía completa")
+                    }) { Text("Consultar bibliografía completa") }
                 }
             }
             item {
@@ -5719,6 +5851,30 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         bioDraft = book.authorBio
                         editInfo = true
                     }, modifier = Modifier.weight(1f)) { ActionLabel("Editar texto", "Editar") }
+                }
+            }
+            item {
+                BookPanel("Mi diario de lectura", book.uri.toString(), initiallyExpanded = true) {
+                    Text("Valoración", fontSize = 12.sp, color = Mahogany)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        (1..5).forEach { star ->
+                            IconButton(onClick = { ratingDraft = if (ratingDraft == star) 0 else star }) {
+                                Icon(if (star <= ratingDraft) Icons.Outlined.Star else Icons.Outlined.StarBorder,
+                                    contentDescription = "$star estrellas", tint = Brass)
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(startedDraft, { startedDraft = it }, modifier = Modifier.weight(1f),
+                            label = { Text("Inicio") }, placeholder = { Text("AAAA-MM-DD") }, singleLine = true)
+                        OutlinedTextField(finishedDraft, { finishedDraft = it }, modifier = Modifier.weight(1f),
+                            label = { Text("Fin") }, placeholder = { Text("AAAA-MM-DD") }, singleLine = true)
+                    }
+                    OutlinedTextField(quotesDraft, { quotesDraft = it }, modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Citas favoritas") }, minLines = 3)
+                    LibraryActionButton(onClick = {
+                        saveReadingRecord(ratingDraft, startedDraft, finishedDraft, quotesDraft)
+                    }, modifier = Modifier.fillMaxWidth()) { ActionLabel("Guardar diario", "Guardar") }
                 }
             }
             item {
@@ -5749,6 +5905,16 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                             containerColor = Paper.copy(alpha = .94f),
                             contentColor = Mahogany)) {
                         ActionLabel("Consultar en Google", "Google")
+                    }
+                    OutlinedButton(onClick = {
+                        val query = Uri.encode("title:(\"${displayTitle(book)}\") AND mediatype:texts")
+                        context.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://archive.org/advancedsearch.php?q=$query")))
+                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Paper.copy(alpha = .94f), contentColor = Mahogany)) {
+                        ActionLabel("Buscar préstamo o EPUB legal", "Buscar", 12.sp)
                     }
                     OutlinedButton(onClick = { confirmDelete = true },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
