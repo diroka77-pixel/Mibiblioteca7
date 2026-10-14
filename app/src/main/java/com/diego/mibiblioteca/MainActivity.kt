@@ -165,7 +165,11 @@ data class Book(
     val rating: Int = 0,
     val startedDate: String = "",
     val finishedDate: String = "",
-    val quotes: String = ""
+    val quotes: String = "",
+    val tags: List<String> = emptyList(),
+    val loanTo: String = "",
+    val loanDate: String = "",
+    val rereadCount: Int = 0
 )
 
 private data class BackupRestoreResult(val matched: Int, val pending: String?)
@@ -323,6 +327,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var showHomeNews by mutableStateOf(true); private set
     var readingFirst by mutableStateOf(true); private set
     var wallpaperMode by mutableStateOf("Automático"); private set
+    var animationMode by mutableStateOf("Equilibrada"); private set
     var lastOpenedUri by mutableStateOf<Uri?>(null); private set
     var selectedSection by mutableStateOf<String?>(null)
     var sections by mutableStateOf<List<String>>(emptyList()); private set
@@ -426,6 +431,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var newsLastChecked by mutableStateOf(0L); private set
     var folderName by mutableStateOf<String?>(null); private set
     var message by mutableStateOf<String?>(null); private set
+    var activityLog by mutableStateOf<List<String>>(emptyList()); private set
 
     private val prefs = app.getSharedPreferences("library", Context.MODE_PRIVATE)
     private val bookStore = BookStore(app)
@@ -456,6 +462,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         showHomeNews = prefs.getBoolean("show_home_news", true)
         readingFirst = prefs.getBoolean("reading_first", true)
         loadWishList()
+        activityLog = safeSavedArray(prefs.getString("activity_log", "[]")).let { arr ->
+            (0 until arr.length()).map { arr.optString(it) }.filter(String::isNotBlank)
+        }
         sagaCatalogs = try {
             val saved = JSONObject(prefs.getString("saga_catalogs", "{}") ?: "{}")
             saved.keys().asSequence().map { key -> normalizeSagaName(key) to run {
@@ -470,6 +479,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             }
         } catch (_: Exception) { emptyMap() }
         wallpaperMode = prefs.getString("wallpaper_mode", "Automático") ?: "Automático"
+        animationMode = prefs.getString("animation_mode", "Equilibrada") ?: "Equilibrada"
         lastOpenedUri = prefs.getString("last_opened_book", null)?.let(Uri::parse)
         folderName = prefs.getString("folder_name", null)
         restoreLaunchNews()
@@ -583,7 +593,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     plotSource = j.optString("plotSource"), bioSource = j.optString("bioSource"),
                     coverSource = j.optString("coverSource"), rating = j.optInt("rating"),
                     startedDate = j.optString("startedDate"), finishedDate = j.optString("finishedDate"),
-                    quotes = j.optString("quotes"))
+                    quotes = j.optString("quotes"),
+                    tags = j.optJSONArray("tags")?.let { arr ->
+                        (0 until arr.length()).map { arr.optString(it) }.filter(String::isNotBlank)
+                    }.orEmpty(), loanTo = j.optString("loanTo"), loanDate = j.optString("loanDate"),
+                    rereadCount = j.optInt("rereadCount"))
                 } catch (_: Exception) { null }
             }
             }
@@ -618,7 +632,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .put("metadataRevision", b.metadataRevision).put("sourceCoverChecked", b.sourceCoverChecked).put("hadEmbeddedCover", b.hadEmbeddedCover)
             .put("plotSource", b.plotSource).put("bioSource", b.bioSource).put("coverSource", b.coverSource)
             .put("rating", b.rating).put("startedDate", b.startedDate)
-            .put("finishedDate", b.finishedDate).put("quotes", b.quotes)) }
+            .put("finishedDate", b.finishedDate).put("quotes", b.quotes)
+            .put("tags", org.json.JSONArray(b.tags)).put("loanTo", b.loanTo)
+            .put("loanDate", b.loanDate).put("rereadCount", b.rereadCount)) }
                     bookStore.replaceAll(array)
                     prefs.edit().putString("books_cache", array.toString()).apply()
                 }
@@ -715,10 +731,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 fun cell(value: String) = "\"" + value.replace("\"", "\"\"") + "\""
                 val rows = buildString {
-                    appendLine("Título;Autor;Saga;Número;Géneros;ISBN;Estado;Valoración;Inicio;Fin;Secciones;Citas;Notas")
+                    appendLine("Título;Autor;Saga;Número;Géneros;ISBN;Estado;Valoración;Inicio;Fin;Secciones;Etiquetas;Prestado a;Fecha préstamo;Relecturas;Citas;Notas")
                     books.forEach { b -> appendLine(listOf(displayTitle(b), displayAuthor(b), b.saga,
                         b.sagaOrder, b.genre, b.isbn, b.status.label, b.rating.toString(),
-                        b.startedDate, b.finishedDate, bookSections(b).joinToString(", "),
+                        b.startedDate, b.finishedDate, bookSections(b).joinToString(", "), b.tags.joinToString(", "),
+                        b.loanTo, b.loanDate, b.rereadCount.toString(),
                         b.quotes, b.notes).joinToString(";") { cell(it) }) }
                 }
                 getApplication<Application>().contentResolver.openOutputStream(destination, "w")
@@ -727,6 +744,41 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 withContext(Dispatchers.Main) { message = "Catálogo exportado. Puedes abrirlo con Excel." }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) { message = "No se pudo exportar el catálogo: ${e.localizedMessage}" }
+            }
+        }
+    }
+
+    fun exportReadingNotebook(destination: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val text = buildString {
+                    appendLine("MI BIBLIOTECA · CUADERNO DE LECTURA")
+                    appendLine()
+                    books.filter { it.notes.isNotBlank() || it.quotes.isNotBlank() ||
+                        readerPrefs.getString("notebook_" + readerProgressKey(it.uri), "").orEmpty().isNotBlank() ||
+                        readerPrefs.getString("highlights_" + readerProgressKey(it.uri), "[]") != "[]" }
+                        .forEach { book ->
+                            appendLine(displayTitle(book)); appendLine(displayAuthor(book))
+                            if (book.quotes.isNotBlank()) appendLine("Citas:\n${book.quotes}")
+                            if (book.notes.isNotBlank()) appendLine("Observaciones:\n${book.notes}")
+                            readerPrefs.getString("notebook_" + readerProgressKey(book.uri), "")
+                                .orEmpty().takeIf(String::isNotBlank)?.let { appendLine("Libreta:\n$it") }
+                            val marks = safeSavedArray(readerPrefs.getString(
+                                "highlights_" + readerProgressKey(book.uri), "[]"))
+                            if (marks.length() > 0) appendLine("Subrayados:")
+                            for (i in 0 until marks.length()) marks.optJSONObject(i)?.let { mark ->
+                                appendLine("• " + mark.optString("quote"))
+                                mark.optString("note").takeIf(String::isNotBlank)?.let { appendLine("  Nota: $it") }
+                            }
+                            appendLine("\n—\n")
+                        }
+                }
+                getApplication<Application>().contentResolver.openOutputStream(destination, "w")
+                    ?.bufferedWriter(Charsets.UTF_8)?.use { it.write(text) }
+                    ?: error("No se pudo crear el archivo")
+                withContext(Dispatchers.Main) { message = "Cuaderno de lectura exportado." }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { message = "No se pudo exportar el cuaderno: ${e.localizedMessage}" }
             }
         }
     }
@@ -825,6 +877,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 plotSource = record.optString("plotSource"), bioSource = record.optString("bioSource"),
                 rating = record.optInt("rating"), startedDate = record.optString("startedDate"),
                 finishedDate = record.optString("finishedDate"), quotes = record.optString("quotes"),
+                tags = record.optJSONArray("tags")?.let { arr ->
+                    (0 until arr.length()).map { arr.optString(it) }.filter(String::isNotBlank)
+                }.orEmpty(), loanTo = record.optString("loanTo"), loanDate = record.optString("loanDate"),
+                rereadCount = record.optInt("rereadCount"),
                 cover = if (record.optBoolean("coverRemoved")) null else if (image.isNotBlank()) run {
                     coverFile(getApplication(), uri).readBytes()
                 } else book.cover)
@@ -1040,6 +1096,22 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun renameSagaGroup(source: String, target: String) {
+        val clean = target.trim()
+        val sourceKey = normalizeSagaName(source)
+        if (clean.isBlank() || sourceKey.isBlank()) return
+        var changed = 0
+        books = books.map { book ->
+            if (sagaGroupKey(book) == sourceKey) {
+                changed++; book.copy(saga = clean, sagaOrder = inferredSaga(book).second)
+            } else book
+        }
+        if (changed > 0) {
+            saveBooks(); addActivity("Saga unificada · $clean · $changed libros")
+            detailMessage = "$changed libros agrupados como «$clean»."
+        }
+    }
+
     fun searchSagaCatalog(saga: String, reference: Book? = null) {
         val clean = saga.trim()
         val key = normalizeSagaName(clean)
@@ -1112,6 +1184,25 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             finishedDate = finished.trim(), quotes = quotes.trim()) else it }
         saveBooks()
         detailMessage = "Diario de lectura guardado."
+        books.firstOrNull { it.uri == uri }?.let { addActivity("Diario actualizado · ${displayTitle(it)}") }
+    }
+
+    private fun addActivity(text: String) {
+        val stamp = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale("es", "ES"))
+            .format(java.util.Date())
+        activityLog = (listOf("$stamp · $text") + activityLog).distinct().take(100)
+        prefs.edit().putString("activity_log", org.json.JSONArray(activityLog).toString()).apply()
+    }
+
+    fun saveBookManagement(uri: Uri, tags: String, loanTo: String, loanDate: String,
+        rereadCount: Int) {
+        books = books.map { if (it.uri == uri) it.copy(
+            tags = tags.split(',', ';').map(String::trim).filter(String::isNotBlank).distinct(),
+            loanTo = loanTo.trim(), loanDate = loanDate.trim(), rereadCount = rereadCount.coerceAtLeast(0)
+        ) else it }
+        saveBooks()
+        books.firstOrNull { it.uri == uri }?.let { addActivity("Organización actualizada · ${displayTitle(it)}") }
+        detailMessage = "Etiquetas y préstamo guardados."
     }
 
     fun saveManualInfo(uri: Uri, plot: String, bio: String) {
@@ -1279,14 +1370,21 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun recordOpen(uri: Uri) {
         lastOpenedUri = uri
+        val title = books.firstOrNull { it.uri == uri }?.let(::displayTitle).orEmpty()
         prefs.edit().putLong("opened_" + uri.toString().hashCode(), System.currentTimeMillis())
-            .putString("last_opened_book", uri.toString()).apply()
+            .putString("last_opened_book", uri.toString()).putString("last_opened_title", title).apply()
     }
 
     fun chooseWallpaper(mode: String) {
         if (mode !in (listOf("Automático", "Clásico", "Portada") + wallpaperGenres)) return
         wallpaperMode = mode
         prefs.edit().putString("wallpaper_mode", mode).apply()
+    }
+
+    fun chooseAnimationMode(mode: String) {
+        if (mode !in listOf("Suave", "Equilibrada", "Sin animaciones")) return
+        animationMode = mode
+        prefs.edit().putString("animation_mode", mode).apply()
     }
 
     fun readingBooks(): List<Book> = books.filter { it.status == ReadingStatus.READING }
@@ -1411,7 +1509,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         coverSource = prior?.coverSource?.takeIf(String::isNotBlank)
                             ?: if (b.cover != null) "Portada del EPUB" else "",
                         rating = prior?.rating ?: 0, startedDate = prior?.startedDate.orEmpty(),
-                        finishedDate = prior?.finishedDate.orEmpty(), quotes = prior?.quotes.orEmpty())
+                        finishedDate = prior?.finishedDate.orEmpty(), quotes = prior?.quotes.orEmpty(),
+                        tags = prior?.tags.orEmpty(), loanTo = prior?.loanTo.orEmpty(),
+                        loanDate = prior?.loanDate.orEmpty(), rereadCount = prior?.rereadCount ?: 0)
                 }
                 books = (books + localBooks.filter { it.uri.scheme == "file" &&
                     books.none { current -> current.uri == it.uri } })
@@ -1426,6 +1526,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 val missing = (previousUris - currentUris).size
                 syncSummary = "$added nuevos · $changed modificados · $missing fuera de la carpeta"
+                if (added + changed + missing > 0) addActivity("Drive · $syncSummary")
                 saveBooks()
                 syncCount = result.size
                 prefs.getString("pending_backup", null)?.let { pending ->
@@ -1751,7 +1852,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun toggleFavorite(uri: Uri) { books = books.map { if (it.uri == uri) it.copy(favorite=!it.favorite) else it }; saveBooks() }
-    fun setStatus(uri: Uri, status: ReadingStatus) { books = books.map { if (it.uri == uri) it.copy(status=status) else it }; saveBooks() }
+    fun setStatus(uri: Uri, status: ReadingStatus) {
+        val title = books.firstOrNull { it.uri == uri }?.let(::displayTitle).orEmpty()
+        books = books.map { if (it.uri == uri) it.copy(status=status) else it }
+        saveBooks()
+        if (title.isNotBlank()) addActivity("$title · ${status.label}")
+    }
     fun chooseViewMode(mode: String, section: String? = selectedSection) {
         viewMode = mode
         prefs.edit().putString("view_mode_" + (section ?: "general"), mode).apply()
@@ -2888,6 +2994,11 @@ private fun openCasaDelLibro(context: Context) {
     val pageWidthPx = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
     val pageTravelPx = pageWidthPx * 0.18f
     var tabTransitionJob by remember { mutableStateOf<Job?>(null) }
+    fun motionDuration(normal: Int): Int = when (vm.animationMode) {
+        "Sin animaciones" -> 1
+        "Suave" -> (normal * 1.25f).toInt()
+        else -> normal
+    }
     LaunchedEffect(Unit) { if (tab == "Pendientes") tab = "Secciones" }
     var addingSection by remember { mutableStateOf(false) }
     var sectionName by remember { mutableStateOf("") }
@@ -2902,12 +3013,12 @@ private fun openCasaDelLibro(context: Context) {
             }
             if (name == tab) {
                 showWishList = showPending
-                pageMotion.animateTo(0f, tween(180, easing = FastOutSlowInEasing))
+                pageMotion.animateTo(0f, tween(motionDuration(180), easing = FastOutSlowInEasing))
                 return@launch
             }
             val direction = if (tabs.indexOf(name) > tabs.indexOf(tab)) -1f else 1f
             val distance = pageTravelPx
-            pageMotion.animateTo(direction * distance, tween(175, easing = FastOutSlowInEasing))
+            pageMotion.animateTo(direction * distance, tween(motionDuration(175), easing = FastOutSlowInEasing))
             tab = name
             showWishList = showPending
             vm.selectedSection = null
@@ -2917,7 +3028,7 @@ private fun openCasaDelLibro(context: Context) {
             pageMotion.snapTo(-direction * distance)
             // Compose the destination while fully transparent, then bring it gently into view.
             withFrameNanos { }
-            pageMotion.animateTo(0f, tween(300, easing = FastOutSlowInEasing))
+            pageMotion.animateTo(0f, tween(motionDuration(300), easing = FastOutSlowInEasing))
         }
     }
     fun settlePage() {
@@ -2925,7 +3036,7 @@ private fun openCasaDelLibro(context: Context) {
         tabTransitionJob = scope.launch {
             pageMotion.snapTo((pageDrag.floatValue * 0.18f).coerceIn(-pageTravelPx, pageTravelPx))
             pageDrag.floatValue = 0f
-            pageMotion.animateTo(0f, tween(210, easing = FastOutSlowInEasing))
+            pageMotion.animateTo(0f, tween(motionDuration(210), easing = FastOutSlowInEasing))
         }
     }
     var bookMenu by remember { mutableStateOf<Book?>(null) }
@@ -2933,6 +3044,7 @@ private fun openCasaDelLibro(context: Context) {
     var wishTitle by remember { mutableStateOf("") }
     var wishUrl by remember { mutableStateOf("") }
     var wallpaperPickerOpen by remember { mutableStateOf(false) }
+    var animationPickerOpen by remember { mutableStateOf(false) }
     if (wallpaperPickerOpen) AlertDialog(
         onDismissRequest = { wallpaperPickerOpen = false },
         title = { Text("Elegir fondo de pantalla") },
@@ -2954,6 +3066,22 @@ private fun openCasaDelLibro(context: Context) {
             Text("Cerrar")
         } }
     )
+    if (animationPickerOpen) AlertDialog(
+        onDismissRequest = { animationPickerOpen = false },
+        title = { Text("Movimiento y fluidez") },
+        text = { Column {
+            listOf("Equilibrada", "Suave", "Sin animaciones").forEach { mode ->
+                Row(Modifier.fillMaxWidth().clickable {
+                    vm.chooseAnimationMode(mode); animationPickerOpen = false
+                }, verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(vm.animationMode == mode, onClick = {
+                        vm.chooseAnimationMode(mode); animationPickerOpen = false
+                    })
+                    Text(mode)
+                }
+            }
+        } },
+        confirmButton = { LibraryTextButton(onClick = { animationPickerOpen = false }) { Text("Cerrar") } })
     if (addingSection) AlertDialog(
         onDismissRequest = { addingSection = false },
         title = { Text("Nueva sección") },
@@ -2980,6 +3108,20 @@ private fun openCasaDelLibro(context: Context) {
         }) { Text("Añadir") } },
         dismissButton = { LibraryTextButton(onClick = { addWishDialog = false }) { Text("Cancelar") } }
     )
+    sagaRenameSource?.let { source -> AlertDialog(
+        onDismissRequest = { sagaRenameSource = null },
+        title = { Text("Unificar nombre de saga") },
+        text = { Column {
+            Text("Todos los libros agrupados como «$source» usarán el nuevo nombre.")
+            OutlinedTextField(sagaRenameTarget, { sagaRenameTarget = it },
+                label = { Text("Nombre definitivo") }, singleLine = true)
+        } },
+        confirmButton = { LibraryTextButton(onClick = {
+            vm.renameSagaGroup(source, sagaRenameTarget)
+            sagaRenameSource = null; sagaRenameTarget = ""
+        }, enabled = sagaRenameTarget.isNotBlank()) { Text("Unificar") } },
+        dismissButton = { LibraryTextButton(onClick = { sagaRenameSource = null }) { Text("Cancelar") } }
+    ) }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
     LaunchedEffect(vm.importedBookUri, vm.books) {
         vm.importedBookUri?.let { uri ->
@@ -3076,6 +3218,10 @@ private fun openCasaDelLibro(context: Context) {
     var libraryHealthOpen by remember { mutableStateOf(false) }
     var readingStatsOpen by remember { mutableStateOf(false) }
     var releaseCalendarOpen by remember { mutableStateOf(false) }
+    var taskCenterOpen by remember { mutableStateOf(false) }
+    var activityOpen by remember { mutableStateOf(false) }
+    var sagaRenameSource by remember { mutableStateOf<String?>(null) }
+    var sagaRenameTarget by remember { mutableStateOf("") }
     var sortMenu by remember { mutableStateOf(false) }
     var sortMode by rememberSaveable { mutableStateOf("Título") }
     val backupExport = rememberLauncherForActivityResult(
@@ -3087,6 +3233,8 @@ private fun openCasaDelLibro(context: Context) {
     }
     val catalogExport = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")) { uri -> uri?.let(vm::exportCatalogCsv) }
+    val notebookExport = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")) { uri -> uri?.let(vm::exportReadingNotebook) }
     val isbnCamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
         if (bitmap != null) BarcodeScanning.getClient().process(InputImage.fromBitmap(bitmap, 0))
             .addOnSuccessListener { codes ->
@@ -3569,6 +3717,36 @@ private fun openCasaDelLibro(context: Context) {
             }
         } },
         confirmButton = { LibraryTextButton(onClick = { releaseCalendarOpen = false }) { Text("Cerrar") } })
+    if (taskCenterOpen) AlertDialog(onDismissRequest = { taskCenterOpen = false },
+        title = { Text("Centro de tareas") },
+        text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+            Info("Sincronización de Drive", if (vm.syncing) "Revisando ${vm.syncCount} libros" else vm.syncSummary.ifBlank { "En espera" })
+            Info("Portadas", if (vm.coverUpdateRunning) "${vm.coverUpdateDone}/${vm.coverUpdateTotal}" else
+                "${vm.books.count { it.cover == null }} pendientes")
+            Info("Sagas", if (vm.sagaOrganizing) "${vm.sagaOrganized}/${vm.sagaOrganizeTotal}" else
+                "${vm.books.count { it.saga.isBlank() }} sin identificar")
+            Info("Géneros", if (vm.genreClassifying) "${vm.genreProgress}/${vm.genreTotal}" else
+                "${vm.books.count { normalizeBookGenres(it.genre).isEmpty() }} sin clasificar")
+            Info("Fichas para revisar", vm.reviewPending.size.toString())
+            Spacer(Modifier.height(8.dp))
+            LibraryActionButton(onClick = vm::sync, enabled = !vm.syncing,
+                modifier = Modifier.fillMaxWidth()) { Text("Actualizar Drive") }
+            LibraryActionButton(onClick = vm::forceMissingCovers, enabled = !vm.coverUpdateRunning,
+                modifier = Modifier.fillMaxWidth()) { Text("Buscar portadas pendientes") }
+            LibraryActionButton(onClick = vm::organizeAllSagas, enabled = !vm.sagaOrganizing,
+                modifier = Modifier.fillMaxWidth()) { Text("Identificar sagas pendientes") }
+            LibraryActionButton(onClick = { vm.classifyGenres(true) }, enabled = !vm.genreClassifying,
+                modifier = Modifier.fillMaxWidth()) { Text("Clasificar géneros pendientes") }
+        } },
+        confirmButton = { LibraryTextButton(onClick = { taskCenterOpen = false }) { Text("Cerrar") } })
+    if (activityOpen) AlertDialog(onDismissRequest = { activityOpen = false },
+        title = { Text("Actividad reciente") },
+        text = { Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
+            if (vm.activityLog.isEmpty()) Text("Todavía no hay actividad registrada.")
+            vm.activityLog.forEach { Text(it, modifier = Modifier.padding(vertical = 5.dp),
+                fontSize = 12.sp, color = Mahogany) }
+        } },
+        confirmButton = { LibraryTextButton(onClick = { activityOpen = false }) { Text("Cerrar") } })
     if (homeSettings) AlertDialog(onDismissRequest = { homeSettings = false },
         title = { Text("Organizar Inicio") },
         text = { Column {
@@ -3672,6 +3850,8 @@ private fun openCasaDelLibro(context: Context) {
                 }, {
                     selected = null; vm.query = shown.saga; vm.groupMode = "Sagas"
                     switchTab("Biblioteca")
+                }, { tags, loanTo, loanDate, rereads ->
+                    vm.saveBookManagement(shown.uri, tags, loanTo, loanDate, rereads)
                 })
         } else {
     val currentTab by rememberUpdatedState(tab)
@@ -3776,6 +3956,9 @@ private fun openCasaDelLibro(context: Context) {
                         NavigationDrawerItem(label = { Text("Fondo: " + vm.wallpaperMode) },
                             selected = false, icon = { Icon(Icons.Outlined.Wallpaper, null) },
                             onClick = { wallpaperPickerOpen = true })
+                        NavigationDrawerItem(label = { Text("Animaciones: " + vm.animationMode) },
+                            selected = false, icon = { Icon(Icons.Outlined.Animation, null) },
+                            onClick = { animationPickerOpen = true })
                         Text("Automático sigue el género del último libro abierto.",
                             color = Mahogany, fontSize = 12.sp,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
@@ -3906,6 +4089,14 @@ private fun openCasaDelLibro(context: Context) {
                         icon = { AppIcon("Datos") }, onClick = {
                             libraryHealthOpen = true; scope.launch { drawerState.close() }
                         })
+                    NavigationDrawerItem(label = { Text("Centro de tareas") }, selected = false,
+                        icon = { Icon(Icons.Outlined.TaskAlt, null) }, onClick = {
+                            taskCenterOpen = true; scope.launch { drawerState.close() }
+                        })
+                    NavigationDrawerItem(label = { Text("Actividad reciente") }, selected = false,
+                        icon = { Icon(Icons.Outlined.History, null) }, onClick = {
+                            activityOpen = true; scope.launch { drawerState.close() }
+                        })
                     NavigationDrawerItem(label = { Text("Estadísticas de lectura") }, selected = false,
                         icon = { AppIcon("Pendientes") }, onClick = {
                             readingStatsOpen = true; scope.launch { drawerState.close() }
@@ -3927,6 +4118,11 @@ private fun openCasaDelLibro(context: Context) {
                         icon = { Icon(Icons.Outlined.TableView, null) }, onClick = {
                             scope.launch { drawerState.close() }
                             catalogExport.launch("MiBiblioteca-catalogo.csv")
+                        })
+                    NavigationDrawerItem(label = { Text("Exportar notas y subrayados") }, selected = false,
+                        icon = { Icon(Icons.Outlined.EditNote, null) }, onClick = {
+                            scope.launch { drawerState.close() }
+                            notebookExport.launch("MiBiblioteca-cuaderno.txt")
                         })
                     NavigationDrawerItem(label = { Text("Ajustes") }, selected = false,
                         icon = { AppIcon("Ajustes") }, onClick = { settingsOpen = true })
@@ -4394,6 +4590,11 @@ private fun openCasaDelLibro(context: Context) {
                                     "Comprobando catálogo…" else if (catalog.isEmpty())
                                     "Comprobar saga completa" else "Actualizar comprobación",
                                     color = Color.White, fontSize = 11.sp)
+                            }
+                            TextButton(onClick = {
+                                sagaRenameSource = name; sagaRenameTarget = name
+                            }, contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)) {
+                                Text("Unificar o cambiar nombre", color = Color.White, fontSize = 11.sp)
                             }
                         }
                     }
@@ -5475,7 +5676,8 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     offlineAvailable: Boolean, removeOfflineCopy: () -> Unit,
     wallpaperMode: String, libraryBooks: List<Book>,
     saveReadingRecord: (Int, String, String, String) -> Unit,
-    showAuthorBooks: () -> Unit, showSagaBooks: () -> Unit
+    showAuthorBooks: () -> Unit, showSagaBooks: () -> Unit,
+    saveBookManagement: (String, String, String, Int) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -5507,6 +5709,10 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     var startedDraft by remember(book.uri, book.startedDate) { mutableStateOf(book.startedDate) }
     var finishedDraft by remember(book.uri, book.finishedDate) { mutableStateOf(book.finishedDate) }
     var quotesDraft by remember(book.uri, book.quotes) { mutableStateOf(book.quotes) }
+    var tagsDraft by remember(book.uri, book.tags) { mutableStateOf(book.tags.joinToString(", ")) }
+    var loanToDraft by remember(book.uri, book.loanTo) { mutableStateOf(book.loanTo) }
+    var loanDateDraft by remember(book.uri, book.loanDate) { mutableStateOf(book.loanDate) }
+    var rereadDraft by remember(book.uri, book.rereadCount) { mutableIntStateOf(book.rereadCount) }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
         it?.let(replaceCover)
     }
@@ -5971,6 +6177,31 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         bioDraft = book.authorBio
                         editInfo = true
                     }, modifier = Modifier.weight(1f)) { ActionLabel("Editar texto", "Editar") }
+                }
+            }
+            item {
+                BookPanel("Organización personal", book.uri.toString()) {
+                    OutlinedTextField(tagsDraft, { tagsDraft = it }, modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Etiquetas separadas por comas") },
+                        placeholder = { Text("Releer, edición especial, regalo…") })
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(loanToDraft, { loanToDraft = it }, modifier = Modifier.weight(1f),
+                            label = { Text("Prestado a") })
+                        OutlinedTextField(loanDateDraft, { loanDateDraft = it }, modifier = Modifier.weight(1f),
+                            label = { Text("Fecha") }, placeholder = { Text("AAAA-MM-DD") })
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Relecturas: $rereadDraft", modifier = Modifier.weight(1f), color = Mahogany)
+                        IconButton(onClick = { rereadDraft = (rereadDraft - 1).coerceAtLeast(0) }) {
+                            Icon(Icons.Outlined.Remove, "Restar relectura", tint = Mahogany)
+                        }
+                        IconButton(onClick = { rereadDraft++ }) {
+                            Icon(Icons.Outlined.Add, "Añadir relectura", tint = Mahogany)
+                        }
+                    }
+                    LibraryActionButton(onClick = {
+                        saveBookManagement(tagsDraft, loanToDraft, loanDateDraft, rereadDraft)
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Guardar organización") }
                 }
             }
             item {
