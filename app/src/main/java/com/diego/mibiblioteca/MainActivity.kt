@@ -5022,6 +5022,8 @@ private fun decodeCover(book: Book, targetWidthPx: Int, targetHeightPx: Int): Bi
     synchronized(coverBitmapCache) { coverBitmapCache.get(key) }?.let { return it }
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    // Malformed cover data should not trigger invalid sampling or a crash.
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
     // Decode compact previews so switching genre rows does not repeatedly allocate
     // near full-resolution bitmaps. The cover is still upscaled cleanly at card size.
     val targetWidth = coverBucket(targetWidthPx) * 2 / 3
