@@ -59,22 +59,12 @@ jobs:
         run: |
           split -b 28m -d -a 2 app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/MiBiblioteca.part-"
           sha256sum app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/MiBiblioteca.sha256"
-          test "$(find "$RUNNER_TEMP" -maxdepth 1 -name 'MiBiblioteca.part-*' | wc -l)" -eq 3
+          test "$(find "$RUNNER_TEMP" -maxdepth 1 -name 'MiBiblioteca.part-*' | wc -l)" -ge 1
       - uses: actions/upload-artifact@v4
         with:
-          name: MiBiblioteca-parte-00
-          path: ${{ runner.temp }}/MiBiblioteca.part-00
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: MiBiblioteca-parte-01
-          path: ${{ runner.temp }}/MiBiblioteca.part-01
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: MiBiblioteca-parte-02
+          name: MiBiblioteca-partes-v0.96
           path: |
-            ${{ runner.temp }}/MiBiblioteca.part-02
+            ${{ runner.temp }}/MiBiblioteca.part-*
             ${{ runner.temp }}/MiBiblioteca.sha256
           if-no-files-found: error
       - name: Publicar APK completa para descarga directa
