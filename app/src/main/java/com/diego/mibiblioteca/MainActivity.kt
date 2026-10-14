@@ -4314,6 +4314,9 @@ private fun openCasaDelLibro(context: Context) {
                     onLongPress = { bookMenu = it }, onCarouselTouch = { startedOnCarousel = true }) { book ->
                     startReader(book)
                 } }
+            if (tab == "Inicio") item(key = "home-summary") {
+                HomeReadingSummary(vm.books, vm::readingPercent)
+            }
             item(key = "controls") {
                 Column(Modifier.padding(horizontal = 12.dp)) {
                     if (tab == "Inicio") {
@@ -4827,6 +4830,53 @@ private fun openCasaDelLibro(context: Context) {
                     AppIcon(mode, "Vista $mode", tint = Color.White, size = 21.dp)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun HomeReadingSummary(books: List<Book>, progress: (Uri) -> Int) {
+    val read = books.count { it.status == ReadingStatus.READ }
+    val reading = books.count { it.status == ReadingStatus.READING }
+    val pending = books.count { it.status == ReadingStatus.PENDING }
+    val started = books.map { progress(it.uri) }.filter { it > 0 }
+    val average = started.average().takeIf { !it.isNaN() }?.toInt() ?: 0
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+        Text("Tu actividad de lectura", fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Bold, fontSize = 21.sp, color = Color.White,
+            style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            HomeMetricCard("Leídos", read.toString(), Teal, Modifier.weight(1f))
+            HomeMetricCard("Leyendo", reading.toString(), Brass, Modifier.weight(1f))
+            HomeMetricCard("Pendientes", pending.toString(), Color(0xFFD6A0C8), Modifier.weight(1f))
+        }
+        Card(Modifier.fillMaxWidth().padding(top = 8.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .94f)),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Progreso medio", color = Ink, fontWeight = FontWeight.Bold)
+                        Text("De los libros empezados", color = Mahogany.copy(alpha = .7f), fontSize = 11.sp)
+                    }
+                    Text("$average %", color = Teal, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(progress = { average / 100f }, Modifier.fillMaxWidth(),
+                    color = Teal, trackColor = Teal.copy(alpha = .16f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeMetricCard(label: String, value: String, accent: Color, modifier: Modifier) {
+    Card(modifier, colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .94f)),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
+        Column(Modifier.padding(11.dp)) {
+            Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = accent)
+            Text(label, fontSize = 11.sp, color = Ink, maxLines = 1)
         }
     }
 }
