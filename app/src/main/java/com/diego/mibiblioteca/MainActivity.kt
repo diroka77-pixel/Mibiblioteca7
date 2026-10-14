@@ -3193,11 +3193,11 @@ private fun openCasaDelLibro(context: Context) {
                 pendingReader = book
                 // Finish the physical movement before composing the reader behind the page.
                 readerTransition.animateTo(0.84f,
-                    tween(540, easing = FastOutSlowInEasing))
+                    tween(1050, easing = FastOutSlowInEasing))
                 readingUri = book.uri.toString()
                 withFrameNanos { }
                 readerTransition.animateTo(1f,
-                    tween(180, easing = FastOutSlowInEasing))
+                    tween(360, easing = FastOutSlowInEasing))
             } finally {
                 pendingReader = null
                 readerTransitionBusy = false
@@ -4306,7 +4306,7 @@ private fun openCasaDelLibro(context: Context) {
                 item(key = "reading-shelf") { ReadingShelf(readingBooks, vm::readingPercent,
                     isOffline = { it.uri in offlineBookUris },
                     onLongPress = { bookMenu = it }, onCarouselTouch = { startedOnCarousel = true }) { book ->
-                    openBookFromList(book)
+                    startReader(book)
                 } }
             item(key = "controls") {
                 Column(Modifier.padding(horizontal = 12.dp)) {
@@ -4839,11 +4839,11 @@ private fun openCasaDelLibro(context: Context) {
             items(books, key = { "reading:" + it.uri }) { book ->
                 Card(Modifier.width(coverWidth).combinedClickable(
                     onClick = { onOpen(book) }, onLongClick = { onLongPress(book) }),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                     Box {
-                        FlatCover(book, coverWidth, coverWidth * 1.42f)
+                        FlatCover(book, coverWidth, coverWidth * 1.50f)
                         if (isOffline(book)) OfflineBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
                     }
                     Column(Modifier.fillMaxWidth().height(105.dp)
@@ -4875,7 +4875,7 @@ private fun openCasaDelLibro(context: Context) {
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
     Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp).combinedClickable(
         onClick = onClick, onLongClick = onLongPress),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -4934,12 +4934,12 @@ private fun openCasaDelLibro(context: Context) {
     BoxWithConstraints(modifier.padding(bottom = 8.dp)) {
         val coverWidth = maxWidth
         Card(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongPress),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             border = androidx.compose.foundation.BorderStroke(1.dp, Color.White)) {
             Box(Modifier.fillMaxWidth()) {
-                FlatCover(book, coverWidth, coverWidth * 1.42f)
+                FlatCover(book, coverWidth, coverWidth * 1.50f)
                 Surface(Modifier.align(Alignment.TopEnd).padding(6.dp),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
                     color = Ink.copy(alpha = 0.70f)) {
@@ -5058,7 +5058,7 @@ private fun FlatCover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.co
             }
         }
     }
-    val shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 15.dp, topEnd = 15.dp)
+    val shape = androidx.compose.foundation.shape.RectangleShape
     Surface(Modifier.width(w).height(h), color = Color.White, shape = shape) {
         val bitmap = bmp
         if (bitmap != null) {
