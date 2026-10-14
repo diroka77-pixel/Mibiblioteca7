@@ -1015,10 +1015,15 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         }
     }) {
     Scaffold(containerColor = background, contentWindowInsets = WindowInsets.safeDrawing, topBar = {
-        if (document !is ReadingDocument.TextDocument && document !is ReadingDocument.PdfDocument)
         TopAppBar(title = { Text(book.customTitle.ifBlank { book.title }.take(38), maxLines = 1) },
             navigationIcon = { IconButton(onClick = onBack) { AppIcon("Volver", "Volver") } },
             actions = {
+                IconButton(onClick = { scope.launch { drawer.open() } }) {
+                    AppIcon("Capítulos", "Capítulos, búsqueda y marcadores")
+                }
+                IconButton(onClick = { showReaderTools = true }) {
+                    AppIcon("Ajustes", "Ajustes de lectura")
+                }
                 IconButton(onClick = { dark = !dark; prefs.edit().putBoolean("dark", dark).apply() }) {
                     AppIcon(if (dark) "Día" else "Noche", "Cambiar tema")
                 }
@@ -1509,6 +1514,29 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                    if (document is ReadingDocument.TextDocument && totalTextPages > 0) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                            color = background,
+                            contentColor = foreground
+                        ) {
+                            Column(Modifier.fillMaxWidth()) {
+                                LinearProgressIndicator(
+                                    progress = { (percent / 100f).coerceIn(0f, 1f) },
+                                    modifier = Modifier.fillMaxWidth().height(2.dp),
+                                    color = if (dark) Color(0xFF8BC7D1) else Color(0xFF8A2D2D),
+                                    trackColor = foreground.copy(alpha = 0.12f)
+                                )
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Página ${currentPage + 1} de $totalTextPages", fontSize = 11.sp)
+                                    Text("$percent %", fontSize = 11.sp)
                                 }
                             }
                         }
