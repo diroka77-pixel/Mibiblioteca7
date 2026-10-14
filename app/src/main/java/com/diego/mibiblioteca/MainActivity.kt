@@ -4193,9 +4193,9 @@ private fun openCasaDelLibro(context: Context) {
             }
         },
         bottomBar = {
-            NavigationBar(containerColor = LibraryVisualTokens.overlay,
+            NavigationBar(containerColor = Color.White.copy(alpha = 0.96f),
                 contentColor = LibraryVisualTokens.onDark,
-                tonalElevation = 4.dp) {
+                tonalElevation = 0.dp) {
                 listOf(
                     Triple("Inicio", "Inicio", "Inicio"),
                     Triple("Biblioteca", "Libros", "Libros"),
@@ -4208,11 +4208,11 @@ private fun openCasaDelLibro(context: Context) {
                         icon = { AppIcon(icon, description = label, size = 22.dp) },
                         label = { Text(label, maxLines = 1, fontSize = 10.sp) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color.White,
-                            selectedTextColor = Color.White,
-                            indicatorColor = Color(0xFF7D6754),
-                            unselectedIconColor = Color.White.copy(alpha = 0.82f),
-                            unselectedTextColor = Color.White.copy(alpha = 0.78f))
+                            selectedIconColor = Mahogany,
+                            selectedTextColor = Mahogany,
+                            indicatorColor = Brass.copy(alpha = 0.28f),
+                            unselectedIconColor = Mahogany.copy(alpha = 0.72f),
+                            unselectedTextColor = Mahogany.copy(alpha = 0.72f))
                     )
                 }
             }
@@ -4876,8 +4876,8 @@ private fun openCasaDelLibro(context: Context) {
     Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp).combinedClickable(
         onClick = onClick, onLongClick = onLongPress),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Paper),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box {
                 FlatCover(book, 92.dp, 132.dp)
@@ -4903,7 +4903,8 @@ private fun openCasaDelLibro(context: Context) {
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
     Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp).combinedClickable(
         onClick = onClick, onLongClick = onLongPress),
-        colors = CardDefaults.cardColors(containerColor = Paper)) {
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box {
                 FlatCover(book, 50.dp, 72.dp)
@@ -4935,7 +4936,7 @@ private fun openCasaDelLibro(context: Context) {
         Card(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongPress),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             border = androidx.compose.foundation.BorderStroke(1.dp, Color.White)) {
             Box(Modifier.fillMaxWidth()) {
                 FlatCover(book, coverWidth, coverWidth * 1.42f)
@@ -6030,7 +6031,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                             }
                         }
                         LibraryTextButton(onClick = { searchCoverImages(context, book) }) {
-                            ActionLabel("Ver imágenes en Google", "Buscar", 12.sp)
+                            ActionLabel("Buscar imágenes de portada", "Buscar", 12.sp)
                         }
                     }
                 }
@@ -6150,7 +6151,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                             ActionLabel("Editar", "Editar", 12.sp)
                         }
                     }
-                    Text("Fuentes: Google Libros y Open Library. Comprueba las etiquetas encontradas.",
+                    Text("Fuentes de catálogo. Comprueba las etiquetas encontradas.",
                         fontSize = 11.sp, color = Mahogany)
                 }
             }
@@ -6278,7 +6279,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = Paper.copy(alpha = .94f),
                             contentColor = Mahogany)) {
-                        ActionLabel("Consultar en Google", "Google")
+                        ActionLabel("Buscar información del libro", "Búsqueda IA")
                     }
                     OutlinedButton(onClick = {
                         val query = Uri.encode("title:(\"${displayTitle(book)}\") AND mediatype:texts")
