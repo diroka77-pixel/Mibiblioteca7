@@ -3045,6 +3045,8 @@ private fun openCasaDelLibro(context: Context) {
     var wishUrl by remember { mutableStateOf("") }
     var wallpaperPickerOpen by remember { mutableStateOf(false) }
     var animationPickerOpen by remember { mutableStateOf(false) }
+    var sagaRenameSource by remember { mutableStateOf<String?>(null) }
+    var sagaRenameTarget by remember { mutableStateOf("") }
     if (wallpaperPickerOpen) AlertDialog(
         onDismissRequest = { wallpaperPickerOpen = false },
         title = { Text("Elegir fondo de pantalla") },
@@ -3220,8 +3222,6 @@ private fun openCasaDelLibro(context: Context) {
     var releaseCalendarOpen by remember { mutableStateOf(false) }
     var taskCenterOpen by remember { mutableStateOf(false) }
     var activityOpen by remember { mutableStateOf(false) }
-    var sagaRenameSource by remember { mutableStateOf<String?>(null) }
-    var sagaRenameTarget by remember { mutableStateOf("") }
     var sortMenu by remember { mutableStateOf(false) }
     var sortMode by rememberSaveable { mutableStateOf("Título") }
     val backupExport = rememberLauncherForActivityResult(
