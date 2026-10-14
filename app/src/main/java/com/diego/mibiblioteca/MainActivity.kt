@@ -1578,7 +1578,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                             File(app.filesDir, "removed-" + coverFile(app, uri).name).delete()
                         }
                         autoCoverLoading = autoCoverLoading + uri
-                        val bytes = withContext(Dispatchers.IO) { fetchCover(current) } ?: continue
+                        val bytes = withContext(Dispatchers.IO) {
+                            // Reinspect the book first. A surprising number of EPUBs use an
+                            // unusual cover declaration that is recovered by the full parser.
+                            val name = (if (current.uri.scheme == "file") current.uri.lastPathSegment
+                                else DocumentFile.fromSingleUri(app, current.uri)?.name).orEmpty()
+                            val embedded = if (name.endsWith(".epub", ignoreCase = true))
+                                try { readEpub(app, current.uri, name, current.sourceSize,
+                                    current.sourceModified).cover } catch (_: Exception) { null }
+                            else null
+                            embedded ?: fetchCover(current)
+                        } ?: continue
                         // A manual replacement during the request must win.
                         if (books.firstOrNull { it.uri == uri }?.cover != null) continue
                         withContext(Dispatchers.IO) {
@@ -1586,7 +1596,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                             coverFile(app, uri).writeSafely(bytes)
                         }
                         books = books.map { if (it.uri == uri) it.copy(cover = bytes,
-                            coverSource = "Catálogos públicos") else it }
+                            coverSource = if (current.hadEmbeddedCover) "Portada del EPUB"
+                                else "Catálogos públicos") else it }
                         dirty = true
                         savedCount++
                         if (savedCount % 8 == 0) { saveBooks(); dirty = false }
@@ -4374,8 +4385,14 @@ private fun openCasaDelLibro(context: Context) {
                             }
                             if (!showWishList) {
                                 ConceptViewSelector(vm.viewModeFor(vm.selectedSection),
-                                    onGallery = { vm.chooseViewMode("Galería") },
-                                    onList = { vm.chooseViewMode("Lista") })
+                                    onGallery = {
+                                        vm.chooseViewMode("Galería")
+                                        scope.launch { libraryListState.scrollToItem(0) }
+                                    },
+                                    onList = {
+                                        vm.chooseViewMode("Lista")
+                                        scope.launch { libraryListState.scrollToItem(0) }
+                                    })
                             }
                         }
                         if (vm.bulkInfoLoading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
@@ -4694,17 +4711,21 @@ private fun openCasaDelLibro(context: Context) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 var seekJob: Job? = null
+                var dragging = false
                 fun seek(y: Float) {
                     val fraction = (y / size.height.coerceAtLeast(1)).coerceIn(0f, 1f)
                     seekJob?.cancel()
                     seekJob = scope.launch { listState.scrollToItem((fraction * maxIndex).toInt()) }
                 }
-                seek(down.position.y)
                 while (true) {
                     val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
                     if (!change.pressed) break
-                    seek(change.position.y)
-                    change.consume()
+                    if (!dragging && kotlin.math.abs(change.position.y - down.position.y) > 12.dp.toPx())
+                        dragging = true
+                    if (dragging) {
+                        seek(change.position.y)
+                        change.consume()
+                    }
                 }
             }
         }) {
@@ -4859,7 +4880,7 @@ private fun openCasaDelLibro(context: Context) {
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box {
-                Cover(book, 92.dp, 132.dp)
+                FlatCover(book, 92.dp, 132.dp)
                 if (offline) OfflineBadge(Modifier.align(Alignment.TopEnd).padding(4.dp))
             }
             Spacer(Modifier.width(14.dp))
@@ -4885,7 +4906,7 @@ private fun openCasaDelLibro(context: Context) {
         colors = CardDefaults.cardColors(containerColor = Paper)) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box {
-                Cover(book, 50.dp, 72.dp)
+                FlatCover(book, 50.dp, 72.dp)
                 if (offline) OfflineBadge(Modifier.align(Alignment.TopEnd).padding(2.dp), compact = true)
             }
             Spacer(Modifier.width(12.dp))
@@ -5883,7 +5904,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         translationY = (1f - p) * 24.dp.toPx()
                         cameraDistance = 18.dp.toPx()
                     }) {
-                        Cover(book, 165.dp, 240.dp)
+                        FlatCover(book, 165.dp, 240.dp)
                     }
                     Spacer(Modifier.height(8.dp))
                     Box(Modifier.fillMaxWidth(0.38f * opening.value)
