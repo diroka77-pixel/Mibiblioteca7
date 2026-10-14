@@ -5014,7 +5014,7 @@ private fun coverBucket(pixels: Int): Int {
 }
 
 private fun coverKey(book: Book, widthPx: Int, heightPx: Int): String =
-    book.uri.toString() + ":" + System.identityHashCode(book.cover) +
+    book.uri.toString() + ":" + book.cover?.let(::coverContentFingerprint) +
         ":${coverBucket(widthPx)}:${coverBucket(heightPx)}"
 
 private fun decodeCover(book: Book, targetWidthPx: Int, targetHeightPx: Int): Bitmap? {

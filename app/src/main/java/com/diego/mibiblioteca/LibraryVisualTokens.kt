@@ -36,3 +36,10 @@ internal object CoverPresentation {
         return Pair((sourceWidth * scale).toInt().coerceAtLeast(1), (sourceHeight * scale).toInt().coerceAtLeast(1))
     }
 }
+
+/**
+ * Fingerprint based on the image bytes rather than the identity of the array.
+ * Drive and backup restores may recreate an equivalent ByteArray; the bitmap
+ * cache must still be reusable in that case and must change when the image does.
+ */
+internal fun coverContentFingerprint(bytes: ByteArray): Int = bytes.contentHashCode()

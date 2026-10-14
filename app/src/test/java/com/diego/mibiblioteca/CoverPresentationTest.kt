@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoverPresentationTest {
+    @Test fun equivalentByteArraysShareCoverFingerprint() {
+        assertEquals(coverContentFingerprint(byteArrayOf(1, 2, 3)),
+            coverContentFingerprint(byteArrayOf(1, 2, 3)))
+        assertNotEquals(coverContentFingerprint(byteArrayOf(1, 2, 3)),
+            coverContentFingerprint(byteArrayOf(1, 2, 4)))
+    }
+
     @Test fun portraitCoverFitsWithoutCropping() {
         assertEquals(Pair(120, 180), CoverPresentation.fittedSize(600, 900, 120, 180))
     }

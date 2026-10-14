@@ -1,4 +1,9 @@
-# MiBiblioteca v0.95.0
+# MiBiblioteca v0.96.0
+
+## Cambios de la versión 0.96
+
+- La caché de portadas identifica la imagen por su contenido y no por la identidad temporal del array de bytes. Se reducen recargas al cambiar de pantalla y se invalida correctamente una portada sustituida.
+- Se conserva el ajuste completo de las portadas (`Fit`) en galerías y fichas para evitar recortes o deformaciones.
 
 Proyecto Android de MiBiblioteca. Las portadas importadas se limitan antes de decodificarse y Dependabot propone actualizaciones semanales para Gradle y GitHub Actions. Los grupos se conservan al cambiar entre pantallas y cada sección mantiene su propia posición de desplazamiento. La vista de géneros conserva sus grupos al cambiar filtros, permite buscar y seleccionar géneros desde un selector compacto y carga portadas ajustadas al tamaño visible para agilizar la navegación. El filtro de géneros desplaza su propia lista y aplica la selección al terminar; los accesos externos están centrados y se reutilizan grupos y portadas en cambios de pantalla. El código fuente está en `app/`. GitHub Actions compila, verifica y guarda la APK firmada como artefacto de la ejecución.
 
