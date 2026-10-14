@@ -5058,7 +5058,7 @@ private fun FlatCover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.co
             }
         }
     }
-    val shape = androidx.compose.foundation.shape.RectangleShape
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(0.dp)
     Surface(Modifier.width(w).height(h), color = Color.White, shape = shape) {
         val bitmap = bmp
         if (bitmap != null) {
