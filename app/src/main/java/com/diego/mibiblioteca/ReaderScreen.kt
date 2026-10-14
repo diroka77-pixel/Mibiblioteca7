@@ -884,6 +884,24 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 Text("APARIENCIA", color = Color(0xFF785940),
                     style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.height(8.dp))
+                Text("Perfiles", fontWeight = FontWeight.SemiBold)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = {
+                        fontSize = 17f; dark = false; sepia = false; brightness = -1f
+                        prefs.edit().putFloat("font_size", fontSize).putBoolean("dark", false)
+                            .putBoolean("sepia", false).putFloat("brightness", brightness).apply()
+                    }) { Text("Día") }
+                    TextButton(onClick = {
+                        fontSize = 19f; dark = false; sepia = true; brightness = .62f
+                        prefs.edit().putFloat("font_size", fontSize).putBoolean("dark", false)
+                            .putBoolean("sepia", true).putFloat("brightness", brightness).apply()
+                    }) { Text("Cómodo") }
+                    TextButton(onClick = {
+                        fontSize = 20f; dark = true; sepia = false; brightness = .28f
+                        prefs.edit().putFloat("font_size", fontSize).putBoolean("dark", true)
+                            .putBoolean("sepia", false).putFloat("brightness", brightness).apply()
+                    }) { Text("Noche") }
+                }
                 if (document is ReadingDocument.TextDocument) {
                     Text("Tamaño de letra · ${fontSize.toInt()} pt", fontWeight = FontWeight.SemiBold)
                     Row(verticalAlignment = Alignment.CenterVertically) {
