@@ -2153,7 +2153,8 @@ private fun fetchSagaMetadata(book: Book): Pair<String, String> {
     } catch (_: Exception) { }
 
     // Last local fallback: filenames and titles frequently include “Saga #3” or “Libro 3”.
-    val candidates = listOf(plainTitle, book.name.substringBeforeLast('.'))
+    val sourceName = book.uri.lastPathSegment.orEmpty().substringAfterLast('/').substringBeforeLast('.')
+    val candidates = listOf(plainTitle, sourceName)
     for (candidate in candidates) {
         Regex("[\\[(]([^]()]*(?:saga|serie)[^]()]*)[\\])]", RegexOption.IGNORE_CASE)
             .find(candidate)?.groupValues?.get(1)?.let { label ->
