@@ -43,4 +43,4 @@ jobs:
           name: MiBiblioteca-actualizacion-integral
           path: app/build/outputs/apk/release/app-release.apk
 
-# recursos corregidos
+# estado del diálogo corregido
