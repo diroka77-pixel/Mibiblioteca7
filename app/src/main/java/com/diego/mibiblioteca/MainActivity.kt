@@ -1525,7 +1525,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     } ?: false
                 }
                 val missing = (previousUris - currentUris).size
-                syncSummary = "$added nuevos · $changed modificados · $missing fuera de la carpeta"
+                val coversMissing = books.count { it.cover == null }
+                syncSummary = "$added nuevos · $changed modificados · $missing fuera de la carpeta · $coversMissing sin portada"
                 if (added + changed + missing > 0) addActivity("Drive · $syncSummary")
                 saveBooks()
                 syncCount = result.size
