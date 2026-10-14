@@ -1,4 +1,5 @@
 name: Compilar revisión visual y funcional 2
+# Segundo intento tras validar el nombre local de saga
 on:
   push:
     branches: [redisenio-biblioteca-096]
