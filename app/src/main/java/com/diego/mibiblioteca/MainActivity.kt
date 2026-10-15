@@ -3904,7 +3904,9 @@ private fun openCasaDelLibro(context: Context) {
     var startedOnCarousel by remember { mutableStateOf(false) }
     val mainSwipeModifier = Modifier.pointerInput(swipeThreshold, pageWidthPx) {
         awaitEachGesture {
-            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            // Let buttons, chips and selectors consume their own touch first.  The old
+            // Initial-pass listener interpreted a tap/drag over a control as a page swipe.
+            val down = awaitFirstDown(requireUnconsumed = true, pass = PointerEventPass.Main)
             startedOnCarousel = false
             val start = down.position
             var end = start
@@ -3913,7 +3915,7 @@ private fun openCasaDelLibro(context: Context) {
             while (true) {
                 // Observe before clickable controls consume the movement. Horizontal carousels
                 // keep their own drag, while vertical lists continue to own vertical scrolling.
-                val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                val change = awaitPointerEvent(PointerEventPass.Main).changes
                     .firstOrNull { it.id == down.id } ?: break
                 end = change.position
                 if (!change.pressed) break
@@ -4038,7 +4040,9 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                     Spacer(Modifier.height(18.dp))
-                    // La navegación principal está disponible en la barra inferior.\n                    HorizontalDivider(Modifier.padding(vertical = 14.dp))
+                    // La navegación principal ya está disponible en la barra inferior.
+                    // Se mantiene aquí únicamente el contenido de gestión y exploración.
+                    HorizontalDivider(Modifier.padding(vertical = 14.dp))
                     Text("EXPLORAR", color = Teal,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
@@ -4453,28 +4457,26 @@ private fun openCasaDelLibro(context: Context) {
                             Spacer(Modifier.width(8.dp))
                             LibraryTextButton(onClick = { organizeSections = true }) { Text("Organizar") }
                         }
-                        Text("Colecciones inteligentes", color = Color.White.copy(alpha = .82f),
+                        Text("Tus secciones", color = Color.White.copy(alpha = .82f),
                             fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
-                        Row(Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("abandonados" to "Empezados y abandonados",
-                                "sin_terminar" to "Sin terminar",
-                                "pendientes" to "Pendientes sin empezar").forEach { (key, label) ->
-                                CatalogChip(label, smartCollection == key) {
-                                    smartCollection = if (smartCollection == key) null else key
-                                    vm.selectedSection = null
+                        if (vm.sections.isEmpty()) {
+                            WallpaperLabel("Crea una sección para organizar tus libros.", fontSize = 12.sp)
+                        } else {
+                            Row(Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                vm.sections.forEach { name ->
+                                    CatalogChip(name, vm.selectedSection == name) {
+                                        smartCollection = null
+                                        vm.selectedSection = if (vm.selectedSection == name) null else name
+                                    }
                                 }
                             }
                         }
-                        Text("Vista de secciones", color = Color.White.copy(alpha = .82f),
+                        Text("Vista", color = Color.White.copy(alpha = .82f),
                             fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("Galería", "Lista", "Compacta").forEach { mode ->
-                                CatalogChip(mode, vm.viewModeFor(activeViewScope) == mode) {
-                                    vm.chooseViewMode(mode, activeViewScope)
-                                }
-                            }
-                        }
+                        ConceptViewSelector(vm.viewModeFor(activeViewScope),
+                            onGallery = { vm.chooseViewMode("Galería", activeViewScope) },
+                            onList = { vm.chooseViewMode("Lista", activeViewScope) })
                     }
                     Box {
                         DropdownMenu(expanded = backupMenu, onDismissRequest = { backupMenu = false }) {
@@ -4985,7 +4987,7 @@ private fun ReadingStatisticsPage(
                 Text("Media de los libros empezados: $average %", color = Mahogany)
                 LinearProgressIndicator(progress = { average / 100f }, Modifier.fillMaxWidth(),
                     color = Teal, trackColor = Teal.copy(alpha = .16f))
-                Text("Abiertos este mes: $openedThisMonth · Valoración media: " +
+                Text("Valoración media: " +
                     (averageRating?.let { String.format(java.util.Locale.getDefault(), "%.1f / 5", it) }
                         ?: "sin valorar"), fontSize = 12.sp, color = Mahogany.copy(alpha = .72f))
             }
