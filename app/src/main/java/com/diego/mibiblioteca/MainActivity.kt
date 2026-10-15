@@ -1028,6 +1028,22 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         saveCloud()
     }
 
+    fun renameSection(name: String, replacement: String) {
+        val clean = replacement.trim()
+        if (clean.isBlank() || sections.any { it != name && it.equals(clean, true) }) return
+        sections = sections.map { if (it == name) clean else it }
+        books = books.map { book ->
+            if (name !in bookSections(book)) book else {
+                val updated = bookSections(book).map { if (it == name) clean else it }
+                book.copy(section = updated.firstOrNull().orEmpty(), sections = updated)
+            }
+        }
+        if (selectedSection == name) selectedSection = clean
+        prefs.edit().putString("sections", org.json.JSONArray(sections).toString()).apply()
+        saveBooks()
+        saveCloud()
+    }
+
     fun deleteSection(name: String) {
         sections = sections.filterNot { it == name }
         prefs.edit().putString("sections", org.json.JSONArray(sections).toString()).apply()
@@ -3028,6 +3044,8 @@ private fun openCasaDelLibro(context: Context) {
     var addingSection by remember { mutableStateOf(false) }
     var sectionName by remember { mutableStateOf("") }
     var sectionToDelete by remember { mutableStateOf<String?>(null) }
+    var sectionToRename by remember { mutableStateOf<String?>(null) }
+    var renameSectionName by remember { mutableStateOf("") }
     var showWishList by remember { mutableStateOf(false) }
     fun switchTab(name: String, showPending: Boolean = false) {
         tabTransitionJob?.cancel()
@@ -3643,12 +3661,27 @@ private fun openCasaDelLibro(context: Context) {
                     Text(section, Modifier.weight(1f))
                     IconButton(onClick = { vm.moveSection(section, -1) }) { AppIcon("Subir", "Subir sección") }
                     IconButton(onClick = { vm.moveSection(section, 1) }) { AppIcon("Bajar", "Bajar sección") }
+                    IconButton(onClick = {
+                        sectionToRename = section
+                        renameSectionName = section
+                    }) { AppIcon("Editar", "Cambiar nombre de sección") }
                     IconButton(onClick = { sectionToDelete = section }) { AppIcon("Borrar", "Eliminar sección") }
                 }
             }
             if (vm.sections.isEmpty()) Text("Aún no hay secciones.")
         } },
         confirmButton = { LibraryTextButton(onClick = { organizeSections = false }) { Text("Cerrar") } })
+    sectionToRename?.let { original -> AlertDialog(
+        onDismissRequest = { sectionToRename = null },
+        title = { Text("Cambiar nombre") },
+        text = { OutlinedTextField(renameSectionName, { renameSectionName = it },
+            label = { Text("Nombre de la sección") }, singleLine = true) },
+        confirmButton = { LibraryTextButton(onClick = {
+            vm.renameSection(original, renameSectionName)
+            sectionToRename = null
+        }) { Text("Guardar") } },
+        dismissButton = { LibraryTextButton(onClick = { sectionToRename = null }) { Text("Cancelar") } }
+    ) }
     if (duplicateDialog) AlertDialog(onDismissRequest = { duplicateDialog = false },
         title = { Text("Posibles duplicados") },
         text = { Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
@@ -4641,7 +4674,12 @@ private fun openCasaDelLibro(context: Context) {
                 genreDisplayGroups.forEach { (name, group) ->
                     if (name.isNotBlank()) item(key = "group:$name") {
                         Text(name, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                            color = Color.White, modifier = Modifier.padding(start = 12.dp, top = 10.dp),
+                            color = Color.White,
+                            modifier = Modifier.padding(start = 12.dp, top = 10.dp)
+                                .then(if (tab == "Secciones") Modifier.clickable {
+                                    smartCollection = null
+                                    vm.selectedSection = if (vm.selectedSection == name) null else name
+                                } else Modifier),
                             style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
                         if (groupMode == "Sagas" && name != "Sin saga") {
                             val numbers = group.map { sagaNumber(it) }
