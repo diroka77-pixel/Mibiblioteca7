@@ -583,7 +583,7 @@ private fun renderPdfPage(file: File, index: Int): Bitmap =
 
 @Composable
 private fun SelectableParagraph(
-    paragraph: ReadingParagraph, index: Int, start: Int, end: Int, size: Float, foreground: Color,
+    paragraph: ReadingParagraph, index: Int, start: Int, end: Int, size: Float, lineSpacing: Float, foreground: Color,
     dark: Boolean, opening: Boolean, highlights: List<ReaderHighlight>,
     onHighlight: (ReaderHighlight) -> Unit, onNote: (ReaderHighlight) -> Unit,
     onRemoveHighlight: (Int, Int, Int) -> Boolean,
@@ -665,7 +665,7 @@ private fun SelectableParagraph(
         })
         view.typeface = Typeface.create(Typeface.SERIF,
             if (paragraph.heading) Typeface.BOLD else Typeface.NORMAL)
-        view.setLineSpacing(0f, 1.45f)
+        view.setLineSpacing(0f, lineSpacing)
         view.justificationMode = if (paragraph.heading) Layout.JUSTIFICATION_MODE_NONE
             else Layout.JUSTIFICATION_MODE_INTER_WORD
         view.textAlignment = if (paragraph.heading) TextView.TEXT_ALIGNMENT_CENTER
@@ -705,6 +705,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     val prefs = remember { context.getSharedPreferences("reader", Context.MODE_PRIVATE) }
     val key = remember(book.uri) { readerProgressKey(book.uri) }
     var fontSize by remember { mutableFloatStateOf(prefs.getFloat("font_size", 18f)) }
+    var readerMargin by remember { mutableFloatStateOf(prefs.getFloat("reader_margin", 22f)) }
+    var lineSpacing by remember { mutableFloatStateOf(prefs.getFloat("line_spacing", 1.45f)) }
     var dark by remember { mutableStateOf(prefs.getBoolean("dark", false)) }
     var sepia by remember { mutableStateOf(prefs.getBoolean("sepia", false)) }
     var page by remember(book.uri) { mutableIntStateOf(prefs.getInt("page_$key", 0)) }
@@ -1114,12 +1116,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         contentAlignment = Alignment.TopCenter) {
                         AnimatedContent(targetState = index, transitionSpec = {
                             val forward = targetState > initialState
-                            (slideInHorizontally(tween(280)) { if (forward) it / 5 else -it / 5 } +
+                            (slideInHorizontally(tween(360)) { if (forward) it / 5 else -it / 5 } +
                                 fadeIn(tween(180))).togetherWith(
-                                slideOutHorizontally(tween(280)) { if (forward) -it / 5 else it / 5 } +
+                                slideOutHorizontally(tween(360)) { if (forward) -it / 5 else it / 5 } +
                                     fadeOut(tween(180))).using(SizeTransform(clip = true))
                         }, label = "Pasar página PDF") { shown ->
-                            val angle by transition.animateFloat(transitionSpec = { tween(280) },
+                            val angle by transition.animateFloat(transitionSpec = { tween(360) },
                                 label = "Pliegue PDF") { state ->
                                 when (state) {
                                     EnterExitState.PreEnter -> 62f
@@ -1168,12 +1170,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 Column(Modifier.padding(padding).fillMaxSize()) {
                     BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                         val density = LocalDensity.current
-                        val width = with(density) { (maxWidth - 44.dp).roundToPx() }
+                        val width = with(density) { (maxWidth - (readerMargin * 2).dp).roundToPx() }
                         val height = with(density) { (maxHeight - 32.dp).roundToPx() }
                         val textSizePx = with(density) { fontSize.sp.toPx() }
-                        val gap = with(density) { 14.dp.roundToPx() }
+                        val gap = with(density) { (14.dp * lineSpacing).roundToPx() }
                         val pages by produceState<List<ReadingPage>>(emptyList(), document,
-                            width, height, fontSize) {
+                            width, height, fontSize, readerMargin, lineSpacing) {
                             ready = false
                             value = emptyList()
                             value = withContext(Dispatchers.Default) {
@@ -1345,12 +1347,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             AnimatedContent(targetState = currentPage,
                                 transitionSpec = {
                                     val forward = targetState > initialState
-                                    (slideInHorizontally(tween(280)) { if (forward) it / 5 else -it / 5 } +
+                            (slideInHorizontally(tween(360)) { if (forward) it / 5 else -it / 5 } +
                                         fadeIn(tween(180))).togetherWith(
-                                        slideOutHorizontally(tween(280)) { if (forward) -it / 5 else it / 5 } +
+                                        slideOutHorizontally(tween(360)) { if (forward) -it / 5 else it / 5 } +
                                             fadeOut(tween(180))).using(SizeTransform(clip = true))
                                 }, label = "Pasar página") { shown ->
-                                val angle by transition.animateFloat(transitionSpec = { tween(280) },
+                                val angle by transition.animateFloat(transitionSpec = { tween(360) },
                                     label = "Pliegue") { state ->
                                     when (state) {
                                         EnterExitState.PreEnter -> 62f
@@ -1364,14 +1366,14 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     transformOrigin = TransformOrigin(if (entering) 1f else 0f, 0.5f)
                                     cameraDistance = 12000f
                                     shadowElevation = if (angle == 0f) 0f else 18.dp.toPx()
-                                }.background(background).padding(horizontal = 22.dp, vertical = 16.dp),
+                                }.background(background).padding(horizontal = readerMargin.dp, vertical = 16.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                     pages[shown].slices.forEachIndexed { position, slice ->
                                         if (position == 0 && slice.start == 0 &&
                                             paragraphs[slice.paragraph].chapterStart)
                                             Spacer(Modifier.height(28.dp))
                                         SelectableParagraph(paragraphs[slice.paragraph], slice.paragraph,
-                                            slice.start, slice.end, fontSize, foreground, dark,
+                                            slice.start, slice.end, fontSize, lineSpacing, foreground, dark,
                                             openingParagraph(paragraphs, slice.paragraph), highlights,
                                             onHighlight = { mark ->
                                                 highlights = (highlights + mark).distinct()
@@ -1458,6 +1460,21 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             showReaderTools = false
                                         }) { Text("Ir") }
                                     }
+                                    HorizontalDivider()
+                                    Text("Lectura", fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Serif, fontSize = 17.sp)
+                                    Text("Márgenes · ${readerMargin.toInt()} dp",
+                                        color = foreground.copy(alpha = 0.78f))
+                                    Slider(value = readerMargin, onValueChange = {
+                                        readerMargin = it
+                                        prefs.edit().putFloat("reader_margin", it).apply()
+                                    }, valueRange = 12f..42f)
+                                    Text("Espaciado entre líneas · ${String.format(java.util.Locale.ROOT, "%.2f", lineSpacing)}",
+                                        color = foreground.copy(alpha = 0.78f))
+                                    Slider(value = lineSpacing, onValueChange = {
+                                        lineSpacing = it
+                                        prefs.edit().putFloat("line_spacing", it).apply()
+                                    }, valueRange = 1.15f..1.8f)
                                     HorizontalDivider()
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {

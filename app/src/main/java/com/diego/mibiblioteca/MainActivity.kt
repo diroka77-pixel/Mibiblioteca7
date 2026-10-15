@@ -4463,6 +4463,15 @@ private fun openCasaDelLibro(context: Context) {
                             Spacer(Modifier.width(8.dp))
                             LibraryTextButton(onClick = { organizeSections = true }) { Text("Organizar") }
                         }
+                        Text("Vista de secciones", color = Color.White.copy(alpha = .82f),
+                            fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("Galería", "Lista", "Compacta").forEach { mode ->
+                                CatalogChip(mode, vm.viewModeFor(activeViewScope) == mode) {
+                                    vm.chooseViewMode(mode, activeViewScope)
+                                }
+                            }
+                        }
                     }
                     Box {
                         DropdownMenu(expanded = backupMenu, onDismissRequest = { backupMenu = false }) {
@@ -4902,6 +4911,18 @@ private fun HomeReadingSummary(books: List<Book>, progress: (Uri) -> Int) {
                 Spacer(Modifier.height(8.dp))
                 LinearProgressIndicator(progress = { average / 100f }, Modifier.fillMaxWidth(),
                     color = Teal, trackColor = Teal.copy(alpha = .16f))
+                Spacer(Modifier.height(10.dp))
+                val total = (read + reading + pending).coerceAtLeast(1)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf(read to Teal, reading to Brass, pending to Color(0xFFD6A0C8)).forEach { (count, color) ->
+                        Box(Modifier.weight(count.toFloat().coerceAtLeast(.15f)).height(6.dp)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                            .background(color))
+                    }
+                }
+                Text("Terminados ${read * 100 / total}% · leyendo ${reading * 100 / total}% · pendientes ${pending * 100 / total}%",
+                    fontSize = 10.sp, color = Mahogany.copy(alpha = .68f),
+                    modifier = Modifier.padding(top = 5.dp))
             }
         }
     }
@@ -5207,9 +5228,21 @@ private fun FlatCover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.co
             Image(bitmap.asImageBitmap(), contentDescription = "Portada de ${displayTitle(book)}",
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         } else {
-            Box(Modifier.fillMaxSize().background(Color(0xFFF0E8DC)),
+            val fallbackTitle = displayTitle(book).trim().ifBlank { "Sin título" }
+            val initials = fallbackTitle.split(Regex("\\s+"))
+                .filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1) }.uppercase()
+            Box(Modifier.fillMaxSize().background(Color(0xFFF0E8DC)).padding(10.dp),
                 contentAlignment = Alignment.Center) {
-                AppIcon("Libros", tint = Mahogany.copy(alpha = .65f), size = 38.dp)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(initials.ifBlank { "·" }, fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold, fontSize = (w.value * .22f).sp,
+                        color = Mahogany.copy(alpha = .72f))
+                    Text(fallbackTitle, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                        fontSize = (w.value * .07f).coerceIn(9f, 14f).sp,
+                        color = Ink, maxLines = 3, textAlign = TextAlign.Center,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    Text("Portada pendiente", fontSize = 9.sp, color = Mahogany.copy(alpha = .62f))
+                }
             }
         }
     }
