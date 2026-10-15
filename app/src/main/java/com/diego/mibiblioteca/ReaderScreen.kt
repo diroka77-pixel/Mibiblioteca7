@@ -183,6 +183,12 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
             finish()
             occupied = (gapPx * 3).coerceAtMost(height / 4)
         }
+        if (paragraph.imagePath != null) {
+            if (slices.isNotEmpty()) finish()
+            slices += ReadingSlice(index, 0, 0, (height * 0.72f).toInt().coerceAtLeast(160))
+            finish()
+            continue
+        }
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
             textSize = textSizePx + when {
                 paragraph.partHeading -> 8 * textSizePx / 18f
@@ -641,6 +647,14 @@ private fun SelectableParagraph(
     val removeHighlightAction by rememberUpdatedState(onRemoveHighlight)
     val lookupAction by rememberUpdatedState(onLookup)
     val bookmarkAction by rememberUpdatedState(onBookmarkChar)
+    if (paragraph.imagePath != null) {
+        val bitmap by produceState<Bitmap?>(null, paragraph.imagePath) {
+            value = withContext(Dispatchers.IO) { runCatching { BitmapFactory.decodeFile(paragraph.imagePath) }.getOrNull() }
+        }
+        if (bitmap != null) Image(bitmap!!.asImageBitmap(), "Imagen del libro",
+            Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 520.dp), contentScale = ContentScale.Fit)
+        return
+    }
     AndroidView(modifier = Modifier.fillMaxWidth(), factory = { context ->
         TextView(context).apply {
             setTextIsSelectable(true)
