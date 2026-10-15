@@ -172,6 +172,33 @@ data class Book(
     val rereadCount: Int = 0
 )
 
+private data class PublicBookResult(
+    val title: String, val author: String, val year: String,
+    val isbn: String, val coverUrl: String, val sourceUrl: String
+)
+
+private fun searchPublicBooks(query: String): List<PublicBookResult> {
+    if (query.isBlank()) return emptyList()
+    val encoded = java.net.URLEncoder.encode(query.trim(), "UTF-8")
+    val docs = getJson("https://openlibrary.org/search.json?q=$encoded&mode=everything&limit=20")
+        .optJSONArray("docs") ?: return emptyList()
+    return (0 until docs.length()).mapNotNull { i ->
+        val row = docs.optJSONObject(i) ?: return@mapNotNull null
+        val key = row.optString("key").removePrefix("/works/")
+        val title = row.optString("title").trim()
+        if (title.isBlank()) return@mapNotNull null
+        val authors = row.optJSONArray("author_name")
+        val author = (0 until (authors?.length() ?: 0)).map { authors!!.optString(it) }
+            .filter(String::isNotBlank).joinToString(", ")
+        val isbns = row.optJSONArray("isbn")
+        val isbn = isbns?.optString(0).orEmpty()
+        val coverId = row.optInt("cover_i", 0)
+        PublicBookResult(title, author, row.optInt("first_publish_year", 0).takeIf { it > 0 }?.toString().orEmpty(),
+            isbn, if (coverId > 0) "https://covers.openlibrary.org/b/id/$coverId-M.jpg" else "",
+            if (key.isNotBlank()) "https://openlibrary.org/works/$key" else "https://openlibrary.org/search?q=$encoded")
+    }
+}
+
 private data class BackupRestoreResult(val matched: Int, val pending: String?)
 
 private fun safeSavedArray(raw: String?): org.json.JSONArray = try {
@@ -3088,6 +3115,10 @@ private fun openCasaDelLibro(context: Context) {
     var addWishDialog by remember { mutableStateOf(false) }
     var wishTitle by remember { mutableStateOf("") }
     var wishUrl by remember { mutableStateOf("") }
+    var publicSearchOpen by remember { mutableStateOf(false) }
+    var publicQuery by remember { mutableStateOf("") }
+    var publicResults by remember { mutableStateOf<List<PublicBookResult>>(emptyList()) }
+    var publicSearching by remember { mutableStateOf(false) }
     var wallpaperPickerOpen by remember { mutableStateOf(false) }
     var animationPickerOpen by remember { mutableStateOf(false) }
     var sagaRenameSource by remember { mutableStateOf<String?>(null) }
@@ -3154,6 +3185,38 @@ private fun openCasaDelLibro(context: Context) {
             vm.addGoodreadsWish(wishTitle, wishUrl); addWishDialog = false; wishTitle = ""; wishUrl = ""
         }) { Text("Añadir") } },
         dismissButton = { LibraryTextButton(onClick = { addWishDialog = false }) { Text("Cancelar") } }
+    )
+    if (publicSearchOpen) AlertDialog(
+        onDismissRequest = { publicSearchOpen = false },
+        title = { Text("Consultar libros") },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                Text("Consulta metadatos públicos de Open Library. No añade libros ni descarga obras.", fontSize = 12.sp)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(publicQuery, { publicQuery = it }, label = { Text("Título, autor o ISBN") },
+                        singleLine = true, modifier = Modifier.weight(1f))
+                    IconButton(enabled = !publicSearching, onClick = {
+                        publicSearching = true
+                        scope.launch(Dispatchers.IO) {
+                            val found = runCatching { searchPublicBooks(publicQuery) }.getOrDefault(emptyList())
+                            withContext(Dispatchers.Main) { publicResults = found; publicSearching = false }
+                        }
+                    }) { Icon(Icons.Outlined.Search, "Buscar") }
+                }
+                if (publicSearching) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+                LazyColumn(Modifier.heightIn(max = 360.dp).padding(top = 8.dp)) {
+                    items(publicResults) { result ->
+                        ListItem(headlineContent = { Text(result.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                            supportingContent = { Text(listOf(result.author, result.year).filter(String::isNotBlank).joinToString(" · ")) },
+                            trailingContent = {
+                                TextButton(onClick = { vm.addGoodreadsWish(result.title, result.sourceUrl) }) { Text("Quiero leer") }
+                            })
+                        HorizontalDivider()
+                    }
+                }
+            }
+        },
+        confirmButton = { LibraryTextButton(onClick = { publicSearchOpen = false }) { Text("Cerrar") } }
     )
     sagaRenameSource?.let { source -> AlertDialog(
         onDismissRequest = { sagaRenameSource = null },
@@ -4013,6 +4076,10 @@ private fun openCasaDelLibro(context: Context) {
                         NavigationDrawerItem(label = { Text("Buscar datos y portadas") }, selected = false,
                             icon = { AppIcon("Datos") }, onClick = {
                                 if (vm.bulkInfoLoading) vm.cancelIncomplete() else vm.refreshIncomplete()
+                            })
+                        NavigationDrawerItem(label = { Text("Consultar libros públicos") }, selected = false,
+                            icon = { Icon(Icons.Outlined.Search, null) }, onClick = {
+                                publicSearchOpen = true
                             })
                         NavigationDrawerItem(
                             label = { Text(if (vm.coverUpdateRunning)
@@ -6258,7 +6325,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                                 else androidx.documentfile.provider.DocumentFile.fromSingleUri(context, book.uri)?.name)
                                 ?.substringAfterLast('.', "epub")?.lowercase().orEmpty()
                             exportPicker.launch((safeName.ifBlank { "Libro" }) + "." +
-                                extension.takeIf { it in setOf("epub", "pdf", "mobi", "azw", "azw3", "txt", "html", "htm", "rtf", "docx", "md") }.orEmpty().ifBlank { "epub" })
+                                extension.takeIf { it in setOf("epub", "pdf", "mobi", "azw", "azw3", "fb2", "txt", "html", "htm", "rtf", "docx", "md") }.orEmpty().ifBlank { "epub" })
                         }
                     }, modifier = Modifier.weight(1f).height(56.dp), enabled = !exportingEpub && !offlineDownloading) {
                         ActionLabel(if (exportingEpub || offlineDownloading) "Descargando…"
