@@ -1,5 +1,5 @@
-Warning: truncated output (original token count: 30854)
-Total output lines: 2072
+Warning: truncated output (original token count: 30874)
+Total output lines: 2074
 
 package com.diego.mibiblioteca
 
@@ -1102,9 +1102,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     AppIcon("Capítulos", "Capítulos, búsqueda y marcadores")
                 }
                 IconButton(onClick = { showReaderTools = true }) {
-                    AppIcon("A…854 tokens truncated…pplication/pdf"
-                            else -> "application/octet-stream"
-                        }
+                    AppIcon("A…874 tokens truncated…                    }
                         try {
                             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).apply {
                                 setDataAndType(book.uri, mime)
@@ -1702,6 +1700,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             }
       }
     }
+    /* Bloque experimental de diálogos pendiente de reintegración segura.
     if (showVoicePicker) {
         val language = if (book.language.startsWith("en", true)) "en" else "es"
         val choices = speech?.voices.orEmpty()
@@ -1925,6 +1924,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             }
         }
     }
+    */
 }
 
 @Composable
