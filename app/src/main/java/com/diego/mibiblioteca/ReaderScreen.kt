@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 30858)
+Total output lines: 2075
+
 package com.diego.mibiblioteca
 
 import android.content.Context
@@ -1002,7 +1005,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             highlightColor = name
                             prefs.edit().putString("highlight_color", name).apply()
                         }, label = { Text(name.replaceFirstChar { it.uppercase() }, fontSize = 11.sp) },
-                            leadingIcon = { Box(Modifier.size(12.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                            leadingIcon = { Box(Modifier.size(12.dp).clip(CircleShape)
                                 .background(Color(color))) })
                     }
                 }
@@ -1099,64 +1102,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     AppIcon("Capítulos", "Capítulos, búsqueda y marcadores")
                 }
                 IconButton(onClick = { showReaderTools = true }) {
-                    AppIcon("Ajustes", "Ajustes de lectura")
-                }
-                IconButton(onClick = { dark = !dark; prefs.edit().putBoolean("dark", dark).apply() }) {
-                    AppIcon(if (dark) "Día" else "Noche", "Cambiar tema")
-                }
-            }, colors = TopAppBarDefaults.topAppBarColors(containerColor = background,
-                titleContentColor = foreground, navigationIconContentColor = foreground,
-                actionIconContentColor = foreground))
-    }) { padding ->
-      Box(Modifier.fillMaxSize().pointerInput(document, showReaderTools, drawer.isOpen) {
-          awaitEachGesture {
-              val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-              val start = down.position
-              var end = start
-              var released = false
-              var releaseTime = down.uptimeMillis
-              while (true) {
-                  val change = awaitPointerEvent(PointerEventPass.Initial).changes
-                      .firstOrNull { it.id == down.id } ?: break
-                  end = change.position
-                  if (!change.pressed) { released = true; releaseTime = change.uptimeMillis; break }
-              }
-              if (released && (document is ReadingDocument.TextDocument ||
-                  document is ReadingDocument.PdfDocument)) {
-                  val horizontal = end.x - start.x
-                  val vertical = end.y - start.y
-                  val edgeSwipe = start.x <= 28.dp.toPx() &&
-                      horizontal >= 72.dp.toPx() && kotlin.math.abs(vertical) < 54.dp.toPx()
-                  val closeDrawerSwipe = drawer.isOpen && horizontal <= -72.dp.toPx() &&
-                      kotlin.math.abs(vertical) < 54.dp.toPx()
-                  val centerTap = document is ReadingDocument.TextDocument &&
-                      start.x in size.width * 0.30f..size.width * 0.70f &&
-                      start.y in size.height * 0.30f..size.height * 0.75f
-                  val still = kotlin.math.abs(horizontal) < 14.dp.toPx() &&
-                      kotlin.math.abs(vertical) < 14.dp.toPx()
-                  if (edgeSwipe) scope.launch { drawer.open() }
-                  else if (closeDrawerSwipe) scope.launch { drawer.close() }
-                  else if (centerTap && still && releaseTime - down.uptimeMillis < 350L)
-                      showReaderTools = true
-              }
-          }
-      }) {
-        when (document) {
-            null -> Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(); Spacer(Modifier.height(12.dp)); Text("Preparando libro…")
-                }
-            }
-            is ReadingDocument.Unsupported -> Box(Modifier.padding(padding).fillMaxSize().padding(24.dp),
-                contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(document.reason, color = foreground)
-                    Spacer(Modifier.height(16.dp))
-                    OutlinedButton(onClick = {
-                        val mime = when (book.uri.lastPathSegment.orEmpty().substringAfterLast('.').lowercase()) {
-                            "mobi", "azw", "azw3" -> "application/x-mobipocket-ebook"
-                            "pdf" -> "application/pdf"
-                            else -> "application/octet-stream"
+                    AppIcon("A…858 tokens truncated…                           else -> "application/octet-stream"
                         }
                         try {
                             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).apply {
