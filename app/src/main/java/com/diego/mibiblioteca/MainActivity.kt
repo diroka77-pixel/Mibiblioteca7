@@ -4272,7 +4272,8 @@ private fun openCasaDelLibro(context: Context) {
                         selected = tab == targetTab,
                         onClick = { switchTab(targetTab) },
                         icon = { AppIcon(icon, description = label, size = 22.dp) },
-                        label = { Text(label, maxLines = 1, fontSize = 10.sp) },
+                        label = { Text(label, maxLines = 1, softWrap = false,
+                            fontSize = 9.sp, letterSpacing = (-0.15).sp) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = Mahogany,
                             selectedTextColor = Mahogany,
@@ -6282,19 +6283,19 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 if (offlineAvailable) {
                     Surface(Modifier.fillMaxWidth().padding(top = 8.dp),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-                        color = Teal.copy(alpha = 0.12f)) {
+                        color = Paper) {
                         Row(Modifier.fillMaxWidth().padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             OfflineBadge()
                             Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
                                 Text("Disponible sin conexión", fontWeight = FontWeight.SemiBold,
-                                    color = Mahogany)
+                                    color = Ink)
                                 Text(listOfNotNull(
                                     offlineCopy?.displayName?.takeIf(String::isNotBlank),
                                     offlineCopy?.sizeBytes?.takeIf { it >= 0L }?.let(::readableSize)
                                 ).joinToString(" · ").ifBlank { "Guardado en Descargas" },
-                                    fontSize = 11.sp, color = Mahogany.copy(alpha = 0.75f), maxLines = 2)
+                                    fontSize = 11.sp, color = Ink.copy(alpha = 0.78f), maxLines = 2)
                             }
                             TextButton(onClick = removeOfflineCopy, enabled = !offlineDownloading) {
                                 Text("Borrar copia")
