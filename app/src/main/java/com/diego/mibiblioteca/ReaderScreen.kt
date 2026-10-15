@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.ClipData
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import android.app.Activity
 import android.graphics.Typeface
 import android.text.SpannableString
@@ -815,6 +817,26 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     fun requestAudioSeek(delta: Int) {
         audioSeekDelta = delta
         audioSeekRequest++
+    }
+    val mediaSession = remember(book.uri) { MediaSessionCompat(context, "MiBiblioteca") }
+    DisposableEffect(mediaSession) {
+        mediaSession.setCallback(object : MediaSessionCompat.Callback() {
+            override fun onPlay() { audioActive = true; audioControlsVisible = true }
+            override fun onPause() { pauseSpeech() }
+            override fun onStop() { pauseSpeech() }
+            override fun onSkipToNext() { requestAudioSeek(270) }
+            override fun onSkipToPrevious() { requestAudioSeek(-270) }
+        })
+        mediaSession.isActive = true
+        onDispose { mediaSession.isActive = false; mediaSession.release() }
+    }
+    LaunchedEffect(audioActive, audioCursor) {
+        val state = if (audioActive) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
+        mediaSession.setPlaybackState(PlaybackStateCompat.Builder().setActions(
+            PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or
+                PlaybackStateCompat.ACTION_STOP or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
+                PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS)
+            .setState(state, audioCursor.toLong(), speechRate).build())
     }
     var showVoicePicker by remember { mutableStateOf(false) }
     var davefxDownloading by remember { mutableStateOf(false) }
