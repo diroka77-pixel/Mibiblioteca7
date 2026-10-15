@@ -184,9 +184,13 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
             occupied = (gapPx * 3).coerceAtMost(height / 4)
         }
         if (paragraph.imagePath != null) {
-            if (slices.isNotEmpty()) finish()
-            slices += ReadingSlice(index, 0, 0, (height * 0.72f).toInt().coerceAtLeast(160))
-            finish()
+            // La ilustración comparte página con el texto siguiente cuando
+            // queda espacio, como en la maquetación EPUB original.
+            val imageHeight = (height * 0.42f).toInt().coerceAtLeast(150)
+            if (occupied + imageHeight > height && slices.isNotEmpty()) finish()
+            slices += ReadingSlice(index, 0, 0, imageHeight)
+            occupied += imageHeight + gapPx
+            if (occupied >= height) finish()
             return@forEachIndexed
         }
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
