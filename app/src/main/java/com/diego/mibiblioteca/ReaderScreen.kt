@@ -938,6 +938,15 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     }
     val background = if (dark) Color(0xFF1D1A17) else if (sepia) Color(0xFFF5EEDD) else Color.White
     val foreground = if (dark) Color(0xFFF3E9D7) else Color(0xFF24201D)
+    LaunchedEffect(background, dark) {
+        keepAwakeActivity?.window?.apply {
+            statusBarColor = background.toArgb()
+            navigationBarColor = background.toArgb()
+            decorView.systemUiVisibility = if (dark) 0 else
+                android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
+                    android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        }
+    }
     val state by produceState<ReadingDocument?>(null, book.uri) {
         value = try { withContext(Dispatchers.IO) { loadReadingDocument(context, book) } }
         catch (e: Exception) { ReadingDocument.Unsupported(e.localizedMessage ?: "No se pudo abrir") }
