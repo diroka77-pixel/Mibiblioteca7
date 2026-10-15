@@ -1,8 +1,12 @@
 package com.diego.mibiblioteca
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.ClipData
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import android.app.Activity
 import android.graphics.Typeface
 import android.text.SpannableString
@@ -25,8 +29,10 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import java.util.concurrent.atomic.AtomicInteger
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -49,6 +55,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
@@ -70,6 +77,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -80,6 +88,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
@@ -98,7 +107,8 @@ internal sealed interface ReadingDocument {
 }
 
 internal data class ReadingParagraph(val text: String, val heading: Boolean = false,
-    val chapterStart: Boolean = false, val partHeading: Boolean = false)
+    val chapterStart: Boolean = false, val partHeading: Boolean = false,
+    val imagePath: String? = null)
 private data class ReaderHighlight(val paragraph: Int, val start: Int, val end: Int,
     val quote: String, val color: String = "amarillo", val note: String = "")
 private data class ReadingSlice(val paragraph: Int, val start: Int, val end: Int, val height: Int)
@@ -173,6 +183,12 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
             finish()
             occupied = (gapPx * 3).coerceAtMost(height / 4)
         }
+        if (paragraph.imagePath != null) {
+            if (slices.isNotEmpty()) finish()
+            slices += ReadingSlice(index, 0, 0, (height * 0.72f).toInt().coerceAtLeast(160))
+            finish()
+            return@forEachIndexed
+        }
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
             textSize = textSizePx + when {
                 paragraph.partHeading -> 8 * textSizePx / 18f
@@ -189,8 +205,7 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
         }
         val layout = StaticLayout.Builder.obtain(measured, 0, measured.length,
             paint, width.coerceAtLeast(1)).setAlignment(Layout.Alignment.ALIGN_NORMAL)
-            .setJustificationMode(if (paragraph.heading) Layout.JUSTIFICATION_MODE_NONE
-                else Layout.JUSTIFICATION_MODE_INTER_WORD)
+            .setJustificationMode(Layout.JUSTIFICATION_MODE_NONE)
             .setLineSpacing(0f, 1.45f).setIncludePad(false).build()
         var line = 0
         while (line < layout.lineCount) {
@@ -402,6 +417,12 @@ internal fun localReaderFile(context: Context, book: Book): File = synchronized(
     } finally { partial.delete() }
 }
 
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 private fun resolveZipPath(base: String, path: String): String {
     val parts = mutableListOf<String>()
     (base.substringBeforeLast('/', "") + "/" + path.substringBefore('#'))
@@ -413,10 +434,13 @@ private fun resolveZipPath(base: String, path: String): String {
     return parts.joinToString("/")
 }
 
-private fun paragraphsFromHtml(html: String): List<ReadingParagraph> {
+private fun paragraphsFromHtml(html: String, imageResolver: ((String) -> String?)? = null): List<ReadingParagraph> {
     val body = Jsoup.parse(html).body()
-    val nodes = body.select("h1,h2,h3,h4,p,li,blockquote,pre")
+    val nodes = body.select("h1,h2,h3,h4,p,li,blockquote,pre,img")
     val result = nodes.mapNotNull { element ->
+        if (element.tagName().equals("img", true)) {
+            imageResolver?.invoke(element.attr("src"))?.let { ReadingParagraph("", imagePath = it) }
+        } else {
         val text = element.text().trim().replace(Regex("\\s+"), " ")
         text.takeIf(String::isNotBlank)?.let {
             val part = it.length < 85 && Regex("(?i)^(?:parte|part|libro|book)\\s+[ivxlcdm0-9]+\\b")
@@ -432,6 +456,7 @@ private fun paragraphsFromHtml(html: String): List<ReadingParagraph> {
                         .containsMatchIn(it))
             ReadingParagraph(it, heading, chapterStart = chapterHeading, partHeading = part)
         }
+        }
     }
     return result.ifEmpty { listOfNotNull(body.text().trim().takeIf(String::isNotBlank)?.let(::ReadingParagraph)) }
 }
@@ -445,18 +470,30 @@ internal fun readEpubText(file: File): ReadingDocument = ZipFile(file).use { zip
     val packageXml = zip.readEntryLimited(opf, FileLimits.INDEX_BYTES)?.toString(Charsets.UTF_8)
         ?: return@use ReadingDocument.Unsupported("No se pudo leer el contenido del EPUB")
     val xml = Jsoup.parse(packageXml, "", Parser.xmlParser())
+    val bookTitle = xml.selectFirst("metadata > title, metadata > *|title")?.text()?.trim()
+        ?.takeIf { it.isNotBlank() }
     val manifest = xml.select("manifest > item").associate { it.attr("id") to it.attr("href") }
     val spine = xml.select("spine > itemref").mapNotNull { manifest[it.attr("idref")] }
     val paths = spine.ifEmpty { manifest.values.filter { it.endsWith(".xhtml", true) || it.endsWith(".html", true) } }
     require(paths.size <= FileLimits.CHAPTERS) { "El EPUB contiene demasiados capítulos." }
     var totalBytes = 0L
     val paragraphs = mutableListOf<ReadingParagraph>()
+    if (bookTitle != null) paragraphs += ReadingParagraph(bookTitle.take(120), heading = true, chapterStart = true)
     for (href in paths) {
         val path = resolveZipPath(opf, java.net.URLDecoder.decode(href, "UTF-8"))
         val bytes = zip.readEntryLimited(path, minOf(FileLimits.CHAPTER_BYTES, FileLimits.TEXT_BYTES - totalBytes)) ?: continue
         totalBytes += bytes.size
         val html = bytes.toString(Charsets.UTF_8)
-        val section = paragraphsFromHtml(html)
+        val imageDir = File(file.parentFile, "${file.nameWithoutExtension}-images").apply { mkdirs() }
+        fun imageResolver(source: String): String? {
+            val imagePath = resolveZipPath(path, java.net.URLDecoder.decode(source.substringBefore('#'), "UTF-8"))
+            val entry = zip.getEntry(imagePath) ?: return null
+            val target = File(imageDir, MessageDigest.getInstance("SHA-256").digest(imagePath.toByteArray())
+                .joinToString("") { "%02x".format(it.toInt() and 255) } + ".img")
+            if (!target.exists()) zip.getInputStream(entry).use { input -> target.outputStream().use { output -> input.copyTo(output) } }
+            return target.absolutePath
+        }
+        val section = paragraphsFromHtml(html, ::imageResolver)
         if (section.isEmpty()) continue
         if (section.none(ReadingParagraph::heading)) {
             val label = Jsoup.parse(html).title().trim()
@@ -525,6 +562,19 @@ private fun readMobiText(file: File): ReadingDocument {
     else ReadingDocument.TextDocument(paragraphs)
 }
 
+private fun readFb2Text(file: File): ReadingDocument {
+    val xml = Jsoup.parse(file.inputStream().use { it.readLimited(FileLimits.TEXT_BYTES).toString(Charsets.UTF_8) }, "", Parser.xmlParser())
+    val paragraphs = xml.select("body section title p, body section p, body > title p")
+        .mapNotNull { element ->
+            element.text().trim().replace(Regex("\\s+"), " ").takeIf { it.isNotBlank() }?.let { text ->
+                val heading = element.parent()?.tagName()?.equals("title", true) == true
+                ReadingParagraph(text, heading = heading, chapterStart = heading)
+            }
+        }
+    return if (paragraphs.isEmpty()) ReadingDocument.Unsupported("No se encontró texto legible en este FB2")
+    else ReadingDocument.TextDocument(paragraphs)
+}
+
 private fun loadReadingDocument(context: Context, book: Book): ReadingDocument {
     val file = localReaderFile(context, book)
     return when (file.extension.lowercase()) {
@@ -537,6 +587,7 @@ private fun loadReadingDocument(context: Context, book: Book): ReadingDocument {
             else ReadingDocument.Unsupported("El PDF no tiene páginas")
         }
         "mobi", "azw" -> readMobiText(file)
+        "fb2" -> readFb2Text(file)
         "azw3" -> ReadingDocument.Unsupported("AZW3 requiere conversión a EPUB para este lector")
         "txt", "md", "html", "htm", "rtf", "docx" -> {
             val paragraphs = when (file.extension.lowercase()) {
@@ -583,8 +634,8 @@ private fun renderPdfPage(file: File, index: Int): Bitmap =
 
 @Composable
 private fun SelectableParagraph(
-    paragraph: ReadingParagraph, index: Int, start: Int, end: Int, size: Float, foreground: Color,
-    dark: Boolean, opening: Boolean, highlights: List<ReaderHighlight>,
+    paragraph: ReadingParagraph, index: Int, start: Int, end: Int, size: Float, lineSpacing: Float, foreground: Color,
+    dark: Boolean, opening: Boolean, highlightColor: String, highlights: List<ReaderHighlight>,
     onHighlight: (ReaderHighlight) -> Unit, onNote: (ReaderHighlight) -> Unit,
     onRemoveHighlight: (Int, Int, Int) -> Boolean,
     onLookup: (String) -> Unit, onTranslate: (String) -> Unit, onSpeak: (String) -> Unit,
@@ -596,6 +647,14 @@ private fun SelectableParagraph(
     val removeHighlightAction by rememberUpdatedState(onRemoveHighlight)
     val lookupAction by rememberUpdatedState(onLookup)
     val bookmarkAction by rememberUpdatedState(onBookmarkChar)
+    if (paragraph.imagePath != null) {
+        val bitmap by produceState<Bitmap?>(null, paragraph.imagePath) {
+            value = withContext(Dispatchers.IO) { runCatching { BitmapFactory.decodeFile(paragraph.imagePath) }.getOrNull() }
+        }
+        if (bitmap != null) Image(bitmap!!.asImageBitmap(), "Imagen del libro",
+            Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 520.dp), contentScale = ContentScale.Fit)
+        return
+    }
     AndroidView(modifier = Modifier.fillMaxWidth(), factory = { context ->
         TextView(context).apply {
             setTextIsSelectable(true)
@@ -636,7 +695,7 @@ private fun SelectableParagraph(
                             val removed = removeHighlightAction(index, start + selectedStart,
                                 start + selectedEnd)
                             if (!removed) action(ReaderHighlight(index, start + selectedStart,
-                                start + selectedEnd, quote, "amarillo"))
+                                start + selectedEnd, quote, highlightColor))
                         }
                         8005 -> noteAction(ReaderHighlight(index, start + selectedStart,
                             start + selectedEnd, quote))
@@ -665,9 +724,8 @@ private fun SelectableParagraph(
         })
         view.typeface = Typeface.create(Typeface.SERIF,
             if (paragraph.heading) Typeface.BOLD else Typeface.NORMAL)
-        view.setLineSpacing(0f, 1.45f)
-        view.justificationMode = if (paragraph.heading) Layout.JUSTIFICATION_MODE_NONE
-            else Layout.JUSTIFICATION_MODE_INTER_WORD
+        view.setLineSpacing(0f, lineSpacing)
+        view.justificationMode = Layout.JUSTIFICATION_MODE_NONE
         view.textAlignment = if (paragraph.heading) TextView.TEXT_ALIGNMENT_CENTER
             else TextView.TEXT_ALIGNMENT_INHERIT
         view.setTextColor(foreground.toArgb())
@@ -703,16 +761,66 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     onHighlightsChanged: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("reader", Context.MODE_PRIVATE) }
+    val keepAwakeActivity = remember(context) { context.findActivity() }
+    var keepScreenAwakeMinutes by remember {
+        mutableIntStateOf(prefs.getInt("keep_screen_awake_minutes", 15))
+    }
+    var lastReaderInteraction by remember(book.uri) {
+        mutableLongStateOf(SystemClock.elapsedRealtime())
+    }
+    LaunchedEffect(keepAwakeActivity, keepScreenAwakeMinutes, lastReaderInteraction) {
+        val window = keepAwakeActivity?.window ?: return@LaunchedEffect
+        val keepScreenOnFlag = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        if (keepScreenAwakeMinutes == 0) {
+            window.clearFlags(keepScreenOnFlag)
+            return@LaunchedEffect
+        }
+        window.addFlags(keepScreenOnFlag)
+        if (keepScreenAwakeMinutes > 0) {
+            val timeoutMs = keepScreenAwakeMinutes * 60_000L
+            val elapsedMs = SystemClock.elapsedRealtime() - lastReaderInteraction
+            val remainingMs = (timeoutMs - elapsedMs).coerceAtLeast(0L)
+            if (remainingMs > 0L) delay(remainingMs)
+            if (SystemClock.elapsedRealtime() - lastReaderInteraction >= timeoutMs) {
+                window.clearFlags(keepScreenOnFlag)
+            }
+        }
+    }
+    DisposableEffect(keepAwakeActivity) {
+        onDispose {
+            keepAwakeActivity?.window?.clearFlags(
+                android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
     val key = remember(book.uri) { readerProgressKey(book.uri) }
     var fontSize by remember { mutableFloatStateOf(prefs.getFloat("font_size", 18f)) }
+    var readerMargin by remember { mutableFloatStateOf(prefs.getFloat("reader_margin", 22f)) }
+    var lineSpacing by remember { mutableFloatStateOf(prefs.getFloat("line_spacing", 1.45f)) }
+    var lockOrientation by remember(book.uri) {
+        mutableStateOf(prefs.getBoolean("lock_orientation_$key", false))
+    }
     var dark by remember { mutableStateOf(prefs.getBoolean("dark", false)) }
     var sepia by remember { mutableStateOf(prefs.getBoolean("sepia", false)) }
+    DisposableEffect(lockOrientation) {
+        val activity = context as? Activity
+        if (lockOrientation) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        onDispose {
+            if (lockOrientation) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
     var page by remember(book.uri) { mutableIntStateOf(prefs.getInt("page_$key", 0)) }
+    val positionHistory = remember(book.uri) {
+        mutableStateListOf<Int>().also { list ->
+            prefs.getString("position_history_$key", "").orEmpty()
+                .split(",").mapNotNullTo(list) { it.toIntOrNull() }
+        }
+    }
     val scope = rememberCoroutineScope()
     val swipeDistance = with(LocalDensity.current) { 64.dp.toPx() }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     var jumpToItem by remember(book.uri) { mutableIntStateOf(-1) }
     var showReaderTools by rememberSaveable(book.uri) { mutableStateOf(false) }
+    var confirmExit by remember { mutableStateOf(false) }
     var notebook by remember(book.uri) { mutableStateOf(prefs.getString("notebook_$key", "").orEmpty()) }
     var bookmarkChars by remember(book.uri) {
         mutableStateOf(prefs.getString("bookmarks_$key", "").orEmpty()
@@ -731,8 +839,20 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             else bookmarkChars + position
         prefs.edit().putString("bookmarks_$key", bookmarkChars.joinToString(",")).apply()
     }
+    fun rememberPosition(position: Int) {
+        val safe = position.coerceAtLeast(0)
+        if (positionHistory.lastOrNull() != safe) {
+            positionHistory.removeAll { it == safe }
+            positionHistory.add(safe)
+            while (positionHistory.size > 30) positionHistory.removeAt(0)
+            prefs.edit().putString("position_history_$key", positionHistory.joinToString(",")).apply()
+        }
+    }
     var highlights by remember(book.uri) {
         mutableStateOf(readHighlights(prefs.getString("highlights_$key", "[]")))
+    }
+    var highlightColor by remember(book.uri) {
+        mutableStateOf(prefs.getString("highlight_color", "amarillo") ?: "amarillo")
     }
     var pendingNote by remember { mutableStateOf<ReaderHighlight?>(null) }
     var noteDraft by remember { mutableStateOf("") }
@@ -785,6 +905,26 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         audioSeekDelta = delta
         audioSeekRequest++
     }
+    val mediaSession = remember(book.uri) { MediaSessionCompat(context, "MiBiblioteca") }
+    DisposableEffect(mediaSession) {
+        mediaSession.setCallback(object : MediaSessionCompat.Callback() {
+            override fun onPlay() { audioActive = true; audioControlsVisible = true }
+            override fun onPause() { pauseSpeech() }
+            override fun onStop() { pauseSpeech() }
+            override fun onSkipToNext() { requestAudioSeek(270) }
+            override fun onSkipToPrevious() { requestAudioSeek(-270) }
+        })
+        mediaSession.isActive = true
+        onDispose { mediaSession.isActive = false; mediaSession.release() }
+    }
+    LaunchedEffect(audioActive, audioCursor) {
+        val state = if (audioActive) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
+        mediaSession.setPlaybackState(PlaybackStateCompat.Builder().setActions(
+            PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or
+                PlaybackStateCompat.ACTION_STOP or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
+                PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS)
+            .setState(state, audioCursor.toLong(), speechRate).build())
+    }
     var showVoicePicker by remember { mutableStateOf(false) }
     var davefxDownloading by remember { mutableStateOf(false) }
     var davefxReadyFile by remember { mutableStateOf<File?>(null) }
@@ -832,7 +972,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         catch (e: Exception) { ReadingDocument.Unsupported(e.localizedMessage ?: "No se pudo abrir") }
     }
     val document = state
-    BackHandler { if (drawer.isOpen) scope.launch { drawer.close() } else onBack() }
+    BackHandler { if (drawer.isOpen) scope.launch { drawer.close() } else confirmExit = true }
     ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = drawer.isOpen, drawerContent = {
         ModalDrawerSheet(
             modifier = Modifier.width(320.dp),
@@ -844,9 +984,23 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 .padding(horizontal = 18.dp, vertical = 22.dp)) {
                 Text("Mi Biblioteca", color = Color(0xFF8A623C),
                     style = MaterialTheme.typography.labelLarge)
-                Text(book.customTitle.ifBlank { book.title }.take(54),
-                    color = Color(0xFF392A24), maxLines = 2,
-                    style = MaterialTheme.typography.headlineSmall)
+                val openingTitle = book.customTitle.ifBlank { book.title }
+                Text(openingTitle,
+                    color = Color(0xFF392A24),
+                    fontSize = when {
+                        openingTitle.length > 70 -> 16.sp
+                        openingTitle.length > 46 -> 18.sp
+                        else -> 21.sp
+                    },
+                    lineHeight = when {
+                        openingTitle.length > 70 -> 18.sp
+                        openingTitle.length > 46 -> 21.sp
+                        else -> 24.sp
+                    },
+                    maxLines = 6,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(12.dp))
                 NavigationDrawerItem(label = { Text("Volver a la biblioteca") },
                     selected = false, icon = { AppIcon("Volver", "Volver") },
@@ -883,7 +1037,32 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 Text("APARIENCIA", color = Color(0xFF785940),
                     style = MaterialTheme.typography.labelMedium)
+                NavigationDrawerItem(label = { Text("Bloquear orientación") },
+                    selected = lockOrientation,
+                    icon = { AppIcon("Ajustes", "Orientación") },
+                    onClick = {
+                        lockOrientation = !lockOrientation
+                        prefs.edit().putBoolean("lock_orientation_$key", lockOrientation).apply()
+                    })
                 Spacer(Modifier.height(8.dp))
+                Text("Perfiles", fontWeight = FontWeight.SemiBold)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = {
+                        fontSize = 17f; dark = false; sepia = false; brightness = -1f
+                        prefs.edit().putFloat("font_size", fontSize).putBoolean("dark", false)
+                            .putBoolean("sepia", false).putFloat("brightness", brightness).apply()
+                    }) { Text("Día") }
+                    TextButton(onClick = {
+                        fontSize = 19f; dark = false; sepia = true; brightness = .62f
+                        prefs.edit().putFloat("font_size", fontSize).putBoolean("dark", false)
+                            .putBoolean("sepia", true).putFloat("brightness", brightness).apply()
+                    }) { Text("Cómodo") }
+                    TextButton(onClick = {
+                        fontSize = 20f; dark = true; sepia = false; brightness = .28f
+                        prefs.edit().putFloat("font_size", fontSize).putBoolean("dark", true)
+                            .putBoolean("sepia", false).putFloat("brightness", brightness).apply()
+                    }) { Text("Noche") }
+                }
                 if (document is ReadingDocument.TextDocument) {
                     Text("Tamaño de letra · ${fontSize.toInt()} pt", fontWeight = FontWeight.SemiBold)
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -910,6 +1089,20 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     TextButton(onClick = {
                         dark = true; prefs.edit().putBoolean("dark", true).apply()
                     }) { Text("Noche") }
+                }
+                Text("Color del próximo subrayado", color = Color(0xFF785940),
+                    style = MaterialTheme.typography.labelMedium)
+                Row(Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("amarillo" to 0xFFFFE58A, "azul" to 0xFFACEEF5,
+                        "rosa" to 0xFFFFB7C5, "verde" to 0xFFB8E6B8).forEach { (name, color) ->
+                        FilterChip(selected = highlightColor == name, onClick = {
+                            highlightColor = name
+                            prefs.edit().putString("highlight_color", name).apply()
+                        }, label = { Text(name.replaceFirstChar { it.uppercase() }, fontSize = 11.sp) },
+                            leadingIcon = { Box(Modifier.size(12.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(Color(color))) })
+                    }
                 }
                 if (document is ReadingDocument.TextDocument)
                     OutlinedTextField(searchText, { searchText = it }, singleLine = true,
@@ -997,20 +1190,16 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         }
     }) {
     Scaffold(containerColor = background, contentWindowInsets = WindowInsets.safeDrawing, topBar = {
-        if (document !is ReadingDocument.TextDocument && document !is ReadingDocument.PdfDocument)
-        TopAppBar(title = { Text(book.customTitle.ifBlank { book.title }.take(38), maxLines = 1) },
+        TopAppBar(title = { Text(book.customTitle.ifBlank { book.title }, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = onBack) { AppIcon("Volver", "Volver") } },
-            actions = {
-                IconButton(onClick = { dark = !dark; prefs.edit().putBoolean("dark", dark).apply() }) {
-                    AppIcon(if (dark) "Día" else "Noche", "Cambiar tema")
-                }
-            }, colors = TopAppBarDefaults.topAppBarColors(containerColor = background,
+            actions = {}, colors = TopAppBarDefaults.topAppBarColors(containerColor = background,
                 titleContentColor = foreground, navigationIconContentColor = foreground,
                 actionIconContentColor = foreground))
     }) { padding ->
       Box(Modifier.fillMaxSize().pointerInput(document, showReaderTools, drawer.isOpen) {
           awaitEachGesture {
               val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+              lastReaderInteraction = SystemClock.elapsedRealtime()
               val start = down.position
               var end = start
               var released = false
@@ -1054,7 +1243,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     Spacer(Modifier.height(16.dp))
                     OutlinedButton(onClick = {
                         val mime = when (book.uri.lastPathSegment.orEmpty().substringAfterLast('.').lowercase()) {
-                            "mobi", "azw", "azw3" -> "application/x-mobipocket-ebook"
+                            "mobi", "azw", "azw3", "fb2" -> "application/x-mobipocket-ebook"
                             "pdf" -> "application/pdf"
                             else -> "application/octet-stream"
                         }
@@ -1091,12 +1280,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         contentAlignment = Alignment.TopCenter) {
                         AnimatedContent(targetState = index, transitionSpec = {
                             val forward = targetState > initialState
-                            (slideInHorizontally(tween(280)) { if (forward) it / 5 else -it / 5 } +
+                            (slideInHorizontally(tween(360)) { if (forward) it / 5 else -it / 5 } +
                                 fadeIn(tween(180))).togetherWith(
-                                slideOutHorizontally(tween(280)) { if (forward) -it / 5 else it / 5 } +
+                                slideOutHorizontally(tween(360)) { if (forward) -it / 5 else it / 5 } +
                                     fadeOut(tween(180))).using(SizeTransform(clip = true))
                         }, label = "Pasar página PDF") { shown ->
-                            val angle by transition.animateFloat(transitionSpec = { tween(280) },
+                            val angle by transition.animateFloat(transitionSpec = { tween(360) },
                                 label = "Pliegue PDF") { state ->
                                 when (state) {
                                     EnterExitState.PreEnter -> 62f
@@ -1145,12 +1334,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 Column(Modifier.padding(padding).fillMaxSize()) {
                     BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                         val density = LocalDensity.current
-                        val width = with(density) { (maxWidth - 44.dp).roundToPx() }
+                        val width = with(density) { (maxWidth - (readerMargin * 2).dp).roundToPx() }
                         val height = with(density) { (maxHeight - 32.dp).roundToPx() }
                         val textSizePx = with(density) { fontSize.sp.toPx() }
-                        val gap = with(density) { 14.dp.roundToPx() }
+                        val gap = with(density) { (14.dp * lineSpacing).roundToPx() }
                         val pages by produceState<List<ReadingPage>>(emptyList(), document,
-                            width, height, fontSize) {
+                            width, height, fontSize, readerMargin, lineSpacing) {
                             ready = false
                             value = emptyList()
                             value = withContext(Dispatchers.Default) {
@@ -1281,9 +1470,13 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                         audioActive = true
                                                         audioAdvance++
                                                     } else if (currentPage < pages.lastIndex) {
-                                                        val nextPosition = pages[currentPage + 1].startChar
-                                                        saveSpeechCursor(nextPosition)
-                                                        audioAdvance++
+                                                        Handler(Looper.getMainLooper()).postDelayed({
+                                                            if (speechGeneration.get() == utteranceGeneration && audioActive) {
+                                                                val nextPosition = pages[currentPage + 1].startChar
+                                                                saveSpeechCursor(nextPosition)
+                                                                audioAdvance++
+                                                            }
+                                                        }, 450L)
                                                     } else {
                                                         saveSpeechCursor(total - 1)
                                                         audioActive = false
@@ -1299,11 +1492,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         }
                                     })
                                     if (chunks.isNotEmpty()) speakChunk(0, TextToSpeech.QUEUE_FLUSH)
-                                    else audioAdvance++
+                                    else audioActive = false
                                 }
                             }
                         }
                         fun turn(delta: Int) {
+                            rememberPosition(pages[textPage].startChar)
                             val targetPage = (textPage + delta).coerceIn(pages.indices)
                             textPage = targetPage
                             // Manual page turns must also become the exact resume point. This was
@@ -1322,12 +1516,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             AnimatedContent(targetState = currentPage,
                                 transitionSpec = {
                                     val forward = targetState > initialState
-                                    (slideInHorizontally(tween(280)) { if (forward) it / 5 else -it / 5 } +
+                            (slideInHorizontally(tween(360)) { if (forward) it / 5 else -it / 5 } +
                                         fadeIn(tween(180))).togetherWith(
-                                        slideOutHorizontally(tween(280)) { if (forward) -it / 5 else it / 5 } +
+                                        slideOutHorizontally(tween(360)) { if (forward) -it / 5 else it / 5 } +
                                             fadeOut(tween(180))).using(SizeTransform(clip = true))
                                 }, label = "Pasar página") { shown ->
-                                val angle by transition.animateFloat(transitionSpec = { tween(280) },
+                                val angle by transition.animateFloat(transitionSpec = { tween(360) },
                                     label = "Pliegue") { state ->
                                     when (state) {
                                         EnterExitState.PreEnter -> 62f
@@ -1341,15 +1535,15 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     transformOrigin = TransformOrigin(if (entering) 1f else 0f, 0.5f)
                                     cameraDistance = 12000f
                                     shadowElevation = if (angle == 0f) 0f else 18.dp.toPx()
-                                }.background(background).padding(horizontal = 22.dp, vertical = 16.dp),
+                                }.background(background).padding(horizontal = readerMargin.dp, vertical = 8.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                     pages[shown].slices.forEachIndexed { position, slice ->
                                         if (position == 0 && slice.start == 0 &&
                                             paragraphs[slice.paragraph].chapterStart)
                                             Spacer(Modifier.height(28.dp))
                                         SelectableParagraph(paragraphs[slice.paragraph], slice.paragraph,
-                                            slice.start, slice.end, fontSize, foreground, dark,
-                                            openingParagraph(paragraphs, slice.paragraph), highlights,
+                                            slice.start, slice.end, fontSize, lineSpacing, foreground, dark,
+                                            openingParagraph(paragraphs, slice.paragraph), highlightColor, highlights,
                                             onHighlight = { mark ->
                                                 highlights = (highlights + mark).distinct()
                                                 saveHighlights(context, key, highlights)
@@ -1409,9 +1603,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     .verticalScroll(rememberScrollState())
                                     .padding(horizontal = 20.dp, vertical = 12.dp),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Text(book.customTitle.ifBlank { book.title }.take(60),
+                                    Text(book.customTitle.ifBlank { book.title },
                                         fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                                        fontSize = 20.sp, maxLines = 2)
+                                        fontSize = if (book.customTitle.ifBlank { book.title }.length > 52) 17.sp else 20.sp,
+                                        maxLines = 6,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth())
                                     Text("Página ${currentPage + 1} de ${pages.size} · $percent %",
                                         color = foreground.copy(alpha = 0.75f))
                                     Slider(value = requestedPage, onValueChange = { requestedPage = it },
@@ -1435,6 +1632,41 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             showReaderTools = false
                                         }) { Text("Ir") }
                                     }
+                                    HorizontalDivider()
+                                    Text("Lectura", fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Serif, fontSize = 17.sp)
+                                    Text("Mantener pantalla encendida",
+                                        fontWeight = FontWeight.SemiBold)
+                                    Text("El contador se reinicia con cada toque. Al agotarse, vuelve el ajuste de pantalla del teléfono.",
+                                        fontSize = 12.sp, color = foreground.copy(alpha = 0.75f))
+                                    Row(Modifier.horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        listOf(0, 5, 10, 15, 20, 30, 45, 60, -1).forEach { minutes ->
+                                            val label = when (minutes) {
+                                                0 -> "Sistema"
+                                                -1 -> "Siempre"
+                                                else -> "$minutes min"
+                                            }
+                                            FilterChip(selected = keepScreenAwakeMinutes == minutes,
+                                                onClick = {
+                                                    keepScreenAwakeMinutes = minutes
+                                                    lastReaderInteraction = SystemClock.elapsedRealtime()
+                                                    prefs.edit().putInt("keep_screen_awake_minutes", minutes).apply()
+                                                }, label = { Text(label, fontSize = 12.sp) })
+                                        }
+                                    }
+                                    Text("Márgenes · ${readerMargin.toInt()} dp",
+                                        color = foreground.copy(alpha = 0.78f))
+                                    Slider(value = readerMargin, onValueChange = {
+                                        readerMargin = it
+                                        prefs.edit().putFloat("reader_margin", it).apply()
+                                    }, valueRange = 12f..42f)
+                                    Text("Espaciado entre líneas · ${String.format(java.util.Locale.ROOT, "%.2f", lineSpacing)}",
+                                        color = foreground.copy(alpha = 0.78f))
+                                    Slider(value = lineSpacing, onValueChange = {
+                                        lineSpacing = it
+                                        prefs.edit().putFloat("line_spacing", it).apply()
+                                    }, valueRange = 1.15f..1.8f)
                                     HorizontalDivider()
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
@@ -1468,6 +1700,22 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             }
                                         }
                                     }
+                                    if (positionHistory.isNotEmpty()) {
+                                        HorizontalDivider()
+                                        Text("Historial de posiciones", fontWeight = FontWeight.Bold)
+                                        positionHistory.asReversed().take(8).forEachIndexed { index, charPosition ->
+                                            val targetPage = pages.indexOfLast { it.startChar <= charPosition }
+                                                .coerceAtLeast(0)
+                                            TextButton(onClick = {
+                                                textPage = targetPage
+                                                saveSpeechCursor(charPosition)
+                                                showReaderTools = false
+                                            }, modifier = Modifier.fillMaxWidth()) {
+                                                Text("Posición ${index + 1} · página ${targetPage + 1}",
+                                                    modifier = Modifier.fillMaxWidth())
+                                            }
+                                        }
+                                    }
                                     HorizontalDivider()
                                     Text("Libreta de este libro", fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Serif, fontSize = 17.sp)
@@ -1491,6 +1739,29 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                    if (document is ReadingDocument.TextDocument && totalTextPages > 0) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                            color = background,
+                            contentColor = foreground
+                        ) {
+                            Column(Modifier.fillMaxWidth()) {
+                                LinearProgressIndicator(
+                                    progress = { (percent / 100f).coerceIn(0f, 1f) },
+                                    modifier = Modifier.fillMaxWidth().height(2.dp),
+                                    color = if (dark) Color(0xFF8BC7D1) else Color(0xFF8A2D2D),
+                                    trackColor = foreground.copy(alpha = 0.12f)
+                                )
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Página ${textPage.coerceIn(0, totalTextPages - 1) + 1} de $totalTextPages", fontSize = 11.sp)
+                                    Text("$percent %", fontSize = 11.sp)
                                 }
                             }
                         }
@@ -1594,14 +1865,21 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             }
                         }
                     }
-                    Text("Página ${textPage + 1} de ${totalTextPages.coerceAtLeast(1)} · $percent % leído",
-                        Modifier.align(Alignment.CenterHorizontally), color = foreground)
                 }
             }
         }
 
       }
     }
+    }
+    if (confirmExit) {
+        AlertDialog(
+            onDismissRequest = { confirmExit = false },
+            title = { Text("Salir de la lectura") },
+            text = { Text("¿Quieres cerrar este libro?") },
+            confirmButton = { TextButton(onClick = { confirmExit = false; onBack() }) { Text("Sí") } },
+            dismissButton = { TextButton(onClick = { confirmExit = false }) { Text("No") } }
+        )
     }
     if (showVoicePicker) {
         val language = if (book.language.startsWith("en", true)) "en" else "es"

@@ -1,8 +1,9 @@
 name: Compilar APK firmada
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+  push:
+    branches:
+      - desarrollo/optimizacion-integral
 permissions:
   contents: read
   actions: read
@@ -51,40 +52,30 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: MiBiblioteca-v0.95-firmada
+          name: MiBiblioteca-v1.0.6-firmada
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
       - name: Dividir APK para descarga directa
         run: |
           split -b 28m -d -a 2 app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/MiBiblioteca.part-"
           sha256sum app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/MiBiblioteca.sha256"
-          test "$(find "$RUNNER_TEMP" -maxdepth 1 -name 'MiBiblioteca.part-*' | wc -l)" -eq 3
+          test "$(find "$RUNNER_TEMP" -maxdepth 1 -name 'MiBiblioteca.part-*' | wc -l)" -ge 1
       - uses: actions/upload-artifact@v4
         with:
-          name: MiBiblioteca-parte-00
-          path: ${{ runner.temp }}/MiBiblioteca.part-00
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: MiBiblioteca-parte-01
-          path: ${{ runner.temp }}/MiBiblioteca.part-01
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: MiBiblioteca-parte-02
+          name: MiBiblioteca-partes-v1.0.6
           path: |
-            ${{ runner.temp }}/MiBiblioteca.part-02
+            ${{ runner.temp }}/MiBiblioteca.part-*
             ${{ runner.temp }}/MiBiblioteca.sha256
           if-no-files-found: error
       - name: Publicar APK completa para descarga directa
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/release/app-release.apk MiBiblioteca-v0.95-actualizada.apk
-          if ! gh release view v0.95-actualizada >/dev/null 2>&1; then
-            gh release create v0.95-actualizada --target "${{ github.sha }}" --title "MiBiblioteca v0.95 actualizada" --notes "APK completa, firmada y verificada. Descarga MiBiblioteca-v0.95-actualizada.apk desde Assets."
+          cp app/build/outputs/apk/release/app-release.apk MiBiblioteca-v1.0.6-actualizada.apk
+          if ! gh release view v1.0.6-actualizada >/dev/null 2>&1; then
+            gh release create v1.0.6-actualizada --target "${{ github.sha }}" --title "MiBiblioteca v1.0.6 actualizada" --notes "APK completa, firmada y verificada. Descarga MiBiblioteca-v1.0.6-actualizada.apk desde Assets."
           fi
-          gh release upload v0.95-actualizada MiBiblioteca-v0.95-actualizada.apk --clobber
+          gh release upload v1.0.6-actualizada MiBiblioteca-v1.0.6-actualizada.apk --clobber
       - name: Eliminar clave temporal del runner
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
