@@ -1,6 +1,7 @@
 package com.diego.mibiblioteca
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.ClipData
 import android.content.Intent
 import android.content.pm.ActivityInfo
@@ -28,6 +29,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import java.util.concurrent.atomic.AtomicInteger
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
@@ -85,6 +87,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
@@ -407,6 +410,12 @@ internal fun localReaderFile(context: Context, book: Book): File = synchronized(
     } finally { partial.delete() }
 }
 
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 private fun resolveZipPath(base: String, path: String): String {
     val parts = mutableListOf<String>()
     (base.substringBeforeLast('/', "") + "/" + path.substringBefore('#'))
@@ -708,6 +717,37 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     onHighlightsChanged: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("reader", Context.MODE_PRIVATE) }
+    val activity = remember(context) { context.findActivity() }
+    var keepScreenAwakeMinutes by remember {
+        mutableIntStateOf(prefs.getInt("keep_screen_awake_minutes", 15))
+    }
+    var lastReaderInteraction by remember(book.uri) {
+        mutableLongStateOf(SystemClock.elapsedRealtime())
+    }
+    LaunchedEffect(activity, keepScreenAwakeMinutes, lastReaderInteraction) {
+        val window = activity?.window ?: return@LaunchedEffect
+        val keepScreenOnFlag = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        if (keepScreenAwakeMinutes == 0) {
+            window.clearFlags(keepScreenOnFlag)
+            return@LaunchedEffect
+        }
+        window.addFlags(keepScreenOnFlag)
+        if (keepScreenAwakeMinutes > 0) {
+            val timeoutMs = keepScreenAwakeMinutes * 60_000L
+            val elapsedMs = SystemClock.elapsedRealtime() - lastReaderInteraction
+            val remainingMs = (timeoutMs - elapsedMs).coerceAtLeast(0L)
+            if (remainingMs > 0L) delay(remainingMs)
+            if (SystemClock.elapsedRealtime() - lastReaderInteraction >= timeoutMs) {
+                window.clearFlags(keepScreenOnFlag)
+            }
+        }
+    }
+    DisposableEffect(activity) {
+        onDispose {
+            activity?.window?.clearFlags(
+                android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
     val key = remember(book.uri) { readerProgressKey(book.uri) }
     var fontSize by remember { mutableFloatStateOf(prefs.getFloat("font_size", 18f)) }
     var readerMargin by remember { mutableFloatStateOf(prefs.getFloat("reader_margin", 22f)) }
@@ -1124,6 +1164,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
       Box(Modifier.fillMaxSize().pointerInput(document, showReaderTools, drawer.isOpen) {
           awaitEachGesture {
               val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+              lastReaderInteraction = SystemClock.elapsedRealtime()
               val start = down.position
               var end = start
               var released = false
@@ -1559,6 +1600,26 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     HorizontalDivider()
                                     Text("Lectura", fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Serif, fontSize = 17.sp)
+                                    Text("Mantener pantalla encendida",
+                                        fontWeight = FontWeight.SemiBold)
+                                    Text("El contador se reinicia con cada toque. Al agotarse, vuelve el ajuste de pantalla del teléfono.",
+                                        fontSize = 12.sp, color = foreground.copy(alpha = 0.75f))
+                                    Row(Modifier.horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        listOf(0, 5, 10, 15, 20, 30, 45, 60, -1).forEach { minutes ->
+                                            val label = when (minutes) {
+                                                0 -> "Sistema"
+                                                -1 -> "Siempre"
+                                                else -> "$minutes min"
+                                            }
+                                            FilterChip(selected = keepScreenAwakeMinutes == minutes,
+                                                onClick = {
+                                                    keepScreenAwakeMinutes = minutes
+                                                    lastReaderInteraction = SystemClock.elapsedRealtime()
+                                                    prefs.edit().putInt("keep_screen_awake_minutes", minutes).apply()
+                                                }, label = { Text(label, fontSize = 12.sp) })
+                                        }
+                                    }
                                     Text("Márgenes · ${readerMargin.toInt()} dp",
                                         color = foreground.copy(alpha = 0.78f))
                                     Slider(value = readerMargin, onValueChange = {
