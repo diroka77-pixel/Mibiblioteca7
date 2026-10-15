@@ -187,7 +187,7 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
             if (slices.isNotEmpty()) finish()
             slices += ReadingSlice(index, 0, 0, (height * 0.72f).toInt().coerceAtLeast(160))
             finish()
-            return@forEachIndexed
+            continue
         }
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
             textSize = textSizePx + when {
@@ -651,8 +651,19 @@ private fun SelectableParagraph(
         val bitmap by produceState<Bitmap?>(null, paragraph.imagePath) {
             value = withContext(Dispatchers.IO) { runCatching { BitmapFactory.decodeFile(paragraph.imagePath) }.getOrNull() }
         }
-        if (bitmap != null) Image(bitmap!!.asImageBitmap(), "Imagen del libro",
-            Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 520.dp), contentScale = ContentScale.Fit)
+        if (bitmap != null) {
+            // Las ilustraciones deben conservar una escala editorial razonable:
+            // no ocupar todo el ancho como una portada ni deformarse al paginar.
+            // El ancho limitado deja margen de texto alrededor, como en los
+            // lectores EPUB convencionales, y el alto se calcula manteniendo
+            // la proporción original.
+            Image(bitmap!!.asImageBitmap(), "Imagen del libro",
+                Modifier.fillMaxWidth(0.78f)
+                    .heightIn(min = 120.dp, max = 460.dp)
+                    .wrapContentHeight()
+                    .align(Alignment.CenterHorizontally),
+                contentScale = ContentScale.Fit)
+        }
         return
     }
     AndroidView(modifier = Modifier.fillMaxWidth(), factory = { context ->
@@ -967,6 +978,24 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     }
     val background = if (dark) Color(0xFF1D1A17) else if (sepia) Color(0xFFF5EEDD) else Color.White
     val foreground = if (dark) Color(0xFFF3E9D7) else Color(0xFF24201D)
+    LaunchedEffect(background, dark) {
+        keepAwakeActivity?.window?.apply {
+            statusBarColor = background.toArgb()
+            navigationBarColor = background.toArgb()
+            val lightBars = !dark
+            decorView.systemUiVisibility = if (lightBars)
+                android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
+                    android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR else 0
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                val appearance = if (lightBars)
+                    android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                        android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS else 0
+                decorView.windowInsetsController?.setSystemBarsAppearance(appearance,
+                    android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                        android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
+            }
+        }
+    }
     val state by produceState<ReadingDocument?>(null, book.uri) {
         value = try { withContext(Dispatchers.IO) { loadReadingDocument(context, book) } }
         catch (e: Exception) { ReadingDocument.Unsupported(e.localizedMessage ?: "No se pudo abrir") }
@@ -1190,7 +1219,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         }
     }) {
     Scaffold(containerColor = background, contentWindowInsets = WindowInsets.safeDrawing, topBar = {
-        TopAppBar(title = { Text(book.customTitle.ifBlank { book.title }, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+        TopAppBar(title = { Text(book.customTitle.ifBlank { book.title },
+                maxLines = 1, fontSize = 17.sp, lineHeight = 19.sp,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = onBack) { AppIcon("Volver", "Volver") } },
             actions = {}, colors = TopAppBarDefaults.topAppBarColors(containerColor = background,
                 titleContentColor = foreground, navigationIconContentColor = foreground,
@@ -1335,7 +1366,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                         val density = LocalDensity.current
                         val width = with(density) { (maxWidth - (readerMargin * 2).dp).roundToPx() }
-                        val height = with(density) { (maxHeight - 32.dp).roundToPx() }
+                        val height = with(density) { (maxHeight - 16.dp).roundToPx() }
                         val textSizePx = with(density) { fontSize.sp.toPx() }
                         val gap = with(density) { (14.dp * lineSpacing).roundToPx() }
                         val pages by produceState<List<ReadingPage>>(emptyList(), document,
@@ -1535,8 +1566,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     transformOrigin = TransformOrigin(if (entering) 1f else 0f, 0.5f)
                                     cameraDistance = 12000f
                                     shadowElevation = if (angle == 0f) 0f else 18.dp.toPx()
-                                }.background(background).padding(horizontal = readerMargin.dp, vertical = 8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    }.background(background).padding(horizontal = readerMargin.dp, vertical = 4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     pages[shown].slices.forEachIndexed { position, slice ->
                                         if (position == 0 && slice.start == 0 &&
                                             paragraphs[slice.paragraph].chapterStart)
