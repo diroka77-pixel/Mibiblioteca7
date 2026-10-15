@@ -370,12 +370,7 @@ internal fun localReaderFile(context: Context, book: Book): File = synchronized(
         return@synchronized file.also { it.setLastModified(System.currentTimeMillis()) }
     val partial = File(folder, "${readerProgressKey(book.uri)}.partial")
     try {
-        val source = try { context.contentResolver.openInputStream(book.uri) }
-            catch (_: Exception) { null }
-        val available = source ?: offlineBookUri(context, book)?.let { offline ->
-            context.contentResolver.openInputStream(offline)
-        }
-        available?.use { input ->
+        context.contentResolver.openInputStream(book.uri)?.use { input ->
             require(folder.usableSpace > FileLimits.FREE_SPACE + book.sourceSize.coerceAtLeast(0)) {
                 "No hay espacio suficiente para abrir el libro."
             }
@@ -384,7 +379,7 @@ internal fun localReaderFile(context: Context, book: Book): File = synchronized(
                     require(folder.usableSpace > FileLimits.FREE_SPACE) { "No queda espacio suficiente en el teléfono." }
                 }
             }
-        } ?: error("No se pudo leer el archivo de Drive ni la copia de Descargas")
+        } ?: error("No se pudo leer el archivo de Drive")
         require(partial.length() > 0) { "El archivo está vacío" }
         if (file.exists()) file.delete()
         check(partial.renameTo(file)) { "No se pudo guardar el archivo temporal" }
@@ -583,7 +578,7 @@ private fun renderPdfPage(file: File, index: Int): Bitmap =
 
 @Composable
 private fun SelectableParagraph(
-    paragraph: ReadingParagraph, index: Int, start: Int, end: Int, size: Float, lineSpacing: Float, foreground: Color,
+    paragraph: ReadingParagraph, index: Int, start: Int, end: Int, size: Float, foreground: Color,
     dark: Boolean, opening: Boolean, highlights: List<ReaderHighlight>,
     onHighlight: (ReaderHighlight) -> Unit, onNote: (ReaderHighlight) -> Unit,
     onRemoveHighlight: (Int, Int, Int) -> Boolean,
@@ -604,22 +599,18 @@ private fun SelectableParagraph(
             val selectable = this
             setCustomSelectionActionModeCallback(object : ActionMode.Callback {
                 override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-                    menu.add(0, 8001, 0, "Subrayar").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-                    menu.add(0, 8002, 1, "Diccionario").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-                    menu.add(0, 8005, 2, "Nota").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
-                    menu.add(0, 8010, 3, "Copiar").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
-                    menu.add(0, 8011, 4, "Fijar").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                    menu.add(0, 8001, 0, "Subrayar")
+                    menu.add(0, 8005, 1, "Nota")
+                    menu.add(0, 8010, 2, "Copiar")
+                    menu.add(0, 8011, 3, "Fijar")
+                    menu.add(0, 8002, 4, "Diccionario")
                     return true
                 }
                 override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
                     val selectedStart = selectable.selectionStart.coerceAtLeast(0)
                     val selectedEnd = selectable.selectionEnd.coerceAtMost(selectable.text.length)
-                    val selectedFrom = start + selectedStart
-                    val selectedTo = start + selectedEnd
-                    val marked = selectedEnd > selectedStart && highlights.any { highlight ->
-                        highlight.paragraph == index && highlight.start < selectedTo &&
-                            highlight.end > selectedFrom
-                    }
+                    val marked = highlights.any { it.paragraph == index &&
+                        it.start < start + selectedEnd && it.end > start + selectedStart }
                     menu.findItem(8001)?.title = if (marked) "Quitar subrayado" else "Subrayar"
                     return true
                 }
@@ -665,7 +656,7 @@ private fun SelectableParagraph(
         })
         view.typeface = Typeface.create(Typeface.SERIF,
             if (paragraph.heading) Typeface.BOLD else Typeface.NORMAL)
-        view.setLineSpacing(0f, lineSpacing)
+        view.setLineSpacing(0f, 1.45f)
         view.justificationMode = if (paragraph.heading) Layout.JUSTIFICATION_MODE_NONE
             else Layout.JUSTIFICATION_MODE_INTER_WORD
         view.textAlignment = if (paragraph.heading) TextView.TEXT_ALIGNMENT_CENTER
@@ -705,8 +696,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     val prefs = remember { context.getSharedPreferences("reader", Context.MODE_PRIVATE) }
     val key = remember(book.uri) { readerProgressKey(book.uri) }
     var fontSize by remember { mutableFloatStateOf(prefs.getFloat("font_size", 18f)) }
-    var readerMargin by remember { mutableFloatStateOf(prefs.getFloat("reader_margin", 22f)) }
-    var lineSpacing by remember { mutableFloatStateOf(prefs.getFloat("line_spacing", 1.45f)) }
     var dark by remember { mutableStateOf(prefs.getBoolean("dark", false)) }
     var sepia by remember { mutableStateOf(prefs.getBoolean("sepia", false)) }
     var page by remember(book.uri) { mutableIntStateOf(prefs.getInt("page_$key", 0)) }
@@ -804,8 +793,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         }, if (selectedVoiceName == "davefx") DAVEFX_ENGINE else null)
         speech = engine
         onDispose {
-            // Persist the last word reported by Android before shutting the engine down.
-            prefs.edit().putInt("char_$key", activeSpeechCursor.get()).apply()
             audioActive = false
             audioControlsVisible = false
             engine?.stop()
@@ -835,7 +822,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     }
     val document = state
     BackHandler { if (drawer.isOpen) scope.launch { drawer.close() } else onBack() }
-    ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = drawer.isOpen, drawerContent = {
+    ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = false, drawerContent = {
         ModalDrawerSheet(
             modifier = Modifier.width(320.dp),
             drawerContainerColor = Color(0xFFF8F3E9),
@@ -886,24 +873,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 Text("APARIENCIA", color = Color(0xFF785940),
                     style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.height(8.dp))
-                Text("Perfiles", fontWeight = FontWeight.SemiBold)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = {
-                        fontSize = 17f; dark = false; sepia = false; brightness = -1f
-                        prefs.edit().putFloat("font_size", fontSize).putBoolean("dark", false)
-                            .putBoolean("sepia", false).putFloat("brightness", brightness).apply()
-                    }) { Text("Día") }
-                    TextButton(onClick = {
-                        fontSize = 19f; dark = false; sepia = true; brightness = .62f
-                        prefs.edit().putFloat("font_size", fontSize).putBoolean("dark", false)
-                            .putBoolean("sepia", true).putFloat("brightness", brightness).apply()
-                    }) { Text("Cómodo") }
-                    TextButton(onClick = {
-                        fontSize = 20f; dark = true; sepia = false; brightness = .28f
-                        prefs.edit().putFloat("font_size", fontSize).putBoolean("dark", true)
-                            .putBoolean("sepia", false).putFloat("brightness", brightness).apply()
-                    }) { Text("Noche") }
-                }
                 if (document is ReadingDocument.TextDocument) {
                     Text("Tamaño de letra · ${fontSize.toInt()} pt", fontWeight = FontWeight.SemiBold)
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1017,15 +986,10 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         }
     }) {
     Scaffold(containerColor = background, contentWindowInsets = WindowInsets.safeDrawing, topBar = {
+        if (document !is ReadingDocument.TextDocument && document !is ReadingDocument.PdfDocument)
         TopAppBar(title = { Text(book.customTitle.ifBlank { book.title }.take(38), maxLines = 1) },
             navigationIcon = { IconButton(onClick = onBack) { AppIcon("Volver", "Volver") } },
             actions = {
-                IconButton(onClick = { scope.launch { drawer.open() } }) {
-                    AppIcon("Capítulos", "Capítulos, búsqueda y marcadores")
-                }
-                IconButton(onClick = { showReaderTools = true }) {
-                    AppIcon("Ajustes", "Ajustes de lectura")
-                }
                 IconButton(onClick = { dark = !dark; prefs.edit().putBoolean("dark", dark).apply() }) {
                     AppIcon(if (dark) "Día" else "Noche", "Cambiar tema")
                 }
@@ -1033,7 +997,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 titleContentColor = foreground, navigationIconContentColor = foreground,
                 actionIconContentColor = foreground))
     }) { padding ->
-      Box(Modifier.fillMaxSize().pointerInput(document, showReaderTools, drawer.isOpen) {
+      Box(Modifier.fillMaxSize().pointerInput(document, showReaderTools) {
           awaitEachGesture {
               val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
               val start = down.position
@@ -1052,15 +1016,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                   val vertical = end.y - start.y
                   val edgeSwipe = start.x <= 28.dp.toPx() &&
                       horizontal >= 72.dp.toPx() && kotlin.math.abs(vertical) < 54.dp.toPx()
-                  val closeDrawerSwipe = drawer.isOpen && horizontal <= -72.dp.toPx() &&
-                      kotlin.math.abs(vertical) < 54.dp.toPx()
                   val centerTap = document is ReadingDocument.TextDocument &&
                       start.x in size.width * 0.30f..size.width * 0.70f &&
                       start.y in size.height * 0.30f..size.height * 0.75f
                   val still = kotlin.math.abs(horizontal) < 14.dp.toPx() &&
                       kotlin.math.abs(vertical) < 14.dp.toPx()
                   if (edgeSwipe) scope.launch { drawer.open() }
-                  else if (closeDrawerSwipe) scope.launch { drawer.close() }
                   else if (centerTap && still && releaseTime - down.uptimeMillis < 350L)
                       showReaderTools = true
               }
@@ -1116,12 +1077,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         contentAlignment = Alignment.TopCenter) {
                         AnimatedContent(targetState = index, transitionSpec = {
                             val forward = targetState > initialState
-                            (slideInHorizontally(tween(360)) { if (forward) it / 5 else -it / 5 } +
+                            (slideInHorizontally(tween(280)) { if (forward) it / 5 else -it / 5 } +
                                 fadeIn(tween(180))).togetherWith(
-                                slideOutHorizontally(tween(360)) { if (forward) -it / 5 else it / 5 } +
+                                slideOutHorizontally(tween(280)) { if (forward) -it / 5 else it / 5 } +
                                     fadeOut(tween(180))).using(SizeTransform(clip = true))
                         }, label = "Pasar página PDF") { shown ->
-                            val angle by transition.animateFloat(transitionSpec = { tween(360) },
+                            val angle by transition.animateFloat(transitionSpec = { tween(280) },
                                 label = "Pliegue PDF") { state ->
                                 when (state) {
                                     EnterExitState.PreEnter -> 62f
@@ -1170,12 +1131,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 Column(Modifier.padding(padding).fillMaxSize()) {
                     BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                         val density = LocalDensity.current
-                        val width = with(density) { (maxWidth - (readerMargin * 2).dp).roundToPx() }
+                        val width = with(density) { (maxWidth - 44.dp).roundToPx() }
                         val height = with(density) { (maxHeight - 32.dp).roundToPx() }
                         val textSizePx = with(density) { fontSize.sp.toPx() }
-                        val gap = with(density) { (14.dp * lineSpacing).roundToPx() }
+                        val gap = with(density) { 14.dp.roundToPx() }
                         val pages by produceState<List<ReadingPage>>(emptyList(), document,
-                            width, height, fontSize, readerMargin, lineSpacing) {
+                            width, height, fontSize) {
                             ready = false
                             value = emptyList()
                             value = withContext(Dispatchers.Default) {
@@ -1331,9 +1292,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         fun turn(delta: Int) {
                             val targetPage = (textPage + delta).coerceIn(pages.indices)
                             textPage = targetPage
-                            // Manual page turns must also become the exact resume point. This was
-                            // previously saved only while the audio controls happened to be open.
-                            saveSpeechCursor(pages[targetPage].startChar)
+                            if (audioControlsVisible) {
+                                saveSpeechCursor(pages[targetPage].startChar)
+                            }
                         }
                         Box(Modifier.fillMaxSize().clipToBounds().pointerInput(pages, swipeDistance) {
                             var drag = 0f
@@ -1347,12 +1308,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             AnimatedContent(targetState = currentPage,
                                 transitionSpec = {
                                     val forward = targetState > initialState
-                            (slideInHorizontally(tween(360)) { if (forward) it / 5 else -it / 5 } +
+                                    (slideInHorizontally(tween(280)) { if (forward) it / 5 else -it / 5 } +
                                         fadeIn(tween(180))).togetherWith(
-                                        slideOutHorizontally(tween(360)) { if (forward) -it / 5 else it / 5 } +
+                                        slideOutHorizontally(tween(280)) { if (forward) -it / 5 else it / 5 } +
                                             fadeOut(tween(180))).using(SizeTransform(clip = true))
                                 }, label = "Pasar página") { shown ->
-                                val angle by transition.animateFloat(transitionSpec = { tween(360) },
+                                val angle by transition.animateFloat(transitionSpec = { tween(280) },
                                     label = "Pliegue") { state ->
                                     when (state) {
                                         EnterExitState.PreEnter -> 62f
@@ -1366,14 +1327,14 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     transformOrigin = TransformOrigin(if (entering) 1f else 0f, 0.5f)
                                     cameraDistance = 12000f
                                     shadowElevation = if (angle == 0f) 0f else 18.dp.toPx()
-                                }.background(background).padding(horizontal = readerMargin.dp, vertical = 16.dp),
+                                }.background(background).padding(horizontal = 22.dp, vertical = 16.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                     pages[shown].slices.forEachIndexed { position, slice ->
                                         if (position == 0 && slice.start == 0 &&
                                             paragraphs[slice.paragraph].chapterStart)
                                             Spacer(Modifier.height(28.dp))
                                         SelectableParagraph(paragraphs[slice.paragraph], slice.paragraph,
-                                            slice.start, slice.end, fontSize, lineSpacing, foreground, dark,
+                                            slice.start, slice.end, fontSize, foreground, dark,
                                             openingParagraph(paragraphs, slice.paragraph), highlights,
                                             onHighlight = { mark ->
                                                 highlights = (highlights + mark).distinct()
@@ -1461,21 +1422,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         }) { Text("Ir") }
                                     }
                                     HorizontalDivider()
-                                    Text("Lectura", fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Serif, fontSize = 17.sp)
-                                    Text("Márgenes · ${readerMargin.toInt()} dp",
-                                        color = foreground.copy(alpha = 0.78f))
-                                    Slider(value = readerMargin, onValueChange = {
-                                        readerMargin = it
-                                        prefs.edit().putFloat("reader_margin", it).apply()
-                                    }, valueRange = 12f..42f)
-                                    Text("Espaciado entre líneas · ${String.format(java.util.Locale.ROOT, "%.2f", lineSpacing)}",
-                                        color = foreground.copy(alpha = 0.78f))
-                                    Slider(value = lineSpacing, onValueChange = {
-                                        lineSpacing = it
-                                        prefs.edit().putFloat("line_spacing", it).apply()
-                                    }, valueRange = 1.15f..1.8f)
-                                    HorizontalDivider()
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
                                             Text("Marcas de página", fontWeight = FontWeight.Bold)
@@ -1531,29 +1477,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             }
                                         }
                                     }
-                                }
-                            }
-                        }
-                    }
-                    if (document is ReadingDocument.TextDocument && totalTextPages > 0) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
-                            color = background,
-                            contentColor = foreground
-                        ) {
-                            Column(Modifier.fillMaxWidth()) {
-                                LinearProgressIndicator(
-                                    progress = { (percent / 100f).coerceIn(0f, 1f) },
-                                    modifier = Modifier.fillMaxWidth().height(2.dp),
-                                    color = if (dark) Color(0xFF8BC7D1) else Color(0xFF8A2D2D),
-                                    trackColor = foreground.copy(alpha = 0.12f)
-                                )
-                                Row(
-                                    Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Página ${textPage.coerceIn(0, totalTextPages - 1) + 1} de $totalTextPages", fontSize = 11.sp)
-                                    Text("$percent %", fontSize = 11.sp)
                                 }
                             }
                         }
