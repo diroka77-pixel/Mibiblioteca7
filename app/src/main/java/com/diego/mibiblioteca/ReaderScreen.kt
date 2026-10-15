@@ -710,12 +710,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var dark by remember { mutableStateOf(prefs.getBoolean("dark", false)) }
     var sepia by remember { mutableStateOf(prefs.getBoolean("sepia", false)) }
     var page by remember(book.uri) { mutableIntStateOf(prefs.getInt("page_$key", 0)) }
-    val positionHistory = remember(book.uri) {
-        mutableStateListOf<Int>().also { list ->
-            prefs.getString("position_history_$key", "").orEmpty()
-                .split(",").mapNotNullTo(list) { it.toIntOrNull() }
-        }
-    }
     val scope = rememberCoroutineScope()
     val swipeDistance = with(LocalDensity.current) { 64.dp.toPx() }
     val drawer = rememberDrawerState(DrawerValue.Closed)
@@ -738,15 +732,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         bookmarkChars = if (position in bookmarkChars) bookmarkChars - position
             else bookmarkChars + position
         prefs.edit().putString("bookmarks_$key", bookmarkChars.joinToString(",")).apply()
-    }
-    fun rememberPosition(position: Int) {
-        val safe = position.coerceAtLeast(0)
-        if (positionHistory.lastOrNull() != safe) {
-            positionHistory.removeAll { it == safe }
-            positionHistory.add(safe)
-            while (positionHistory.size > 30) positionHistory.removeAt(0)
-            prefs.edit().putString("position_history_$key", positionHistory.joinToString(",")).apply()
-        }
     }
     var highlights by remember(book.uri) {
         mutableStateOf(readHighlights(prefs.getString("highlights_$key", "[]")))
@@ -1344,7 +1329,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             }
                         }
                         fun turn(delta: Int) {
-                            rememberPosition(pages[textPage].startChar)
                             val targetPage = (textPage + delta).coerceIn(pages.indices)
                             textPage = targetPage
                             // Manual page turns must also become the exact resume point. This was
@@ -1521,22 +1505,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             }
                                             IconButton(onClick = { toggleBookmark(charPosition) }) {
                                                 AppIcon("Borrar", "Eliminar marcador")
-                                            }
-                                        }
-                                    }
-                                    if (positionHistory.isNotEmpty()) {
-                                        HorizontalDivider()
-                                        Text("Historial de posiciones", fontWeight = FontWeight.Bold)
-                                        positionHistory.asReversed().take(8).forEachIndexed { index, charPosition ->
-                                            val targetPage = pages.indexOfLast { it.startChar <= charPosition }
-                                                .coerceAtLeast(0)
-                                            TextButton(onClick = {
-                                                textPage = targetPage
-                                                saveSpeechCursor(charPosition)
-                                                showReaderTools = false
-                                            }, modifier = Modifier.fillMaxWidth()) {
-                                                Text("Posición ${index + 1} · página ${targetPage + 1}",
-                                                    modifier = Modifier.fillMaxWidth())
                                             }
                                         }
                                     }
