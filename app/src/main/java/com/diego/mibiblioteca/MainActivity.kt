@@ -434,6 +434,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var activityLog by mutableStateOf<List<String>>(emptyList()); private set
 
     private val prefs = app.getSharedPreferences("library", Context.MODE_PRIVATE)
+    var annualReadingGoal by mutableIntStateOf(prefs.getInt("annual_reading_goal", 12))
+        private set
+    fun setAnnualReadingGoal(goal: Int) {
+        annualReadingGoal = goal.coerceIn(1, 365)
+        prefs.edit().putInt("annual_reading_goal", annualReadingGoal).apply()
+    }
     private val bookStore = BookStore(app)
     private val saveMutex = Mutex()
     private var catalogSaveJob: Job? = null
@@ -4333,7 +4339,9 @@ private fun openCasaDelLibro(context: Context) {
                 } }
             if (tab == "Estadísticas") item(key = "reading-statistics-page") {
                 ReadingStatisticsPage(vm.books, vm::readingPercent,
-                    vm.openedThisMonth(), onOpenDetailed = { readingStatsOpen = true })
+                    vm.openedThisMonth(), vm.annualReadingGoal,
+                    onGoalChanged = vm::setAnnualReadingGoal,
+                    onOpenDetailed = { readingStatsOpen = true })
             }
             if (tab != "Estadísticas") item(key = "controls") {
                 Column(Modifier.padding(horizontal = 12.dp)) {
@@ -4914,6 +4922,7 @@ private fun HomeReadingSummary(books: List<Book>, progress: (Uri) -> Int) {
 @Composable
 private fun ReadingStatisticsPage(
     books: List<Book>, progress: (Uri) -> Int, openedThisMonth: Int,
+    annualGoal: Int, onGoalChanged: (Int) -> Unit,
     onOpenDetailed: () -> Unit
 ) {
     val read = books.count { it.status == ReadingStatus.READ }
@@ -4931,6 +4940,25 @@ private fun ReadingStatisticsPage(
             fontWeight = FontWeight.Bold, fontSize = 27.sp, color = Color.White,
             style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
         Text("Tu biblioteca y tu ritmo de lectura", color = Color.White.copy(alpha = .78f))
+        var goalDraft by remember(annualGoal) { mutableStateOf(annualGoal.toString()) }
+        val currentYearRead = books.count { it.status == ReadingStatus.READ &&
+            it.finishedDate.startsWith(java.time.Year.now().toString()) }
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Paper),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Reto anual", color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("${currentYearRead} de $annualGoal libros terminados este año", color = Mahogany)
+                LinearProgressIndicator(progress = { (currentYearRead.toFloat() / annualGoal).coerceIn(0f, 1f) },
+                    Modifier.fillMaxWidth(), color = Brass, trackColor = Brass.copy(alpha = .16f))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(goalDraft, { goalDraft = it.filter(Char::isDigit) },
+                        label = { Text("Objetivo") }, singleLine = true,
+                        modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = { goalDraft.toIntOrNull()?.let(onGoalChanged) }) { Text("Guardar") }
+                }
+            }
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             HomeMetricCard("Leídos", read.toString(), Teal, Modifier.weight(1f))
             HomeMetricCard("Leyendo", reading.toString(), Brass, Modifier.weight(1f))

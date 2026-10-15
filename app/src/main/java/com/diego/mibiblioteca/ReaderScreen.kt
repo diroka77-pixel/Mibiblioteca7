@@ -3,6 +3,7 @@ package com.diego.mibiblioteca
 import android.content.Context
 import android.content.ClipData
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.app.Activity
 import android.graphics.Typeface
 import android.text.SpannableString
@@ -584,7 +585,7 @@ private fun renderPdfPage(file: File, index: Int): Bitmap =
 @Composable
 private fun SelectableParagraph(
     paragraph: ReadingParagraph, index: Int, start: Int, end: Int, size: Float, lineSpacing: Float, foreground: Color,
-    dark: Boolean, opening: Boolean, highlights: List<ReaderHighlight>,
+    dark: Boolean, opening: Boolean, highlightColor: String, highlights: List<ReaderHighlight>,
     onHighlight: (ReaderHighlight) -> Unit, onNote: (ReaderHighlight) -> Unit,
     onRemoveHighlight: (Int, Int, Int) -> Boolean,
     onLookup: (String) -> Unit, onTranslate: (String) -> Unit, onSpeak: (String) -> Unit,
@@ -636,7 +637,7 @@ private fun SelectableParagraph(
                             val removed = removeHighlightAction(index, start + selectedStart,
                                 start + selectedEnd)
                             if (!removed) action(ReaderHighlight(index, start + selectedStart,
-                                start + selectedEnd, quote, "amarillo"))
+                                start + selectedEnd, quote, highlightColor))
                         }
                         8005 -> noteAction(ReaderHighlight(index, start + selectedStart,
                             start + selectedEnd, quote))
@@ -707,9 +708,25 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var fontSize by remember { mutableFloatStateOf(prefs.getFloat("font_size", 18f)) }
     var readerMargin by remember { mutableFloatStateOf(prefs.getFloat("reader_margin", 22f)) }
     var lineSpacing by remember { mutableFloatStateOf(prefs.getFloat("line_spacing", 1.45f)) }
+    var lockOrientation by remember(book.uri) {
+        mutableStateOf(prefs.getBoolean("lock_orientation_$key", false))
+    }
     var dark by remember { mutableStateOf(prefs.getBoolean("dark", false)) }
     var sepia by remember { mutableStateOf(prefs.getBoolean("sepia", false)) }
+    DisposableEffect(lockOrientation) {
+        val activity = context as? Activity
+        if (lockOrientation) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        onDispose {
+            if (lockOrientation) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
     var page by remember(book.uri) { mutableIntStateOf(prefs.getInt("page_$key", 0)) }
+    val positionHistory = remember(book.uri) {
+        mutableStateListOf<Int>().also { list ->
+            prefs.getString("position_history_$key", "").orEmpty()
+                .split(",").mapNotNullTo(list) { it.toIntOrNull() }
+        }
+    }
     val scope = rememberCoroutineScope()
     val swipeDistance = with(LocalDensity.current) { 64.dp.toPx() }
     val drawer = rememberDrawerState(DrawerValue.Closed)
@@ -733,8 +750,20 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             else bookmarkChars + position
         prefs.edit().putString("bookmarks_$key", bookmarkChars.joinToString(",")).apply()
     }
+    fun rememberPosition(position: Int) {
+        val safe = position.coerceAtLeast(0)
+        if (positionHistory.lastOrNull() != safe) {
+            positionHistory.removeAll { it == safe }
+            positionHistory.add(safe)
+            while (positionHistory.size > 30) positionHistory.removeAt(0)
+            prefs.edit().putString("position_history_$key", positionHistory.joinToString(",")).apply()
+        }
+    }
     var highlights by remember(book.uri) {
         mutableStateOf(readHighlights(prefs.getString("highlights_$key", "[]")))
+    }
+    var highlightColor by remember(book.uri) {
+        mutableStateOf(prefs.getString("highlight_color", "amarillo") ?: "amarillo")
     }
     var pendingNote by remember { mutableStateOf<ReaderHighlight?>(null) }
     var noteDraft by remember { mutableStateOf("") }
@@ -885,6 +914,13 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 Text("APARIENCIA", color = Color(0xFF785940),
                     style = MaterialTheme.typography.labelMedium)
+                NavigationDrawerItem(label = { Text("Bloquear orientación") },
+                    selected = lockOrientation,
+                    icon = { AppIcon("Ajustes", "Orientación") },
+                    onClick = {
+                        lockOrientation = !lockOrientation
+                        prefs.edit().putBoolean("lock_orientation_$key", lockOrientation).apply()
+                    })
                 Spacer(Modifier.height(8.dp))
                 Text("Perfiles", fontWeight = FontWeight.SemiBold)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -930,6 +966,20 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     TextButton(onClick = {
                         dark = true; prefs.edit().putBoolean("dark", true).apply()
                     }) { Text("Noche") }
+                }
+                Text("Color del próximo subrayado", color = Color(0xFF785940),
+                    style = MaterialTheme.typography.labelMedium)
+                Row(Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("amarillo" to 0xFFFFE58A, "azul" to 0xFFACEEF5,
+                        "rosa" to 0xFFFFB7C5, "verde" to 0xFFB8E6B8).forEach { (name, color) ->
+                        FilterChip(selected = highlightColor == name, onClick = {
+                            highlightColor = name
+                            prefs.edit().putString("highlight_color", name).apply()
+                        }, label = { Text(name.replaceFirstChar { it.uppercase() }, fontSize = 11.sp) },
+                            leadingIcon = { Box(Modifier.size(12.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(Color(color))) })
+                    }
                 }
                 if (document is ReadingDocument.TextDocument)
                     OutlinedTextField(searchText, { searchText = it }, singleLine = true,
@@ -1329,6 +1379,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             }
                         }
                         fun turn(delta: Int) {
+                            rememberPosition(pages[textPage].startChar)
                             val targetPage = (textPage + delta).coerceIn(pages.indices)
                             textPage = targetPage
                             // Manual page turns must also become the exact resume point. This was
@@ -1374,7 +1425,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             Spacer(Modifier.height(28.dp))
                                         SelectableParagraph(paragraphs[slice.paragraph], slice.paragraph,
                                             slice.start, slice.end, fontSize, lineSpacing, foreground, dark,
-                                            openingParagraph(paragraphs, slice.paragraph), highlights,
+                                            openingParagraph(paragraphs, slice.paragraph), highlightColor, highlights,
                                             onHighlight = { mark ->
                                                 highlights = (highlights + mark).distinct()
                                                 saveHighlights(context, key, highlights)
@@ -1505,6 +1556,22 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             }
                                             IconButton(onClick = { toggleBookmark(charPosition) }) {
                                                 AppIcon("Borrar", "Eliminar marcador")
+                                            }
+                                        }
+                                    }
+                                    if (positionHistory.isNotEmpty()) {
+                                        HorizontalDivider()
+                                        Text("Historial de posiciones", fontWeight = FontWeight.Bold)
+                                        positionHistory.asReversed().take(8).forEachIndexed { index, charPosition ->
+                                            val targetPage = pages.indexOfLast { it.startChar <= charPosition }
+                                                .coerceAtLeast(0)
+                                            TextButton(onClick = {
+                                                textPage = targetPage
+                                                saveSpeechCursor(charPosition)
+                                                showReaderTools = false
+                                            }, modifier = Modifier.fillMaxWidth()) {
+                                                Text("Posición ${index + 1} · página ${targetPage + 1}",
+                                                    modifier = Modifier.fillMaxWidth())
                                             }
                                         }
                                     }
