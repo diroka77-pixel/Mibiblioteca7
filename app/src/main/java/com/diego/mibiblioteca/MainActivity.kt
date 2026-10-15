@@ -3200,6 +3200,8 @@ private fun openCasaDelLibro(context: Context) {
                 // Finish the physical movement before composing the reader behind the page.
                 readerTransition.animateTo(0.84f,
                     tween(2600, easing = FastOutSlowInEasing))
+                // Deja la portada encuadrada unos instantes antes de mostrar el texto.
+                kotlinx.coroutines.delay(900)
                 readingUri = book.uri.toString()
                 withFrameNanos { }
                 readerTransition.animateTo(1f,
@@ -3347,6 +3349,8 @@ private fun openCasaDelLibro(context: Context) {
         else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
     val readingBooks = remember(vm.books) { vm.readingBooks() }
+    // Secciones mantiene su propia vista, separada de Biblioteca.
+    val activeViewScope: String? = if (tab == "Secciones") "__secciones__" else vm.selectedSection
     LaunchedEffect(vm.message) {
         if (vm.message != null) {
             kotlinx.coroutines.delay(2200)
@@ -4102,8 +4106,8 @@ private fun openCasaDelLibro(context: Context) {
                         Row(Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("Lista", "Galería", "Compacta").forEach { mode ->
-                                CatalogChip(mode, vm.viewModeFor(vm.selectedSection) == mode) {
-                                    vm.chooseViewMode(mode); scope.launch { drawerState.close() }
+                                CatalogChip(mode, vm.viewModeFor(activeViewScope) == mode) {
+                                    vm.chooseViewMode(mode, activeViewScope); scope.launch { drawerState.close() }
                                 }
                             }
                         }
@@ -4329,6 +4333,19 @@ private fun openCasaDelLibro(context: Context) {
             if (tab == "Inicio") item(key = "home-summary") {
                 HomeReadingSummary(vm.books, vm::readingPercent)
             }
+            if (tab == "Favoritos") item(key = "favorites-stats") {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
+                    Text("Estadísticas de lectura", color = Color.White,
+                        fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                        fontSize = 23.sp,
+                        style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+                    HomeReadingSummary(vm.books, vm::readingPercent)
+                    LibraryActionButton(onClick = { readingStatsOpen = true },
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text("Ver estadísticas detalladas")
+                    }
+                }
+            }
             if (tab == "Inicio") item(key = "home-recommendations") {
                 val recommendations = vm.books.filter { it.status != ReadingStatus.READING }
                     .sortedWith(compareByDescending<Book> { it.favorite }.thenBy { displayTitle(it) })
@@ -4425,13 +4442,13 @@ private fun openCasaDelLibro(context: Context) {
                                     fontSize = 13.sp)
                             }
                             if (!showWishList) {
-                                ConceptViewSelector(vm.viewModeFor(vm.selectedSection),
+                                ConceptViewSelector(vm.viewModeFor(activeViewScope),
                                     onGallery = {
                                         // Preserve the current position when switching presentation.
-                                        vm.chooseViewMode("Galería")
+                                        vm.chooseViewMode("Galería", activeViewScope)
                                     },
                                     onList = {
-                                        vm.chooseViewMode("Lista")
+                                        vm.chooseViewMode("Lista", activeViewScope)
                                     })
                             }
                         }
@@ -4679,7 +4696,7 @@ private fun openCasaDelLibro(context: Context) {
                                 }
                             }
                         }
-                    } else when (vm.viewModeFor(vm.selectedSection)) {
+                    } else when (vm.viewModeFor(activeViewScope)) {
                         "Galería" -> items(
                             count = (ordered.size + 1) / 2,
                             key = { index -> "grid:" + name + ":" + ordered[index * 2].uri },
@@ -4704,8 +4721,8 @@ private fun openCasaDelLibro(context: Context) {
                             }
                         }
                         else -> items(ordered, key = { name + ":" + it.uri },
-                            contentType = { vm.viewModeFor(vm.selectedSection) }) { book ->
-                            if (vm.viewModeFor(vm.selectedSection) == "Compacta")
+                            contentType = { vm.viewModeFor(activeViewScope) }) { book ->
+                            if (vm.viewModeFor(activeViewScope) == "Compacta")
                                 BookCompactCard(book, book.uri in offlineBookUris,
                                     { bookMenu = book }) { openBookFromList(book) }
                             else BookCard(book, book.uri in offlineBookUris,
@@ -5427,10 +5444,10 @@ private fun BookOpeningTransition(
             val p = transition.value.coerceIn(0f, 1f)
             val approach = FastOutSlowInEasing.transform(((p - 0.42f) / 0.42f).coerceIn(0f, 1f))
             val exit = FastOutSlowInEasing.transform(((1f - p) / 0.16f).coerceIn(0f, 1f))
-            scaleX = 0.92f + approach * 3.02f
+            scaleX = 0.92f + approach * 0.35f
             scaleY = scaleX
-            translationY = (1f - approach) * 26.dp.toPx()
-            rotationZ = -1.5f * (1f - approach)
+            translationY = (1f - approach) * 10.dp.toPx()
+            rotationZ = -0.8f * (1f - approach)
             alpha = exit
         }) {
             Surface(Modifier.fillMaxSize().shadow(16.dp,
