@@ -187,7 +187,7 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
             if (slices.isNotEmpty()) finish()
             slices += ReadingSlice(index, 0, 0, (height * 0.72f).toInt().coerceAtLeast(160))
             finish()
-            continue
+            return@forEachIndexed
         }
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
             textSize = textSizePx + when {
