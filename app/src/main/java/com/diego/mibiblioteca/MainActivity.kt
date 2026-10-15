@@ -3725,7 +3725,6 @@ private fun openCasaDelLibro(context: Context) {
             Info("Terminados", read.toString())
             Info("Leyendo ahora", reading.toString())
             Info("Pendientes", pending.toString())
-            Info("Libros abiertos este mes", vm.openedThisMonth().toString())
             Info("Progreso medio de libros empezados", "$average %")
             val rated = vm.books.filter { it.rating > 0 }
             val averageRating = rated.map { it.rating }.average().takeIf { !it.isNaN() }
@@ -4344,7 +4343,7 @@ private fun openCasaDelLibro(context: Context) {
                 } }
             if (tab == "Estadísticas") item(key = "reading-statistics-page") {
                 ReadingStatisticsPage(vm.books, vm::readingPercent,
-                    vm.openedThisMonth(), vm.annualReadingGoal,
+                    vm.annualReadingGoal,
                     onGoalChanged = vm::updateAnnualReadingGoal,
                     onOpenDetailed = { readingStatsOpen = true })
             }
@@ -4937,7 +4936,7 @@ private fun HomeReadingSummary(books: List<Book>, progress: (Uri) -> Int) {
 
 @Composable
 private fun ReadingStatisticsPage(
-    books: List<Book>, progress: (Uri) -> Int, openedThisMonth: Int,
+    books: List<Book>, progress: (Uri) -> Int,
     annualGoal: Int, onGoalChanged: (Int) -> Unit,
     onOpenDetailed: () -> Unit
 ) {
@@ -5622,7 +5621,7 @@ private fun BookOpeningTransition(
                             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp, lineHeight = 23.sp, letterSpacing = .15.sp,
-                            textAlign = TextAlign.Center, maxLines = 5)
+                            textAlign = TextAlign.Center, maxLines = 3)
                         Spacer(Modifier.height(15.dp))
                         Text(displayAuthor(book).uppercase(), color = Color(0xFF76563D),
                             fontFamily = FontFamily.Serif, fontWeight = FontWeight.Medium,
