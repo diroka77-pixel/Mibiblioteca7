@@ -3010,6 +3010,7 @@ private fun openCasaDelLibro(context: Context) {
     var genreSearch by rememberSaveable { mutableStateOf("") }
     var draftGenres by remember { mutableStateOf(emptySet<String>()) }
     var draftAllGenres by remember { mutableStateOf(true) }
+    var smartCollection by rememberSaveable { mutableStateOf<String?>(null) }
     val genrePickerListState = rememberLazyListState()
     val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Favoritos", "Estadísticas") }
     val scope = rememberCoroutineScope()
@@ -3049,6 +3050,7 @@ private fun openCasaDelLibro(context: Context) {
             vm.qualityFilter = "Ninguno"
             vm.statusFilter = null
             vm.onlyFavorites = name == "Favoritos"
+            smartCollection = null
             pageMotion.snapTo(-direction * distance)
             // Compose the destination while fully transparent, then bring it gently into view.
             withFrameNanos { }
@@ -3390,14 +3392,23 @@ private fun openCasaDelLibro(context: Context) {
     val reviewSnapshot = vm.reviewPending
     var filteredBooks by remember { mutableStateOf(booksSnapshot) }
     LaunchedEffect(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
-        sectionSnapshot, qualitySnapshot, reviewSnapshot) {
+        sectionSnapshot, qualitySnapshot, reviewSnapshot, smartCollection) {
         // Filtering a large library must not block tab-button feedback or list scrolling.
         // Keep the last complete layout until its replacement is ready; resetting to an empty
         // list for one frame collapsed the rows and made covers jump.
-        filteredBooks = withContext(Dispatchers.Default) {
-            filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
-                sectionSnapshot, qualitySnapshot, reviewSnapshot)
-        }
+            filteredBooks = withContext(Dispatchers.Default) {
+                val base = filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
+                    sectionSnapshot, qualitySnapshot, reviewSnapshot)
+                when (smartCollection) {
+                    "abandonados" -> base.filter { it.status == ReadingStatus.PENDING &&
+                        vm.readingPercent(it.uri) in 1..99 }
+                    "sin_terminar" -> base.filter { vm.readingPercent(it.uri) in 1..99 &&
+                        it.status != ReadingStatus.READ }
+                    "pendientes" -> base.filter { it.status == ReadingStatus.PENDING &&
+                        it.startedDate.isBlank() && vm.readingPercent(it.uri) == 0 }
+                    else -> base
+                }
+            }
     }
     val smartBooks = filteredBooks
     val visibleBooks = if (tab == "Inicio") emptyList() else smartBooks
@@ -4451,6 +4462,19 @@ private fun openCasaDelLibro(context: Context) {
                             }
                             Spacer(Modifier.width(8.dp))
                             LibraryTextButton(onClick = { organizeSections = true }) { Text("Organizar") }
+                        }
+                        Text("Colecciones inteligentes", color = Color.White.copy(alpha = .82f),
+                            fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+                        Row(Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("abandonados" to "Empezados y abandonados",
+                                "sin_terminar" to "Sin terminar",
+                                "pendientes" to "Pendientes sin empezar").forEach { (key, label) ->
+                                CatalogChip(label, smartCollection == key) {
+                                    smartCollection = if (smartCollection == key) null else key
+                                    vm.selectedSection = null
+                                }
+                            }
                         }
                         Text("Vista de secciones", color = Color.White.copy(alpha = .82f),
                             fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
