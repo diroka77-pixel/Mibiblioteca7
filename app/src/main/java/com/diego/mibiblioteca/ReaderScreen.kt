@@ -541,6 +541,19 @@ private fun readMobiText(file: File): ReadingDocument {
     else ReadingDocument.TextDocument(paragraphs)
 }
 
+private fun readFb2Text(file: File): ReadingDocument {
+    val xml = Jsoup.parse(file.inputStream().use { it.readLimited(FileLimits.TEXT_BYTES).toString(Charsets.UTF_8) }, "", Parser.xmlParser())
+    val paragraphs = xml.select("body section title p, body section p, body > title p")
+        .mapNotNull { element ->
+            element.text().trim().replace(Regex("\\s+"), " ").takeIf { it.isNotBlank() }?.let { text ->
+                val heading = element.parent()?.tagName()?.equals("title", true) == true
+                ReadingParagraph(text, heading = heading, chapterStart = heading)
+            }
+        }
+    return if (paragraphs.isEmpty()) ReadingDocument.Unsupported("No se encontró texto legible en este FB2")
+    else ReadingDocument.TextDocument(paragraphs)
+}
+
 private fun loadReadingDocument(context: Context, book: Book): ReadingDocument {
     val file = localReaderFile(context, book)
     return when (file.extension.lowercase()) {
@@ -553,6 +566,7 @@ private fun loadReadingDocument(context: Context, book: Book): ReadingDocument {
             else ReadingDocument.Unsupported("El PDF no tiene páginas")
         }
         "mobi", "azw" -> readMobiText(file)
+        "fb2" -> readFb2Text(file)
         "azw3" -> ReadingDocument.Unsupported("AZW3 requiere conversión a EPUB para este lector")
         "txt", "md", "html", "htm", "rtf", "docx" -> {
             val paragraphs = when (file.extension.lowercase()) {
@@ -777,6 +791,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     val drawer = rememberDrawerState(DrawerValue.Closed)
     var jumpToItem by remember(book.uri) { mutableIntStateOf(-1) }
     var showReaderTools by rememberSaveable(book.uri) { mutableStateOf(false) }
+    var confirmExit by remember { mutableStateOf(false) }
     var notebook by remember(book.uri) { mutableStateOf(prefs.getString("notebook_$key", "").orEmpty()) }
     var bookmarkChars by remember(book.uri) {
         mutableStateOf(prefs.getString("bookmarks_$key", "").orEmpty()
@@ -928,7 +943,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         catch (e: Exception) { ReadingDocument.Unsupported(e.localizedMessage ?: "No se pudo abrir") }
     }
     val document = state
-    BackHandler { if (drawer.isOpen) scope.launch { drawer.close() } else onBack() }
+    BackHandler { if (drawer.isOpen) scope.launch { drawer.close() } else confirmExit = true }
     ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = drawer.isOpen, drawerContent = {
         ModalDrawerSheet(
             modifier = Modifier.width(320.dp),
@@ -1148,17 +1163,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     Scaffold(containerColor = background, contentWindowInsets = WindowInsets.safeDrawing, topBar = {
         TopAppBar(title = { Text(book.customTitle.ifBlank { book.title }, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = onBack) { AppIcon("Volver", "Volver") } },
-            actions = {
-                IconButton(onClick = { scope.launch { drawer.open() } }) {
-                    AppIcon("Capítulos", "Capítulos, búsqueda y marcadores")
-                }
-                IconButton(onClick = { showReaderTools = true }) {
-                    AppIcon("Ajustes", "Ajustes de lectura")
-                }
-                IconButton(onClick = { dark = !dark; prefs.edit().putBoolean("dark", dark).apply() }) {
-                    AppIcon(if (dark) "Día" else "Noche", "Cambiar tema")
-                }
-            }, colors = TopAppBarDefaults.topAppBarColors(containerColor = background,
+            actions = {}, colors = TopAppBarDefaults.topAppBarColors(containerColor = background,
                 titleContentColor = foreground, navigationIconContentColor = foreground,
                 actionIconContentColor = foreground))
     }) { padding ->
@@ -1209,7 +1214,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     Spacer(Modifier.height(16.dp))
                     OutlinedButton(onClick = {
                         val mime = when (book.uri.lastPathSegment.orEmpty().substringAfterLast('.').lowercase()) {
-                            "mobi", "azw", "azw3" -> "application/x-mobipocket-ebook"
+                            "mobi", "azw", "azw3", "fb2" -> "application/x-mobipocket-ebook"
                             "pdf" -> "application/pdf"
                             else -> "application/octet-stream"
                         }
@@ -1837,6 +1842,15 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
 
       }
     }
+    }
+    if (confirmExit) {
+        AlertDialog(
+            onDismissRequest = { confirmExit = false },
+            title = { Text("Salir de la lectura") },
+            text = { Text("¿Quieres cerrar este libro?") },
+            confirmButton = { TextButton(onClick = { confirmExit = false; onBack() }) { Text("Sí") } },
+            dismissButton = { TextButton(onClick = { confirmExit = false }) { Text("No") } }
+        )
     }
     if (showVoicePicker) {
         val language = if (book.language.startsWith("en", true)) "en" else "es"
