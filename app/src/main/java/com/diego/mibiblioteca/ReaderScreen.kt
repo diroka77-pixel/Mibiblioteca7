@@ -478,7 +478,16 @@ internal fun readEpubText(file: File): ReadingDocument = ZipFile(file).use { zip
         val bytes = zip.readEntryLimited(path, minOf(FileLimits.CHAPTER_BYTES, FileLimits.TEXT_BYTES - totalBytes)) ?: continue
         totalBytes += bytes.size
         val html = bytes.toString(Charsets.UTF_8)
-        val section = paragraphsFromHtml(html)
+        val imageDir = File(file.parentFile, "${file.nameWithoutExtension}-images").apply { mkdirs() }
+        fun imageResolver(source: String): String? {
+            val imagePath = resolveZipPath(path, java.net.URLDecoder.decode(source.substringBefore('#'), "UTF-8"))
+            val entry = zip.getEntry(imagePath) ?: return null
+            val target = File(imageDir, MessageDigest.getInstance("SHA-256").digest(imagePath.toByteArray())
+                .joinToString("") { "%02x".format(it.toInt() and 255) } + ".img")
+            if (!target.exists()) zip.getInputStream(entry).use { input -> target.outputStream().use { output -> input.copyTo(output) } }
+            return target.absolutePath
+        }
+        val section = paragraphsFromHtml(html, ::imageResolver)
         if (section.isEmpty()) continue
         if (section.none(ReadingParagraph::heading)) {
             val label = Jsoup.parse(html).title().trim()
