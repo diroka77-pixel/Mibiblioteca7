@@ -79,3 +79,5 @@ jobs:
       - name: Eliminar clave temporal del runner
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
+
+# Compilación con integración de imágenes en página
