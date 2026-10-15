@@ -717,15 +717,15 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     onHighlightsChanged: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("reader", Context.MODE_PRIVATE) }
-    val activity = remember(context) { context.findActivity() }
+    val keepAwakeActivity = remember(context) { context.findActivity() }
     var keepScreenAwakeMinutes by remember {
         mutableIntStateOf(prefs.getInt("keep_screen_awake_minutes", 15))
     }
     var lastReaderInteraction by remember(book.uri) {
         mutableLongStateOf(SystemClock.elapsedRealtime())
     }
-    LaunchedEffect(activity, keepScreenAwakeMinutes, lastReaderInteraction) {
-        val window = activity?.window ?: return@LaunchedEffect
+    LaunchedEffect(keepAwakeActivity, keepScreenAwakeMinutes, lastReaderInteraction) {
+        val window = keepAwakeActivity?.window ?: return@LaunchedEffect
         val keepScreenOnFlag = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         if (keepScreenAwakeMinutes == 0) {
             window.clearFlags(keepScreenOnFlag)
@@ -742,9 +742,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             }
         }
     }
-    DisposableEffect(activity) {
+    DisposableEffect(keepAwakeActivity) {
         onDispose {
-            activity?.window?.clearFlags(
+            keepAwakeActivity?.window?.clearFlags(
                 android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
