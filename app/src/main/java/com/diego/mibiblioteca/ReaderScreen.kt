@@ -53,6 +53,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
@@ -899,8 +900,10 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 .padding(horizontal = 18.dp, vertical = 22.dp)) {
                 Text("Mi Biblioteca", color = Color(0xFF8A623C),
                     style = MaterialTheme.typography.labelLarge)
-                Text(book.customTitle.ifBlank { book.title }.take(54),
-                    color = Color(0xFF392A24), maxLines = 2,
+                Text(book.customTitle.ifBlank { book.title },
+                    color = Color(0xFF392A24), maxLines = 3,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.headlineSmall)
                 Spacer(Modifier.height(12.dp))
                 NavigationDrawerItem(label = { Text("Volver a la biblioteca") },
@@ -1001,7 +1004,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             highlightColor = name
                             prefs.edit().putString("highlight_color", name).apply()
                         }, label = { Text(name.replaceFirstChar { it.uppercase() }, fontSize = 11.sp) },
-                            leadingIcon = { Box(Modifier.size(12.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                            leadingIcon = { Box(Modifier.size(12.dp).clip(CircleShape)
                                 .background(Color(color))) })
                     }
                 }
@@ -1380,6 +1383,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                         audioActive = true
                                                         audioAdvance++
                                                     } else if (currentPage < pages.lastIndex) {
+                                                        // Give the TTS engine and the reader one frame to settle.
+                                                        // Without this pause some engines report several queued
+                                                        // utterances at once and the pages run to the end.
                                                         Handler(Looper.getMainLooper()).postDelayed({
                                                             if (speechGeneration.get() == utteranceGeneration && audioActive) {
                                                                 val nextPosition = pages[currentPage + 1].startChar
@@ -1402,7 +1408,11 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         }
                                     })
                                     if (chunks.isNotEmpty()) speakChunk(0, TextToSpeech.QUEUE_FLUSH)
-                                    else audioActive = false
+                                    else {
+                                        // Empty/invalid page: stop instead of recursively advancing
+                                        // through every page without audible text.
+                                        audioActive = false
+                                    }
                                 }
                             }
                         }
@@ -1513,9 +1523,11 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     .verticalScroll(rememberScrollState())
                                     .padding(horizontal = 20.dp, vertical = 12.dp),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Text(book.customTitle.ifBlank { book.title }.take(60),
+                                    Text(book.customTitle.ifBlank { book.title },
                                         fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                                        fontSize = 20.sp, maxLines = 2)
+                                        fontSize = 20.sp, maxLines = 4,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth())
                                     Text("Página ${currentPage + 1} de ${pages.size} · $percent %",
                                         color = foreground.copy(alpha = 0.75f))
                                     Slider(value = requestedPage, onValueChange = { requestedPage = it },
@@ -1754,11 +1766,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     }
                 }
             }
-        }
-
-      }
-    }
-    }
+    /* Bloque experimental de diálogos pendiente de reintegración segura.
     if (showVoicePicker) {
         val language = if (book.language.startsWith("en", true)) "en" else "es"
         val choices = speech?.voices.orEmpty()
@@ -1982,6 +1990,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             }
         }
     }
+    */
 }
 
 @Composable
