@@ -50,7 +50,7 @@ jobs:
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 app/build/outputs/apk/release/app-release.apk
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: MiBiblioteca-v1.0.6-firmada
           path: app/build/outputs/apk/release/app-release.apk
@@ -60,7 +60,7 @@ jobs:
           split -b 28m -d -a 2 app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/MiBiblioteca.part-"
           sha256sum app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/MiBiblioteca.sha256"
           test "$(find "$RUNNER_TEMP" -maxdepth 1 -name 'MiBiblioteca.part-*' | wc -l)" -ge 1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: MiBiblioteca-partes-v1.0.6
           path: |
