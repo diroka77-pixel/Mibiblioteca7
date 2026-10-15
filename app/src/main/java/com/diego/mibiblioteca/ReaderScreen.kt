@@ -32,7 +32,6 @@ import android.os.Looper
 import android.os.SystemClock
 import java.util.concurrent.atomic.AtomicInteger
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -107,8 +106,7 @@ internal sealed interface ReadingDocument {
 }
 
 internal data class ReadingParagraph(val text: String, val heading: Boolean = false,
-    val chapterStart: Boolean = false, val partHeading: Boolean = false,
-    val imagePath: String? = null)
+    val chapterStart: Boolean = false, val partHeading: Boolean = false)
 private data class ReaderHighlight(val paragraph: Int, val start: Int, val end: Int,
     val quote: String, val color: String = "amarillo", val note: String = "")
 private data class ReadingSlice(val paragraph: Int, val start: Int, val end: Int, val height: Int)
@@ -182,12 +180,6 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
         if (paragraph.chapterStart) {
             finish()
             occupied = (gapPx * 3).coerceAtMost(height / 4)
-        }
-        if (paragraph.imagePath != null) {
-            if (slices.isNotEmpty()) finish()
-            slices += ReadingSlice(index, 0, 0, (height * 0.72f).toInt().coerceAtLeast(160))
-            finish()
-            continue
         }
         val paint = TextPaint(TextPaint.ANTI_ALIAS_FLAG).apply {
             textSize = textSizePx + when {
@@ -434,13 +426,10 @@ private fun resolveZipPath(base: String, path: String): String {
     return parts.joinToString("/")
 }
 
-private fun paragraphsFromHtml(html: String, imageResolver: ((String) -> String?)? = null): List<ReadingParagraph> {
+private fun paragraphsFromHtml(html: String): List<ReadingParagraph> {
     val body = Jsoup.parse(html).body()
-    val nodes = body.select("h1,h2,h3,h4,p,li,blockquote,pre,img")
+    val nodes = body.select("h1,h2,h3,h4,p,li,blockquote,pre")
     val result = nodes.mapNotNull { element ->
-        if (element.tagName().equals("img", true)) {
-            imageResolver?.invoke(element.attr("src"))?.let { ReadingParagraph("", imagePath = it) }
-        } else {
         val text = element.text().trim().replace(Regex("\\s+"), " ")
         text.takeIf(String::isNotBlank)?.let {
             val part = it.length < 85 && Regex("(?i)^(?:parte|part|libro|book)\\s+[ivxlcdm0-9]+\\b")
@@ -455,7 +444,6 @@ private fun paragraphsFromHtml(html: String, imageResolver: ((String) -> String?
                     Regex("(?i)cap[ií]tulo|chapter|parte|pr[oó]logo|ep[ií]logo|introducci[oó]n")
                         .containsMatchIn(it))
             ReadingParagraph(it, heading, chapterStart = chapterHeading, partHeading = part)
-        }
         }
     }
     return result.ifEmpty { listOfNotNull(body.text().trim().takeIf(String::isNotBlank)?.let(::ReadingParagraph)) }
@@ -484,16 +472,7 @@ internal fun readEpubText(file: File): ReadingDocument = ZipFile(file).use { zip
         val bytes = zip.readEntryLimited(path, minOf(FileLimits.CHAPTER_BYTES, FileLimits.TEXT_BYTES - totalBytes)) ?: continue
         totalBytes += bytes.size
         val html = bytes.toString(Charsets.UTF_8)
-        val imageDir = File(file.parentFile, "${file.nameWithoutExtension}-images").apply { mkdirs() }
-        fun imageResolver(source: String): String? {
-            val imagePath = resolveZipPath(path, java.net.URLDecoder.decode(source.substringBefore('#'), "UTF-8"))
-            val entry = zip.getEntry(imagePath) ?: return null
-            val target = File(imageDir, MessageDigest.getInstance("SHA-256").digest(imagePath.toByteArray())
-                .joinToString("") { "%02x".format(it.toInt() and 255) } + ".img")
-            if (!target.exists()) zip.getInputStream(entry).use { input -> target.outputStream().use { output -> input.copyTo(output) } }
-            return target.absolutePath
-        }
-        val section = paragraphsFromHtml(html, ::imageResolver)
+        val section = paragraphsFromHtml(html)
         if (section.isEmpty()) continue
         if (section.none(ReadingParagraph::heading)) {
             val label = Jsoup.parse(html).title().trim()
@@ -647,16 +626,6 @@ private fun SelectableParagraph(
     val removeHighlightAction by rememberUpdatedState(onRemoveHighlight)
     val lookupAction by rememberUpdatedState(onLookup)
     val bookmarkAction by rememberUpdatedState(onBookmarkChar)
-    if (paragraph.imagePath != null) {
-        val bitmap by produceState<Bitmap?>(null, paragraph.imagePath) {
-            value = withContext(Dispatchers.IO) { runCatching { BitmapFactory.decodeFile(paragraph.imagePath) }.getOrNull() }
-        }
-        if (bitmap != null) {
-            Image(bitmap!!.asImageBitmap(), "Imagen del libro", Modifier.fillMaxWidth()
-                .heightIn(min = 120.dp, max = 520.dp), contentScale = ContentScale.Fit)
-        }
-        return
-    }
     AndroidView(modifier = Modifier.fillMaxWidth(), factory = { context ->
         TextView(context).apply {
             setTextIsSelectable(true)
@@ -969,15 +938,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     }
     val background = if (dark) Color(0xFF1D1A17) else if (sepia) Color(0xFFF5EEDD) else Color.White
     val foreground = if (dark) Color(0xFFF3E9D7) else Color(0xFF24201D)
-    LaunchedEffect(background, dark) {
-        keepAwakeActivity?.window?.apply {
-            statusBarColor = background.toArgb()
-            navigationBarColor = background.toArgb()
-            decorView.systemUiVisibility = if (dark) 0 else
-                android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
-                    android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-        }
-    }
     val state by produceState<ReadingDocument?>(null, book.uri) {
         value = try { withContext(Dispatchers.IO) { loadReadingDocument(context, book) } }
         catch (e: Exception) { ReadingDocument.Unsupported(e.localizedMessage ?: "No se pudo abrir") }
