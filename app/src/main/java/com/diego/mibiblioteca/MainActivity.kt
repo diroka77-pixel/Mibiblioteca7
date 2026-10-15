@@ -5622,7 +5622,7 @@ private fun BookOpeningTransition(
                             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp, lineHeight = 23.sp, letterSpacing = .15.sp,
-                            textAlign = TextAlign.Center, maxLines = 3)
+                            textAlign = TextAlign.Center, maxLines = 5)
                         Spacer(Modifier.height(15.dp))
                         Text(displayAuthor(book).uppercase(), color = Color(0xFF76563D),
                             fontFamily = FontFamily.Serif, fontWeight = FontWeight.Medium,
