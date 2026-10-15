@@ -1,4 +1,4 @@
-Warning: truncated output (original token count: 94042)
+Warning: truncated output (original token count: 94041)
 Total output lines: 6605
 
 package com.diego.mibiblioteca
@@ -439,7 +439,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("library", Context.MODE_PRIVATE)
     var annualReadingGoal by mutableIntStateOf(prefs.getInt("annual_reading_goal", 12))
         private set
-    fun updateAnnualReadingGoal(goal: Int) {
+    fun setAnnualReadingGoal(goal: Int) {
         annualReadingGoal = goal.coerceIn(1, 365)
         prefs.edit().putInt("annual_reading_goal", annualReadingGoal).apply()
     }
@@ -1142,7 +1142,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         })
                     }
                     prefs.edit().putString("saga_catalogs", root.toString()).apply()
-                    detailMessage = "Saga comp…64042 tokens truncated…                  val x = size.width * ((n * 37 % 89 + 7) / 100f)
+                    detailMessage = "Saga comprob…64041 tokens truncated…                  val x = size.width * ((n * 37 % 89 + 7) / 100f)
                             val y = size.height * ((n * 53 % 93 + 3) / 100f)
                             val radius = if (n % 4 == 0) .52.dp.toPx() else .32.dp.toPx()
                             drawCircle(Color(0xFF806545).copy(alpha = .09f),
