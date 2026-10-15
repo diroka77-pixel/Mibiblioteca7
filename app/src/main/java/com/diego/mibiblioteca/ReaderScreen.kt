@@ -197,8 +197,7 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
         }
         val layout = StaticLayout.Builder.obtain(measured, 0, measured.length,
             paint, width.coerceAtLeast(1)).setAlignment(Layout.Alignment.ALIGN_NORMAL)
-            .setJustificationMode(if (paragraph.heading) Layout.JUSTIFICATION_MODE_NONE
-                else Layout.JUSTIFICATION_MODE_INTER_WORD)
+            .setJustificationMode(Layout.JUSTIFICATION_MODE_NONE)
             .setLineSpacing(0f, 1.45f).setIncludePad(false).build()
         var line = 0
         while (line < layout.lineCount) {
@@ -459,12 +458,15 @@ internal fun readEpubText(file: File): ReadingDocument = ZipFile(file).use { zip
     val packageXml = zip.readEntryLimited(opf, FileLimits.INDEX_BYTES)?.toString(Charsets.UTF_8)
         ?: return@use ReadingDocument.Unsupported("No se pudo leer el contenido del EPUB")
     val xml = Jsoup.parse(packageXml, "", Parser.xmlParser())
+    val bookTitle = xml.selectFirst("metadata > title, metadata > *|title")?.text()?.trim()
+        ?.takeIf { it.isNotBlank() }
     val manifest = xml.select("manifest > item").associate { it.attr("id") to it.attr("href") }
     val spine = xml.select("spine > itemref").mapNotNull { manifest[it.attr("idref")] }
     val paths = spine.ifEmpty { manifest.values.filter { it.endsWith(".xhtml", true) || it.endsWith(".html", true) } }
     require(paths.size <= FileLimits.CHAPTERS) { "El EPUB contiene demasiados capítulos." }
     var totalBytes = 0L
     val paragraphs = mutableListOf<ReadingParagraph>()
+    if (bookTitle != null) paragraphs += ReadingParagraph(bookTitle.take(120), heading = true, chapterStart = true)
     for (href in paths) {
         val path = resolveZipPath(opf, java.net.URLDecoder.decode(href, "UTF-8"))
         val bytes = zip.readEntryLimited(path, minOf(FileLimits.CHAPTER_BYTES, FileLimits.TEXT_BYTES - totalBytes)) ?: continue
@@ -680,8 +682,7 @@ private fun SelectableParagraph(
         view.typeface = Typeface.create(Typeface.SERIF,
             if (paragraph.heading) Typeface.BOLD else Typeface.NORMAL)
         view.setLineSpacing(0f, lineSpacing)
-        view.justificationMode = if (paragraph.heading) Layout.JUSTIFICATION_MODE_NONE
-            else Layout.JUSTIFICATION_MODE_INTER_WORD
+        view.justificationMode = Layout.JUSTIFICATION_MODE_NONE
         view.textAlignment = if (paragraph.heading) TextView.TEXT_ALIGNMENT_CENTER
             else TextView.TEXT_ALIGNMENT_INHERIT
         view.setTextColor(foreground.toArgb())
@@ -1500,7 +1501,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     transformOrigin = TransformOrigin(if (entering) 1f else 0f, 0.5f)
                                     cameraDistance = 12000f
                                     shadowElevation = if (angle == 0f) 0f else 18.dp.toPx()
-                                }.background(background).padding(horizontal = readerMargin.dp, vertical = 16.dp),
+                                }.background(background).padding(horizontal = readerMargin.dp, vertical = 8.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                     pages[shown].slices.forEachIndexed { position, slice ->
                                         if (position == 0 && slice.start == 0 &&
