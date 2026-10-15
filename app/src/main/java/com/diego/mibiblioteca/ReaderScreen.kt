@@ -432,6 +432,9 @@ private fun paragraphsFromHtml(html: String, imageResolver: ((String) -> String?
     val body = Jsoup.parse(html).body()
     val nodes = body.select("h1,h2,h3,h4,p,li,blockquote,pre,img")
     val result = nodes.mapNotNull { element ->
+        if (element.tagName().equals("img", true)) {
+            imageResolver?.invoke(element.attr("src"))?.let { ReadingParagraph("", imagePath = it) }
+        } else {
         val text = element.text().trim().replace(Regex("\\s+"), " ")
         text.takeIf(String::isNotBlank)?.let {
             val part = it.length < 85 && Regex("(?i)^(?:parte|part|libro|book)\\s+[ivxlcdm0-9]+\\b")
@@ -446,6 +449,7 @@ private fun paragraphsFromHtml(html: String, imageResolver: ((String) -> String?
                     Regex("(?i)cap[ií]tulo|chapter|parte|pr[oó]logo|ep[ií]logo|introducci[oó]n")
                         .containsMatchIn(it))
             ReadingParagraph(it, heading, chapterStart = chapterHeading, partHeading = part)
+        }
         }
     }
     return result.ifEmpty { listOfNotNull(body.text().trim().takeIf(String::isNotBlank)?.let(::ReadingParagraph)) }
