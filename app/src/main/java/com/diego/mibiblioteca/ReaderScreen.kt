@@ -32,6 +32,7 @@ import android.os.Looper
 import android.os.SystemClock
 import java.util.concurrent.atomic.AtomicInteger
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -106,7 +107,8 @@ internal sealed interface ReadingDocument {
 }
 
 internal data class ReadingParagraph(val text: String, val heading: Boolean = false,
-    val chapterStart: Boolean = false, val partHeading: Boolean = false)
+    val chapterStart: Boolean = false, val partHeading: Boolean = false,
+    val imagePath: String? = null)
 private data class ReaderHighlight(val paragraph: Int, val start: Int, val end: Int,
     val quote: String, val color: String = "amarillo", val note: String = "")
 private data class ReadingSlice(val paragraph: Int, val start: Int, val end: Int, val height: Int)
@@ -426,9 +428,9 @@ private fun resolveZipPath(base: String, path: String): String {
     return parts.joinToString("/")
 }
 
-private fun paragraphsFromHtml(html: String): List<ReadingParagraph> {
+private fun paragraphsFromHtml(html: String, imageResolver: ((String) -> String?)? = null): List<ReadingParagraph> {
     val body = Jsoup.parse(html).body()
-    val nodes = body.select("h1,h2,h3,h4,p,li,blockquote,pre")
+    val nodes = body.select("h1,h2,h3,h4,p,li,blockquote,pre,img")
     val result = nodes.mapNotNull { element ->
         val text = element.text().trim().replace(Regex("\\s+"), " ")
         text.takeIf(String::isNotBlank)?.let {
