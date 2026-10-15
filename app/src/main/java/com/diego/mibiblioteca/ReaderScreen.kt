@@ -53,7 +53,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
@@ -1016,7 +1015,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             highlightColor = name
                             prefs.edit().putString("highlight_color", name).apply()
                         }, label = { Text(name.replaceFirstChar { it.uppercase() }, fontSize = 11.sp) },
-                            leadingIcon = { Box(Modifier.size(12.dp).clip(CircleShape)
+                            leadingIcon = { Box(Modifier.size(12.dp).clip(androidx.compose.foundation.shape.CircleShape)
                                 .background(Color(color))) })
                     }
                 }
@@ -1395,9 +1394,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                         audioActive = true
                                                         audioAdvance++
                                                     } else if (currentPage < pages.lastIndex) {
-                                                        // Give the TTS engine and the reader one frame to settle.
-                                                        // Without this pause some engines report several queued
-                                                        // utterances at once and the pages run to the end.
                                                         Handler(Looper.getMainLooper()).postDelayed({
                                                             if (speechGeneration.get() == utteranceGeneration && audioActive) {
                                                                 val nextPosition = pages[currentPage + 1].startChar
@@ -1420,11 +1416,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         }
                                     })
                                     if (chunks.isNotEmpty()) speakChunk(0, TextToSpeech.QUEUE_FLUSH)
-                                    else {
-                                        // Empty/invalid page: stop instead of recursively advancing
-                                        // through every page without audible text.
-                                        audioActive = false
-                                    }
+                                    else audioActive = false
                                 }
                             }
                         }
@@ -1779,7 +1771,11 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     }
                 }
             }
-    /* Bloque experimental de diálogos pendiente de reintegración segura.
+        }
+
+      }
+    }
+    }
     if (showVoicePicker) {
         val language = if (book.language.startsWith("en", true)) "en" else "es"
         val choices = speech?.voices.orEmpty()
@@ -2003,7 +1999,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             }
         }
     }
-    */
 }
 
 @Composable
