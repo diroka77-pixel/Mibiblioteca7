@@ -436,7 +436,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("library", Context.MODE_PRIVATE)
     var annualReadingGoal by mutableIntStateOf(prefs.getInt("annual_reading_goal", 12))
         private set
-    fun setAnnualReadingGoal(goal: Int) {
+    fun updateAnnualReadingGoal(goal: Int) {
         annualReadingGoal = goal.coerceIn(1, 365)
         prefs.edit().putInt("annual_reading_goal", annualReadingGoal).apply()
     }
@@ -4351,7 +4351,7 @@ private fun openCasaDelLibro(context: Context) {
             if (tab == "Estadísticas") item(key = "reading-statistics-page") {
                 ReadingStatisticsPage(vm.books, vm::readingPercent,
                     vm.openedThisMonth(), vm.annualReadingGoal,
-                    onGoalChanged = vm::setAnnualReadingGoal,
+                    onGoalChanged = vm::updateAnnualReadingGoal,
                     onOpenDetailed = { readingStatsOpen = true })
             }
             if (tab != "Estadísticas") item(key = "controls") {
