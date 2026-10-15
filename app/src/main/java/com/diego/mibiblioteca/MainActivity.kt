@@ -4038,17 +4038,7 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                     Spacer(Modifier.height(18.dp))
-                    Text("NAVEGAR", color = Teal, style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
-                    tabs.forEach { name ->
-                        NavigationDrawerItem(label = { Text(name) }, selected = tab == name,
-                            icon = { AppIcon(name, size = 22.dp) }, onClick = {
-                                switchTab(name); scope.launch { drawerState.close() }
-                            }, colors = NavigationDrawerItemDefaults.colors(
-                                selectedContainerColor = Teal.copy(alpha = 0.14f),
-                                selectedTextColor = Teal, selectedIconColor = Teal))
-                    }
-                    HorizontalDivider(Modifier.padding(vertical = 14.dp))
+                    // La navegación principal está disponible en la barra inferior.\n                    HorizontalDivider(Modifier.padding(vertical = 14.dp))
                     Text("EXPLORAR", color = Teal,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))

@@ -1380,9 +1380,13 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                         audioActive = true
                                                         audioAdvance++
                                                     } else if (currentPage < pages.lastIndex) {
-                                                        val nextPosition = pages[currentPage + 1].startChar
-                                                        saveSpeechCursor(nextPosition)
-                                                        audioAdvance++
+                                                        Handler(Looper.getMainLooper()).postDelayed({
+                                                            if (speechGeneration.get() == utteranceGeneration && audioActive) {
+                                                                val nextPosition = pages[currentPage + 1].startChar
+                                                                saveSpeechCursor(nextPosition)
+                                                                audioAdvance++
+                                                            }
+                                                        }, 450L)
                                                     } else {
                                                         saveSpeechCursor(total - 1)
                                                         audioActive = false
@@ -1398,7 +1402,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         }
                                     })
                                     if (chunks.isNotEmpty()) speakChunk(0, TextToSpeech.QUEUE_FLUSH)
-                                    else audioAdvance++
+                                    else audioActive = false
                                 }
                             }
                         }
@@ -1748,8 +1752,6 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             }
                         }
                     }
-                    Text("Página ${textPage + 1} de ${totalTextPages.coerceAtLeast(1)} · $percent % leído",
-                        Modifier.align(Alignment.CenterHorizontally), color = foreground)
                 }
             }
         }
