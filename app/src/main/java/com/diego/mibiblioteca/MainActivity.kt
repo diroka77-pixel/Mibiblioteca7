@@ -3005,7 +3005,7 @@ private fun openCasaDelLibro(context: Context) {
     var draftGenres by remember { mutableStateOf(emptySet<String>()) }
     var draftAllGenres by remember { mutableStateOf(true) }
     val genrePickerListState = rememberLazyListState()
-    val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Favoritos") }
+    val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Favoritos", "Estadísticas") }
     val scope = rememberCoroutineScope()
     val pageMotion = remember { Animatable(0f) }
     val pageDrag = remember { mutableFloatStateOf(0f) }
@@ -4127,7 +4127,7 @@ private fun openCasaDelLibro(context: Context) {
                         })
                     NavigationDrawerItem(label = { Text("Estadísticas de lectura") }, selected = false,
                         icon = { AppIcon("Pendientes") }, onClick = {
-                            readingStatsOpen = true; scope.launch { drawerState.close() }
+                            switchTab("Estadísticas"); scope.launch { drawerState.close() }
                         })
                     NavigationDrawerItem(label = { Text("Calendario de publicaciones") }, selected = false,
                         icon = { Icon(Icons.Outlined.CalendarMonth, null) }, onClick = {
@@ -4222,7 +4222,8 @@ private fun openCasaDelLibro(context: Context) {
                     Triple("Inicio", "Inicio", "Inicio"),
                     Triple("Biblioteca", "Libros", "Libros"),
                     Triple("Secciones", "Secciones", "Secciones"),
-                    Triple("Favoritos", "Favoritos", "Favoritos")
+                    Triple("Favoritos", "Favoritos", "Favoritos"),
+                    Triple("Estadísticas", "Estadísticas", "Estadísticas")
                 ).forEach { (targetTab, label, icon) ->
                     NavigationBarItem(
                         selected = tab == targetTab,
@@ -4330,31 +4331,11 @@ private fun openCasaDelLibro(context: Context) {
                     onLongPress = { bookMenu = it }, onCarouselTouch = { startedOnCarousel = true }) { book ->
                     startReader(book)
                 } }
-            if (tab == "Inicio") item(key = "home-summary") {
-                HomeReadingSummary(vm.books, vm::readingPercent)
+            if (tab == "Estadísticas") item(key = "reading-statistics-page") {
+                ReadingStatisticsPage(vm.books, vm::readingPercent,
+                    vm.openedThisMonth(), onOpenDetailed = { readingStatsOpen = true })
             }
-            if (tab == "Favoritos") item(key = "favorites-stats") {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
-                    Text("Estadísticas de lectura", color = Color.White,
-                        fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                        fontSize = 23.sp,
-                        style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
-                    HomeReadingSummary(vm.books, vm::readingPercent)
-                    LibraryActionButton(onClick = { readingStatsOpen = true },
-                        modifier = Modifier.fillMaxWidth()) {
-                        Text("Ver estadísticas detalladas")
-                    }
-                }
-            }
-            if (tab == "Inicio") item(key = "home-recommendations") {
-                val recommendations = vm.books.filter { it.status != ReadingStatus.READING }
-                    .sortedWith(compareByDescending<Book> { it.favorite }.thenBy { displayTitle(it) })
-                    .take(12)
-                HomeRecommendations(recommendations, offlineBookUris, onLongPress = { bookMenu = it }) {
-                    startReader(it)
-                }
-            }
-            item(key = "controls") {
+            if (tab != "Estadísticas") item(key = "controls") {
                 Column(Modifier.padding(horizontal = 12.dp)) {
                     if (tab == "Inicio") {
                     Spacer(Modifier.height(12.dp))
@@ -4571,6 +4552,8 @@ private fun openCasaDelLibro(context: Context) {
                         Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta de libros") }
                     }
                 }
+            } else if (tab == "Estadísticas") {
+                // La pantalla de estadísticas no muestra el catálogo.
             } else if (showWishList && tab == "Biblioteca") {
                 items(vm.wishList, key = { "wish:" + it.first + "|" + it.second }) { (title, url) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -4924,6 +4907,63 @@ private fun HomeReadingSummary(books: List<Book>, progress: (Uri) -> Int) {
                     fontSize = 10.sp, color = Mahogany.copy(alpha = .68f),
                     modifier = Modifier.padding(top = 5.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun ReadingStatisticsPage(
+    books: List<Book>, progress: (Uri) -> Int, openedThisMonth: Int,
+    onOpenDetailed: () -> Unit
+) {
+    val read = books.count { it.status == ReadingStatus.READ }
+    val reading = books.count { it.status == ReadingStatus.READING }
+    val pending = books.count { it.status == ReadingStatus.PENDING }
+    val started = books.map { progress(it.uri) }.filter { it > 0 }
+    val average = started.average().takeIf { !it.isNaN() }?.toInt() ?: 0
+    val rated = books.filter { it.rating > 0 }
+    val averageRating = rated.map { it.rating }.average().takeIf { !it.isNaN() }
+    val genres = books.flatMap { normalizeBookGenres(it.genre) }
+        .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(5)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Estadísticas de lectura", fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Bold, fontSize = 27.sp, color = Color.White,
+            style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+        Text("Tu biblioteca y tu ritmo de lectura", color = Color.White.copy(alpha = .78f))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            HomeMetricCard("Leídos", read.toString(), Teal, Modifier.weight(1f))
+            HomeMetricCard("Leyendo", reading.toString(), Brass, Modifier.weight(1f))
+            HomeMetricCard("Pendientes", pending.toString(), Color(0xFFD6A0C8), Modifier.weight(1f))
+        }
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Paper),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Progreso", color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Media de los libros empezados: $average %", color = Mahogany)
+                LinearProgressIndicator(progress = { average / 100f }, Modifier.fillMaxWidth(),
+                    color = Teal, trackColor = Teal.copy(alpha = .16f))
+                Text("Abiertos este mes: $openedThisMonth · Valoración media: " +
+                    (averageRating?.let { String.format(java.util.Locale.getDefault(), "%.1f / 5", it) }
+                        ?: "sin valorar"), fontSize = 12.sp, color = Mahogany.copy(alpha = .72f))
+            }
+        }
+        if (genres.isNotEmpty()) Card(Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Paper),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Géneros más presentes", color = Ink, fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp)
+                genres.forEach { (genre, count) ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(genre, color = Mahogany)
+                        Text(count.toString(), color = Teal, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+        OutlinedButton(onClick = onOpenDetailed, modifier = Modifier.fillMaxWidth()) {
+            Text("Ver todos los detalles")
         }
     }
 }
