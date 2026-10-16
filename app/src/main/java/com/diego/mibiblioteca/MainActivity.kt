@@ -183,7 +183,7 @@ private data class PublicBookResult(
 private data class PublicBookDetails(
     val summary: String, val authorBio: String, val published: String = "",
     val pages: String = "", val language: String = "", val publisher: String = "",
-    val source: String = "Open Library"
+    val source: String = "Open Library", val authorImageUrl: String = ""
 )
 
 private fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
@@ -194,6 +194,7 @@ private fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
     var language = ""
     var publisher = ""
     var source = "Open Library"
+    var authorImageUrl = ""
     runCatching {
         val key = result.sourceUrl.substringAfter("/works/", "").substringBefore("?")
         if (key.isNotBlank()) {
@@ -218,9 +219,11 @@ private fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
             val page = hits?.optJSONObject(0)?.optString("title").orEmpty()
             if (page.isNotBlank()) {
                 val title = java.net.URLEncoder.encode(page, "UTF-8")
-                val extract = getJson("https://es.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&exintro=1&titles=$title&format=json&origin=*").optJSONObject("query")?.optJSONObject("pages")
+                val extract = getJson("https://es.wikipedia.org/w/api.php?action=query&prop=extracts|pageimages&piprop=thumbnail&pithumbsize=500&explaintext=1&exintro=1&titles=$title&format=json&origin=*").optJSONObject("query")?.optJSONObject("pages")
                 val key = extract?.keys()?.asSequence()?.firstOrNull()
-                bio = key?.let { extract.optJSONObject(it)?.optString("extract") }.orEmpty()
+                val authorPage = key?.let { extract.optJSONObject(it) }
+                bio = authorPage?.optString("extract").orEmpty()
+                authorImageUrl = authorPage?.optJSONObject("thumbnail")?.optString("source").orEmpty()
                 if (bio.isNotBlank()) source = "$source · Wikipedia"
             }
         }
@@ -236,7 +239,7 @@ private fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
             source = "Open Library · Google Books"
         }
     }
-    return PublicBookDetails(summary.trim(), bio.trim(), published, pages, language, publisher, source)
+    return PublicBookDetails(summary.trim(), bio.trim(), published, pages, language, publisher, source, authorImageUrl)
 }
 
 private fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<PublicBookResult> {
@@ -503,6 +506,8 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 Text(details?.summary?.ifBlank { "No hay descripción disponible en las fuentes públicas." } ?: "Cargando información pública…", color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
                 Spacer(Modifier.height(18.dp))
                 Text("Sobre el autor", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
+                val authorPicture by rememberPublicCover(details?.authorImageUrl.orEmpty())
+                if (authorPicture != null) Image(authorPicture!!.asImageBitmap(), "Foto de ${result.author}", Modifier.fillMaxWidth().height(190.dp), contentScale = ContentScale.Crop)
                 Text(details?.authorBio?.ifBlank { "No hay biografía disponible en las fuentes públicas." } ?: "Cargando biografía…", color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
                 Spacer(Modifier.height(18.dp))
                 Text("Detalles del libro", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
