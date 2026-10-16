@@ -230,6 +230,28 @@ private fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
 private fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<PublicBookResult> {
     if (titleQuery.isBlank() && authorQuery.isBlank()) return emptyList()
     val encoded = java.net.URLEncoder.encode(titleQuery.trim(), "UTF-8")
+    // Google Books entiende consultas mixtas como «Hija del cielo Rodrigo Cortés»;
+    // se usa primero porque devuelve la edición exacta y sus datos editoriales.
+    runCatching {
+        val q = java.net.URLEncoder.encode(listOf(titleQuery.trim(), authorQuery.trim()).filter { it.isNotBlank() }.joinToString(" "), "UTF-8")
+        val items = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=10&printType=books").optJSONArray("items")
+        val google = (0 until (items?.length() ?: 0)).mapNotNull { i ->
+            val row = items?.optJSONObject(i) ?: return@mapNotNull null
+            val info = row.optJSONObject("volumeInfo") ?: return@mapNotNull null
+            val title = info.optString("title").trim()
+            if (title.isBlank()) return@mapNotNull null
+            val authors = info.optJSONArray("authors")
+            val author = (0 until (authors?.length() ?: 0)).joinToString(", ") { authors!!.optString(it) }
+            val wanted = titleQuery.trim().lowercase()
+            val exact = title.lowercase() == wanted || title.lowercase().contains(wanted)
+            val authorOk = authorQuery.isBlank() || author.lowercase().contains(authorQuery.trim().lowercase())
+            if (!exact || !authorOk) return@mapNotNull null
+            val image = info.optJSONObject("imageLinks")?.optString("thumbnail").orEmpty().replace("http://", "https://")
+            PublicBookResult(title, author, info.optString("publishedDate").take(4), info.optString("industryIdentifiers").takeIf { it.isNotBlank() }.orEmpty(), image,
+                info.optString("canonicalVolumeLink").ifBlank { "https://books.google.com/books?id=${row.optString("id")}" }, info.optString("description"))
+        }.distinctBy { (it.title + "|" + it.author).lowercase() }
+        if (google.isNotEmpty()) return google.sortedByDescending { if (it.title.equals(titleQuery.trim(), true)) 1 else 0 }
+    }
     val titlePart = if (titleQuery.isBlank()) "" else "&title=$encoded"
     val authorPart = if (authorQuery.isBlank()) "" else "&author=${java.net.URLEncoder.encode(authorQuery.trim(), "UTF-8")}"
     val docs = getJson("https://openlibrary.org/search.json?mode=everything&limit=10$titlePart$authorPart")
