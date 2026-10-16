@@ -292,6 +292,17 @@ private fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): Lis
             isbn, if (coverId > 0) "https://covers.openlibrary.org/b/id/$coverId-M.jpg" else "",
             if (key.isNotBlank()) "https://openlibrary.org/works/$key" else "https://openlibrary.org/search?q=$encoded", summary, authorKey, dates)
     }.distinctBy { (it.title + "|" + it.author).lowercase() }
+        .sortedWith(compareByDescending<PublicBookResult> {
+            val wanted = titleQuery.trim().lowercase()
+            when {
+                it.title.lowercase() == wanted -> 3
+                it.title.lowercase().contains(wanted) -> 2
+                wanted.contains(it.title.lowercase()) -> 1
+                else -> 0
+            }
+        }.thenByDescending {
+            if (authorQuery.isBlank()) 0 else if (it.author.lowercase().contains(authorQuery.trim().lowercase())) 1 else 0
+        })
 }
 
 private data class BackupRestoreResult(val matched: Int, val pending: String?)
