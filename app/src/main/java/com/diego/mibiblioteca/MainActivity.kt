@@ -316,14 +316,24 @@ private fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): Lis
             PublicBookResult(title, author, info.optString("publishedDate").take(4), info.optString("industryIdentifiers").takeIf { it.isNotBlank() }.orEmpty(), image,
                 info.optString("canonicalVolumeLink").ifBlank { "https://books.google.com/books?id=${row.optString("id")}" }, summaryFallback, authorKey = authorKeyFallback)
         }.distinctBy { (it.title + "|" + it.author).lowercase() }
-        if (google.isNotEmpty()) return google.sortedByDescending { if (it.title.equals(titleQuery.trim(), true)) 1 else 0 }
+        if (google.isNotEmpty()) {
+            val wanted = normalizeSearchText(titleQuery)
+            val exact = google.filter { normalizeSearchText(it.title).contains(wanted) ||
+                wanted.split(" ").filter { it.length > 1 }.all { term ->
+                    normalizeSearchText(it.title + " " + it.author).contains(term)
+                } }
+            return (if (exact.isNotEmpty()) exact else google).sortedByDescending {
+                if (normalizeSearchText(it.title) == wanted) 2 else
+                    if (normalizeSearchText(it.title).contains(wanted)) 1 else 0
+            }
+        }
     }
     val titlePart = if (titleQuery.isBlank()) "" else "&title=$encoded"
     val authorPart = if (authorQuery.isBlank()) "" else "&author=${java.net.URLEncoder.encode(authorQuery.trim(), "UTF-8")}"
     val docs = runCatching {
         getJson("https://openlibrary.org/search.json?q=$encoded&mode=everything&limit=20$authorPart").optJSONArray("docs")
     }.getOrNull() ?: runCatching {
-        getJson("https://openlibrary.org/search.json?title=$encoded&limit=20").optJSONArray("docs")
+        getJson("https://openlibrary.org/search.json?title=$encoded&limit=20$authorPart").optJSONArray("docs")
     }.getOrNull() ?: return emptyList()
     return (0 until docs.length()).mapNotNull { i ->
         val row = docs.optJSONObject(i) ?: return@mapNotNull null
@@ -500,18 +510,26 @@ private fun rememberPublicCover(url: String): State<Bitmap?> {
     return produceState<Bitmap?>(initialValue = null, url) {
         if (url.isBlank()) return@produceState
         value = withContext(Dispatchers.IO) {
-            runCatching {
-                val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 5000
-                    readTimeout = 7000
-                    setRequestProperty("User-Agent", "MiBiblioteca/1.0 Android")
-                }
-                try {
-                    val bytes = connection.inputStream.use { it.readNBytes(2_500_001) }
-                    if (bytes.isEmpty() || bytes.size > 2_500_000) null
-                    else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                } finally { connection.disconnect() }
-            }.getOrNull()
+            val candidates = listOf(url,
+                url.replace("/isbn/", "/b/isbn/"),
+                url.replace("-L.jpg", "-M.jpg"),
+                url.replace("-L.jpg", "-S.jpg"),
+                url + if (url.contains("?")) "&default=false" else "?default=false"
+            ).distinct()
+            candidates.firstNotNullOfOrNull { candidate ->
+                runCatching {
+                    val connection = (URL(candidate).openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 5000
+                        readTimeout = 7000
+                        setRequestProperty("User-Agent", "MiBiblioteca/1.0 Android")
+                    }
+                    try {
+                        val bytes = connection.inputStream.use { it.readNBytes(2_500_001) }
+                        if (bytes.isEmpty() || bytes.size > 2_500_000) null
+                        else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    } finally { connection.disconnect() }
+                }.getOrNull()
+            }
         }
     }
 }
