@@ -775,6 +775,16 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
         initialRestoreJob = viewModelScope.launch {
             restoreCachedBooks(onlyIfEmpty = true)
+            normalizeCachedIdentities()
+            // La búsqueda de portadas se hace en segundo plano y se cachea por URI.
+            // Se limita por sesión para no saturar la red al abrir una biblioteca grande.
+            val missing = books.asSequence()
+                .filter { it.cover == null }
+                .filterNot { prefs.getBoolean("manual_identity_" + it.uri, false) }
+                .take(24)
+                .map { it.uri }
+                .toList()
+            missing.forEach { completeMissing(it) }
         }
         viewMode = prefs.getString("view_mode", "Galería") ?: "Galería"
         if (!prefs.getBoolean("cover_first_v48", false)) {
@@ -1636,6 +1646,31 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     val filtered: List<Book> get() = filterBooks(books, query, statusFilter,
         onlyFavorites, selectedSection, qualityFilter, reviewPending)
+
+    /** Normaliza títulos y metadatos locales al arrancar, sin tocar campos editados manualmente. */
+    private fun normalizeCachedIdentities() {
+        var changed = false
+        books = books.map { book ->
+            if (prefs.getBoolean("manual_identity_" + book.uri, false)) return@map book
+            var updated = book
+            val visible = displayTitle(book)
+            if (book.customTitle.isBlank() && visible.isNotBlank() &&
+                !visible.equals(book.title.trim(), ignoreCase = false) && visible.length >= 2) {
+                updated = updated.copy(customTitle = visible)
+            }
+            if (book.customAuthor.isBlank() && unknownAuthor(book.author)) {
+                val filename = Uri.decode(book.uri.lastPathSegment.orEmpty())
+                val inferred = inferFilenameIdentity(filename)
+                if (!unknownAuthor(inferred.author)) updated = updated.copy(customAuthor = inferred.author)
+            }
+            val localSaga = inferredSaga(updated)
+            if (updated.saga.isBlank() && localSaga.first.isNotBlank())
+                updated = updated.copy(saga = localSaga.first.trim(), sagaOrder = localSaga.second)
+            if (updated != book) changed = true
+            updated
+        }
+        if (changed) saveBooks()
+    }
 
     private fun needsDetails(book: Book) = book.cover == null || book.spanishPlot.isBlank() ||
         book.authorBio.isBlank() || displayAuthor(book) == "Biblioteca de Diroka77"
