@@ -175,13 +175,15 @@ data class Book(
 
 private data class PublicBookResult(
     val title: String, val author: String, val year: String,
-    val isbn: String, val coverUrl: String, val sourceUrl: String
+    val isbn: String, val coverUrl: String, val sourceUrl: String,
+    val summary: String = ""
 )
 
 private fun searchPublicBooks(query: String): List<PublicBookResult> {
     if (query.isBlank()) return emptyList()
     val encoded = java.net.URLEncoder.encode(query.trim(), "UTF-8")
-    val docs = getJson("https://openlibrary.org/search.json?q=$encoded&mode=everything&limit=20")
+    val titleQuery = java.net.URLEncoder.encode(query.trim(), "UTF-8")
+    val docs = getJson("https://openlibrary.org/search.json?title=$titleQuery&mode=everything&limit=10")
         .optJSONArray("docs") ?: return emptyList()
     return (0 until docs.length()).mapNotNull { i ->
         val row = docs.optJSONObject(i) ?: return@mapNotNull null
@@ -194,10 +196,14 @@ private fun searchPublicBooks(query: String): List<PublicBookResult> {
         val isbns = row.optJSONArray("isbn")
         val isbn = isbns?.optString(0).orEmpty()
         val coverId = row.optInt("cover_i", 0)
+        val summary = row.optJSONArray("first_sentence")?.optString(0).orEmpty()
+            .ifBlank { row.optJSONArray("subject")?.let { subjects ->
+                (0 until minOf(subjects.length(), 5)).joinToString(", ") { subjects.optString(it) }
+            }.orEmpty() }
         PublicBookResult(title, author, row.optInt("first_publish_year", 0).takeIf { it > 0 }?.toString().orEmpty(),
             isbn, if (coverId > 0) "https://covers.openlibrary.org/b/id/$coverId-M.jpg" else "",
-            if (key.isNotBlank()) "https://openlibrary.org/works/$key" else "https://openlibrary.org/search?q=$encoded")
-    }
+            if (key.isNotBlank()) "https://openlibrary.org/works/$key" else "https://openlibrary.org/search?q=$encoded", summary)
+    }.distinctBy { (it.title + "|" + it.author).lowercase() }
 }
 
 private data class BackupRestoreResult(val matched: Int, val pending: String?)
@@ -338,7 +344,7 @@ private fun rememberPublicCover(url: String): State<Bitmap?> {
 }
 
 @Composable
-private fun PublicBookCard(result: PublicBookResult, onWish: () -> Unit) {
+private fun PublicBookCard(result: PublicBookResult, onOpen: () -> Unit, onWish: () -> Unit) {
     val cover by rememberPublicCover(result.coverUrl)
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -347,7 +353,7 @@ private fun PublicBookCard(result: PublicBookResult, onWish: () -> Unit) {
         border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = .35f)),
         shadowElevation = 2.dp
     ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(12.dp).clickable(onClick = onOpen), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(78.dp).height(112.dp), contentAlignment = Alignment.Center) {
                 if (cover != null) Image(cover!!.asImageBitmap(), "Portada de ${result.title}",
                     Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -3178,6 +3184,7 @@ private fun openCasaDelLibro(context: Context) {
     var publicQuery by remember { mutableStateOf("") }
     var publicResults by remember { mutableStateOf<List<PublicBookResult>>(emptyList()) }
     var publicSearching by remember { mutableStateOf(false) }
+    var selectedPublicResult by remember { mutableStateOf<PublicBookResult?>(null) }
     var wallpaperPickerOpen by remember { mutableStateOf(false) }
     var animationPickerOpen by remember { mutableStateOf(false) }
     var sagaRenameSource by remember { mutableStateOf<String?>(null) }
@@ -3277,6 +3284,26 @@ private fun openCasaDelLibro(context: Context) {
         },
         confirmButton = { LibraryTextButton(onClick = { publicSearchOpen = false }) { Text("Cerrar") } }
     )
+    selectedPublicResult?.let { result ->
+        AlertDialog(onDismissRequest = { selectedPublicResult = null },
+            title = { Text(result.title, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold) },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(result.author.ifBlank { "Autor no disponible" }, color = Mahogany, fontSize = 15.sp)
+                if (result.year.isNotBlank()) Text("Año de publicación: ${result.year}", fontSize = 13.sp)
+                if (result.isbn.isNotBlank()) Text("ISBN: ${result.isbn}", fontSize = 13.sp)
+                Spacer(Modifier.height(10.dp))
+                Text(result.summary.ifBlank { "No hay argumento disponible en la fuente pública." },
+                    fontSize = 14.sp, lineHeight = 20.sp)
+                Spacer(Modifier.height(10.dp))
+                Text("Fuente: Open Library", fontSize = 12.sp, color = Mahogany.copy(alpha = .7f))
+            } },
+            confirmButton = { Button(onClick = {
+                vm.addGoodreadsWish(result.title, result.sourceUrl)
+                selectedPublicResult = null
+                android.widget.Toast.makeText(context, "Añadido a Quiero leer", android.widget.Toast.LENGTH_SHORT).show()
+            }) { Text("Añadir a deseos") } },
+            dismissButton = { TextButton(onClick = { selectedPublicResult = null }) { Text("Cerrar") } })
+    }
     sagaRenameSource?.let { source -> AlertDialog(
         onDismissRequest = { sagaRenameSource = null },
         title = { Text("Unificar nombre de saga") },
@@ -3421,6 +3448,7 @@ private fun openCasaDelLibro(context: Context) {
         launchIsbnCamera = false
     }
     var voiceListening by remember { mutableStateOf(false) }
+    var voiceTargetPublic by remember { mutableStateOf(false) }
     var startVoiceWhenPermitted by remember { mutableStateOf(false) }
     val speechRecognizer = remember {
         when {
@@ -3455,15 +3483,18 @@ private fun openCasaDelLibro(context: Context) {
                 val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.firstOrNull().orEmpty().trim()
                 if (spoken.isNotBlank()) {
-                    vm.query = spoken
-                    switchTab("Biblioteca")
+                    if (voiceTargetPublic) publicQuery = spoken
+                    else { vm.query = spoken; switchTab("Biblioteca") }
+                    voiceTargetPublic = false
                 }
             }
             override fun onPartialResults(partialResults: Bundle?) {
                 val spoken = partialResults
                     ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.firstOrNull().orEmpty().trim()
-                if (spoken.isNotBlank()) vm.query = spoken
+                if (spoken.isNotBlank()) {
+                    if (voiceTargetPublic) publicQuery = spoken else vm.query = spoken
+                }
             }
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
         })
@@ -3485,16 +3516,16 @@ private fun openCasaDelLibro(context: Context) {
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
         })
     }
-    fun launchVoiceSearch() {
+    fun launchVoiceSearch(publicSearch: Boolean = false) {
         if (speechRecognizer == null) {
             android.widget.Toast.makeText(context,
                 "El reconocimiento de voz no está disponible.",
                 android.widget.Toast.LENGTH_LONG).show()
             return
         }
-        if (voiceListening) speechRecognizer.cancel()
+        if (voiceListening) { speechRecognizer.cancel(); voiceTargetPublic = false }
         else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-            PackageManager.PERMISSION_GRANTED) startVoiceWhenPermitted = true
+            PackageManager.PERMISSION_GRANTED) { voiceTargetPublic = publicSearch; startVoiceWhenPermitted = true }
         else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
     val readingBooks = remember(vm.books) { vm.readingBooks() }
@@ -4521,13 +4552,19 @@ private fun openCasaDelLibro(context: Context) {
                         modifier = Modifier.fillMaxWidth(), singleLine = true,
                         placeholder = { Text("Título, autor o ISBN") },
                         leadingIcon = { AppIcon("Buscar") },
-                        trailingIcon = { IconButton(enabled = !publicSearching, onClick = {
-                            publicSearching = true
-                            scope.launch(Dispatchers.IO) {
-                                val found = runCatching { searchPublicBooks(publicQuery) }.getOrDefault(emptyList())
-                                withContext(Dispatchers.Main) { publicResults = found; publicSearching = false }
+                        trailingIcon = { Row {
+                            IconButton(onClick = { launchVoiceSearch(true) }) {
+                                Icon(Icons.Outlined.Mic, if (voiceListening) "Detener voz" else "Buscar por voz",
+                                    tint = if (voiceListening) Teal else Mahogany)
                             }
-                        }) { AppIcon("Buscar", "Consultar") } },
+                            IconButton(enabled = !publicSearching, onClick = {
+                                publicSearching = true
+                                scope.launch(Dispatchers.IO) {
+                                    val found = runCatching { searchPublicBooks(publicQuery) }.getOrDefault(emptyList())
+                                    withContext(Dispatchers.Main) { publicResults = found; publicSearching = false }
+                                }
+                            }) { AppIcon("Buscar", "Consultar") }
+                        } },
                         colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Paper,
                             unfocusedContainerColor = Paper, focusedTextColor = Ink, unfocusedTextColor = Ink,
                             focusedBorderColor = Brass, unfocusedBorderColor = Brass.copy(alpha = .7f)),
@@ -4537,7 +4574,7 @@ private fun openCasaDelLibro(context: Context) {
                     if (!publicSearching && publicQuery.isNotBlank() && publicResults.isEmpty())
                         Text("No se han encontrado resultados.", color = Color.White.copy(alpha = .9f))
                     publicResults.forEach { result ->
-                        PublicBookCard(result) {
+                        PublicBookCard(result, onOpen = { selectedPublicResult = result }) {
                             vm.addGoodreadsWish(result.title, result.sourceUrl)
                             android.widget.Toast.makeText(context, "Añadido a Quiero leer", android.widget.Toast.LENGTH_SHORT).show()
                         }
