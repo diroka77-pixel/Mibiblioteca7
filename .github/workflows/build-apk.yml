@@ -80,6 +80,4 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
 
-# Compilación con integración de imágenes en página
-
-# Ajuste final de composición de imágenes
+# Ajuste de composición: imágenes compactas para que el texto continúe en la misma página
