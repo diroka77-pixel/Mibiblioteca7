@@ -77,3 +77,5 @@ jobs:
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
 
 # Búsqueda por voz y panel ampliado de resultados públicos
+
+# Ficha completa: argumento, fechas y biografia en consulta publica
