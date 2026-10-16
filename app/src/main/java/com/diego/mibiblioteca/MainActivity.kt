@@ -180,11 +180,20 @@ private data class PublicBookResult(
     val publishDates: String = ""
 )
 
-private data class PublicBookDetails(val summary: String, val authorBio: String)
+private data class PublicBookDetails(
+    val summary: String, val authorBio: String, val published: String = "",
+    val pages: String = "", val language: String = "", val publisher: String = "",
+    val source: String = "Open Library"
+)
 
 private fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
     var summary = result.summary
     var bio = ""
+    var published = result.year
+    var pages = ""
+    var language = ""
+    var publisher = ""
+    var source = "Open Library"
     runCatching {
         val key = result.sourceUrl.substringAfter("/works/", "").substringBefore("?")
         if (key.isNotBlank()) {
@@ -203,8 +212,19 @@ private fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
                 else -> description?.toString().orEmpty()
             }
         }
+        val q = java.net.URLEncoder.encode("intitle:${result.title} inauthor:${result.author}", "UTF-8")
+        val volumes = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=5").optJSONArray("items")
+        val info = volumes?.optJSONObject(0)?.optJSONObject("volumeInfo")
+        if (info != null) {
+            summary = info.optString("description").ifBlank { summary }
+            published = info.optString("publishedDate").ifBlank { published }
+            pages = info.optInt("pageCount", 0).takeIf { it > 0 }?.toString().orEmpty()
+            language = info.optString("language")
+            publisher = info.optString("publisher")
+            source = "Open Library · Google Books"
+        }
     }
-    return PublicBookDetails(summary.trim(), bio.trim())
+    return PublicBookDetails(summary.trim(), bio.trim(), published, pages, language, publisher, source)
 }
 
 private fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<PublicBookResult> {
@@ -413,6 +433,38 @@ private fun PublicBookCard(result: PublicBookResult, onOpen: () -> Unit, onWish:
                     AppIcon("Favoritos", tint = Color.White, size = 17.dp)
                     Spacer(Modifier.width(5.dp)); Text("Añadir a deseos", fontSize = 12.sp)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDetails?, onBack: () -> Unit, onWish: () -> Unit) {
+    val cover by rememberPublicCover(result.coverUrl)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+        TextButton(onClick = onBack) { Text("← Volver a resultados", color = Brass) }
+        Surface(Modifier.fillMaxWidth(), color = Paper.copy(alpha = .98f), shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp)) {
+            Column(Modifier.padding(18.dp)) {
+                Box(Modifier.fillMaxWidth().height(270.dp), contentAlignment = Alignment.Center) {
+                    if (cover != null) Image(cover!!.asImageBitmap(), "Portada de ${result.title}", Modifier.fillMaxHeight().width(190.dp), contentScale = ContentScale.Fit)
+                    else AppIcon("Libros", tint = Mahogany.copy(alpha = .5f), size = 64.dp)
+                }
+                Text(result.title, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 28.sp, color = Ink)
+                Text(result.author.ifBlank { "Autor no disponible" }, fontSize = 18.sp, color = Mahogany)
+                Spacer(Modifier.height(10.dp))
+                Button(onClick = onWish, colors = ButtonDefaults.buttonColors(containerColor = Teal), modifier = Modifier.fillMaxWidth()) { Text("♡  Añadir a deseos") }
+                Spacer(Modifier.height(18.dp))
+                Text("Descripción", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
+                Text(details?.summary?.ifBlank { "No hay descripción disponible en las fuentes públicas." } ?: "Cargando información pública…", color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
+                Spacer(Modifier.height(18.dp))
+                Text("Sobre el autor", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
+                Text(details?.authorBio?.ifBlank { "No hay biografía disponible en las fuentes públicas." } ?: "Cargando biografía…", color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
+                Spacer(Modifier.height(18.dp))
+                Text("Detalles del libro", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
+                val rows = listOf("Publicación" to (details?.published ?: result.year), "Páginas" to (details?.pages ?: ""), "Idioma" to (details?.language ?: ""), "Editorial" to (details?.publisher ?: ""), "ISBN" to result.isbn).filter { it.second.isNotBlank() }
+                rows.forEach { (label, value) -> Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) { Text("$label: ", fontWeight = FontWeight.Bold, color = Ink); Text(value, color = Ink) } }
+                Spacer(Modifier.height(12.dp))
+                Text("Metadatos públicos: ${details?.source ?: "Open Library"}", fontSize = 12.sp, color = Mahogany.copy(alpha = .7f))
             }
         }
     }
@@ -3326,33 +3378,6 @@ private fun openCasaDelLibro(context: Context) {
         val details by produceState<PublicBookDetails?>(initialValue = null, result.sourceUrl) {
             value = withContext(Dispatchers.IO) { loadPublicBookDetails(result) }
         }
-        AlertDialog(onDismissRequest = { selectedPublicResult = null },
-            title = { Text(result.title, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold) },
-            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(result.author.ifBlank { "Autor no disponible" }, color = Mahogany, fontSize = 15.sp)
-                if (result.year.isNotBlank()) Text("Año de publicación: ${result.year}", fontSize = 13.sp)
-                if (result.isbn.isNotBlank()) Text("ISBN: ${result.isbn}", fontSize = 13.sp)
-                Spacer(Modifier.height(10.dp))
-                Text("Argumento", fontWeight = FontWeight.Bold, color = Mahogany)
-                Text(details?.summary?.ifBlank { "No hay argumento disponible en la fuente pública." }
-                    ?: "Cargando información pública…",
-                    fontSize = 14.sp, lineHeight = 20.sp)
-                Spacer(Modifier.height(10.dp))
-                Text("Fechas de publicación", fontWeight = FontWeight.Bold, color = Mahogany)
-                Text(result.publishDates.ifBlank { result.year.ifBlank { "No disponible" } }, fontSize = 13.sp)
-                Spacer(Modifier.height(10.dp))
-                Text("Sobre el autor", fontWeight = FontWeight.Bold, color = Mahogany)
-                Text(details?.authorBio?.ifBlank { "No hay biografía disponible en la fuente pública." }
-                    ?: "Cargando información pública…", fontSize = 14.sp, lineHeight = 20.sp)
-                Spacer(Modifier.height(10.dp))
-                Text("Fuente: Open Library", fontSize = 12.sp, color = Mahogany.copy(alpha = .7f))
-            } },
-            confirmButton = { Button(onClick = {
-                vm.addGoodreadsWish(result.title, result.sourceUrl)
-                selectedPublicResult = null
-                android.widget.Toast.makeText(context, "Añadido a Quiero leer", android.widget.Toast.LENGTH_SHORT).show()
-            }) { Text("Añadir a deseos") } },
-            dismissButton = { TextButton(onClick = { selectedPublicResult = null }) { Text("Cerrar") } })
     }
     sagaRenameSource?.let { source -> AlertDialog(
         onDismissRequest = { sagaRenameSource = null },
@@ -4627,8 +4652,17 @@ private fun openCasaDelLibro(context: Context) {
                     Spacer(Modifier.height(14.dp))
                     if (!publicSearching && publicQuery.isNotBlank() && publicResults.isEmpty())
                         Text("No se han encontrado resultados.", color = Color.White.copy(alpha = .9f))
-                    if (publicResults.isNotEmpty() && selectedPublicResult == null)
-                        Text("Selecciona una búsqueda para abrir la ficha completa.", color = Color.White.copy(alpha = .9f))
+                    if (selectedPublicResult == null && publicResults.isNotEmpty()) {
+                        Text("Resultado principal", color = Brass, fontFamily = FontFamily.Serif, fontSize = 20.sp)
+                        PublicBookCard(publicResults.first(), onOpen = { selectedPublicResult = publicResults.first() }, onWish = { vm.addGoodreadsWish(publicResults.first().title, publicResults.first().sourceUrl) })
+                    }
+                    selectedPublicResult?.let { result ->
+                        val details by produceState<PublicBookDetails?>(initialValue = null, result.sourceUrl) { value = withContext(Dispatchers.IO) { loadPublicBookDetails(result) } }
+                        PublicBookDetailPage(result, details, onBack = { selectedPublicResult = null }, onWish = {
+                            vm.addGoodreadsWish(result.title, result.sourceUrl)
+                            android.widget.Toast.makeText(context, "Añadido a Quiero leer", android.widget.Toast.LENGTH_SHORT).show()
+                        })
+                    }
                 }
             }
             if (tab != "Estadísticas" && tab != "Descubrir") item(key = "controls") {
