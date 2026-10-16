@@ -316,6 +316,64 @@ private val newsImageCache = object : LruCache<String, Bitmap>(12 * 1024) {
     }
 }
 
+@Composable
+private fun rememberPublicCover(url: String): State<Bitmap?> {
+    return produceState<Bitmap?>(initialValue = null, url) {
+        if (url.isBlank()) return@produceState
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 5000
+                    readTimeout = 7000
+                    setRequestProperty("User-Agent", "MiBiblioteca/1.0 Android")
+                }
+                try {
+                    val bytes = connection.inputStream.use { it.readNBytes(2_500_001) }
+                    if (bytes.isEmpty() || bytes.size > 2_500_000) null
+                    else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                } finally { connection.disconnect() }
+            }.getOrNull()
+        }
+    }
+}
+
+@Composable
+private fun PublicBookCard(result: PublicBookResult, onWish: () -> Unit) {
+    val cover by rememberPublicCover(result.coverUrl)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+        color = Paper.copy(alpha = .97f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = .35f)),
+        shadowElevation = 2.dp
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(78.dp).height(112.dp), contentAlignment = Alignment.Center) {
+                if (cover != null) Image(cover!!.asImageBitmap(), "Portada de ${result.title}",
+                    Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                else {
+                    AppIcon("Libros", tint = Mahogany.copy(alpha = .55f), size = 38.dp)
+                    Text("Sin portada", fontSize = 9.sp, color = Mahogany.copy(alpha = .65f))
+                }
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(result.title, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                    color = Ink, fontSize = 17.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                if (result.author.isNotBlank()) Text(result.author, color = Mahogany,
+                    fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (result.year.isNotBlank()) Text("Publicado en ${result.year}",
+                    color = Mahogany.copy(alpha = .72f), fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = onWish, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    AppIcon("Favoritos", tint = Color.White, size = 17.dp)
+                    Spacer(Modifier.width(5.dp)); Text("Añadir a deseos", fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
 private fun filterBooks(books: List<Book>, query: String, status: ReadingStatus?,
     favorites: Boolean, section: String?, quality: String, pending: Set<Uri>): List<Book> =
     books.filter { book ->
@@ -3057,7 +3115,7 @@ private fun openCasaDelLibro(context: Context) {
     var draftAllGenres by remember { mutableStateOf(true) }
     var smartCollection by rememberSaveable { mutableStateOf<String?>(null) }
     val genrePickerListState = rememberLazyListState()
-    val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Favoritos", "Estadísticas") }
+    val tabs = remember { listOf("Inicio", "Biblioteca", "Descubrir", "Géneros", "Secciones", "Favoritos", "Estadísticas") }
     val scope = rememberCoroutineScope()
     val pageMotion = remember { Animatable(0f) }
     val pageDrag = remember { mutableFloatStateOf(0f) }
@@ -4333,6 +4391,7 @@ private fun openCasaDelLibro(context: Context) {
                 listOf(
                     Triple("Inicio", "Inicio", "Inicio"),
                     Triple("Biblioteca", "Libros", "Libros"),
+                    Triple("Descubrir", "Buscar", "Buscar"),
                     Triple("Secciones", "Secciones", "Secciones"),
                     Triple("Favoritos", "Favoritos", "Favoritos"),
                     Triple("Estadísticas", "Estadísticas", "Estadísticas")
@@ -4450,7 +4509,43 @@ private fun openCasaDelLibro(context: Context) {
                     onGoalChanged = vm::updateAnnualReadingGoal,
                     onOpenDetailed = { readingStatsOpen = true })
             }
-            if (tab != "Estadísticas") item(key = "controls") {
+            if (tab == "Descubrir") item(key = "public-search-page") {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    Text("Descubrir libros", color = Color.White, fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold, fontSize = 27.sp,
+                        style = MaterialTheme.typography.headlineSmall.copy(shadow = WallpaperTextShadow))
+                    Text("Consulta información pública sin añadir nada a tu biblioteca.",
+                        color = Color.White.copy(alpha = .84f), fontSize = 14.sp)
+                    Spacer(Modifier.height(14.dp))
+                    OutlinedTextField(value = publicQuery, onValueChange = { publicQuery = it },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true,
+                        placeholder = { Text("Título, autor o ISBN") },
+                        leadingIcon = { AppIcon("Buscar") },
+                        trailingIcon = { IconButton(enabled = !publicSearching, onClick = {
+                            publicSearching = true
+                            scope.launch(Dispatchers.IO) {
+                                val found = runCatching { searchPublicBooks(publicQuery) }.getOrDefault(emptyList())
+                                withContext(Dispatchers.Main) { publicResults = found; publicSearching = false }
+                            }
+                        }) { AppIcon("Buscar", "Consultar") } },
+                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Paper,
+                            unfocusedContainerColor = Paper, focusedTextColor = Ink, unfocusedTextColor = Ink,
+                            focusedBorderColor = Brass, unfocusedBorderColor = Brass.copy(alpha = .7f)),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
+                    if (publicSearching) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 10.dp), color = Brass)
+                    Spacer(Modifier.height(14.dp))
+                    if (!publicSearching && publicQuery.isNotBlank() && publicResults.isEmpty())
+                        Text("No se han encontrado resultados.", color = Color.White.copy(alpha = .9f))
+                    publicResults.forEach { result ->
+                        PublicBookCard(result) {
+                            vm.addGoodreadsWish(result.title, result.sourceUrl)
+                            android.widget.Toast.makeText(context, "Añadido a Quiero leer", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        Spacer(Modifier.height(10.dp))
+                    }
+                }
+            }
+            if (tab != "Estadísticas" && tab != "Descubrir") item(key = "controls") {
                 Column(Modifier.padding(horizontal = 12.dp)) {
                     if (tab == "Inicio") {
                     Spacer(Modifier.height(12.dp))
@@ -4691,6 +4786,8 @@ private fun openCasaDelLibro(context: Context) {
                         IconButton(onClick = { vm.removeGoodreadsWish(url) }) { AppIcon("Cerrar", "Quitar de pendientes") }
                     }
                 }
+            } else if (tab == "Descubrir") {
+                // La pantalla de consulta pública tiene su propio contenido.
             } else if (vm.books.isEmpty() && !vm.syncing) {
                 item(key = "empty") {
                     Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
