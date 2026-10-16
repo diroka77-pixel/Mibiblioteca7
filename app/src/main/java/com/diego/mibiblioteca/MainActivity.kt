@@ -386,18 +386,35 @@ private fun normalizeSagaName(value: String): String = java.text.Normalizer
 
 private fun inferredSaga(book: Book): Pair<String, String> {
     if (book.saga.isNotBlank()) return book.saga.trim() to book.sagaOrder.trim()
-    val source = listOf(displayTitle(book), Uri.decode(book.uri.lastPathSegment.orEmpty()))
-        .joinToString(" ")
-    val patterns = listOf(
-        Regex("(?i)\\[([^]]{2,80}?)\\s*(?:#|n[ºo.]?|vol(?:umen)?[.]?|tomo|libro)\\s*(\\d+(?:[.,]\\d+)?)\\]"),
-        Regex("(?i)([^\\[\\]()]{2,80}?)\\s+(?:#|n[ºo.]?|vol(?:umen)?[.]?|tomo|libro)\\s*(\\d+(?:[.,]\\d+)?)\\s*[-–—:]"),
-        Regex("(?i)\\(([^()]{2,80}?)\\s+(\\d+(?:[.,]\\d+)?)\\)")
-    )
-    patterns.forEach { pattern -> pattern.find(source)?.let { match ->
-        return match.groupValues[1].trim(' ', '-', '–', '—', ':') to
-            match.groupValues[2].replace(',', '.')
-    } }
+    val sources = listOf(displayTitle(book), Uri.decode(book.uri.lastPathSegment.orEmpty()))
+    sources.forEach { source -> extractSagaFromText(source)?.let { return it } }
     return "" to book.sagaOrder.trim()
+}
+
+private fun extractSagaFromText(raw: String): Pair<String, String>? {
+    val source = raw.replace('_', ' ').replace(Regex("\\s+"), " ").trim()
+    if (source.isBlank()) return null
+    val number = "(\\\\d+(?:[.,]\\\\d+)?)"
+    val patterns = listOf(
+        Regex("(?i)\\\\[([^]]{2,100}?)\\\\s*(?:#|№|n[ºo.]?|vol(?:umen)?[.]?|tomo|libro)\\\\s*$number\\\\]"),
+        Regex("(?i)\\\\(([^()]{2,100}?)\\\\s*(?:#|№|n[ºo.]?|vol(?:umen)?[.]?|tomo|libro)?\\\\s*$number\\\\)"),
+        Regex("(?i)^(.{2,100}?)\\\\s*(?:-|–|—|:)\\\\s*(?:libro|vol(?:umen)?|tomo|parte|n[ºo.]?)\\\\s*$number(?:\\\\s*[-–—:].*)?$"),
+        Regex("(?i)^(.{2,100}?)\\\\s+(?:#|№|n[ºo.]?|vol(?:umen)?[.]?|tomo|libro)\\\\s*$number(?:\\\\s*[-–—:].*)?$"),
+        Regex("(?i)^(.{2,100}?)\\\\s*[-–—:]\\\\s*(?:libro|vol(?:umen)?|tomo)?\\\\s*$number\\\\s*[-–—:]\\\\s*.+$"),
+        Regex("(?i)^(.{2,100}?)\\\\s*,?\\\\s*$number\\\\s*(?:de\\\\s+la\\\\s+serie|de\\\\s+la\\\\s+saga|series?)$")
+    )
+    for (pattern in patterns) {
+        val match = pattern.find(source) ?: continue
+        val saga = match.groupValues.getOrNull(1).orEmpty()
+            .trim(' ', '-', '–', '—', ':', ',', ';')
+            .replace(Regex("(?i)\\\\b(?:saga|serie|coleccion|collection)\\\\b"), "")
+            .trim()
+        val order = match.groupValues.lastOrNull().orEmpty().replace(',', '.')
+        if (saga.length >= 2 && order.toDoubleOrNull()?.let { it !in 1900.0..2100.0 } == true) {
+            return saga to order
+        }
+    }
+    return null
 }
 
 private fun sagaGroupKey(book: Book): String = normalizeSagaName(inferredSaga(book).first)
@@ -1380,7 +1397,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         if (sagaOrganizing) return
         viewModelScope.launch {
             sagaOrganizing = true
-            val targets = books.filter { it.saga.isBlank() }
+            val targets = books.filter { book ->
+                !prefs.getBoolean("manual_identity_" + book.uri, false) &&
+                    (book.saga.isBlank() || book.sagaOrder.isBlank() || inferredSaga(book).first.isNotBlank())
+            }
             sagaOrganized = 0; sagaOrganizeTotal = targets.size
             var changed = 0
             try {
@@ -1391,8 +1411,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     } catch (_: Exception) { "" to "" }
                     if (found.first.isNotBlank()) {
                         books = books.map { current -> if (current.uri == original.uri) current.copy(
-                            saga = found.first.trim(),
-                            sagaOrder = found.second.ifBlank { current.sagaOrder }) else current }
+                            saga = current.saga.ifBlank { found.first.trim() },
+                            sagaOrder = current.sagaOrder.ifBlank { found.second.trim() }) else current }
                         changed++
                         if (changed % 10 == 0) saveBooks()
                     }
