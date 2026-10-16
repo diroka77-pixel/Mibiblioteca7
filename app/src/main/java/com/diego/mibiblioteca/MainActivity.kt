@@ -794,15 +794,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         initialRestoreJob = viewModelScope.launch {
             restoreCachedBooks(onlyIfEmpty = true)
             normalizeCachedIdentities()
-            // La búsqueda de portadas se hace en segundo plano y se cachea por URI.
-            // Se limita por sesión para no saturar la red al abrir una biblioteca grande.
-            val missing = books.asSequence()
-                .filter { it.cover == null }
-                .filterNot { prefs.getBoolean("manual_identity_" + it.uri, false) }
-                .take(24)
-                .map { it.uri }
-                .toList()
-            missing.forEach { completeMissing(it) }
+            // Repara progresivamente todas las portadas pendientes y las guarda en caché.
+            // Las dos tareas controladas evitan saturar la red incluso en bibliotecas grandes.
+            refreshMissingCovers()
         }
         viewMode = prefs.getString("view_mode", "Galería") ?: "Galería"
         if (!prefs.getBoolean("cover_first_v48", false)) {
@@ -2365,14 +2359,36 @@ private fun inferFilenameIdentity(filename: String): FilenameIdentity {
             value = leadingSeries.groupValues[3].trim()
         }
     }
-    val parts = value.split(Regex("\\s+[-–—|]\\s+"), limit = 2)
-    val likelyAuthor = parts.getOrNull(0).orEmpty().trim()
-    val likelyTitle = parts.getOrNull(1).orEmpty().trim()
-    val hasAuthorShape = likelyTitle.isNotBlank() && likelyAuthor.length in 3..60 &&
-        likelyAuthor.split(' ').size in 1..5 && !likelyAuthor.any(Char::isDigit)
+    val parts = value.split(Regex("\\s+(?:[-–—|]{1,3})\\s+"))
+        .map(String::trim)
+        .filter(String::isNotBlank)
+
+    fun looksLikePerson(text: String): Boolean {
+        val words = text.replace(",", " ").trim().split(Regex("\\s+"))
+        return text.length in 3..60 &&
+            words.size in 2..5 &&
+            text.none(Char::isDigit) &&
+            words.all { it.length > 1 || it.lowercase() in setOf("de", "y") }
+    }
+
+    val first = parts.getOrNull(0).orEmpty()
+    val second = parts.getOrNull(1).orEmpty()
+    val authorFirst = second.isNotBlank() &&
+        (first.contains(",") || (looksLikePerson(first) && (second.any(Char::isDigit) || parts.size == 2)))
+    val titleFirst = second.isNotBlank() && !authorFirst && looksLikePerson(second)
+    val cleanTitle = when {
+        authorFirst -> second
+        titleFirst -> first
+        else -> value
+    }
+    val cleanAuthor = when {
+        authorFirst -> first
+        titleFirst -> second
+        else -> "Autor desconocido"
+    }
     return FilenameIdentity(
-        title = (if (hasAuthorShape) likelyTitle else value).ifBlank { "Libro sin título" },
-        author = if (hasAuthorShape) likelyAuthor else "Autor desconocido",
+        title = cleanTitle.ifBlank { "Libro sin título" },
+        author = cleanAuthor,
         saga = saga, order = order
     )
 }
@@ -4792,7 +4808,7 @@ private fun openCasaDelLibro(context: Context) {
                                     withContext(Dispatchers.Main) {
                                         publicResults = found
                                         publicSearching = false
-                                        selectedPublicResult = found.firstOrNull()
+                                        selectedPublicResult = null
                                     }
                                 }
                             }) { AppIcon("Buscar", "Consultar") }
@@ -4807,8 +4823,20 @@ private fun openCasaDelLibro(context: Context) {
                     if (!publicSearching && publicQuery.isNotBlank() && publicResults.isEmpty())
                         Text("No se han encontrado resultados.", color = Color.White.copy(alpha = .9f))
                     if (selectedPublicResult == null && publicResults.isNotEmpty()) {
-                        Text("Resultado principal", color = Brass, fontFamily = FontFamily.Serif, fontSize = 20.sp)
-                        PublicBookCard(publicResults.first(), onOpen = { selectedPublicResult = publicResults.first() }, onWish = { vm.addGoodreadsWish(publicResults.first().title, publicResults.first().sourceUrl) })
+                        Text(
+                            "Resultados encontrados (" + publicResults.size + ")",
+                            color = Brass,
+                            fontFamily = FontFamily.Serif,
+                            fontSize = 20.sp
+                        )
+                        publicResults.take(12).forEach { result ->
+                            Spacer(Modifier.height(12.dp))
+                            PublicBookCard(
+                                result,
+                                onOpen = { selectedPublicResult = result },
+                                onWish = { vm.addGoodreadsWish(result.title, result.sourceUrl) }
+                            )
+                        }
                     }
                     selectedPublicResult?.let { result ->
                         val details by produceState<PublicBookDetails?>(initialValue = null, result.sourceUrl) { value = withContext(Dispatchers.IO) { loadPublicBookDetails(result) } }
