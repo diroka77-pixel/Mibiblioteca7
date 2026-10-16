@@ -183,7 +183,7 @@ private data class PublicBookResult(
 private data class PublicBookDetails(
     val summary: String, val authorBio: String, val published: String = "",
     val pages: String = "", val language: String = "", val publisher: String = "",
-    val source: String = "Open Library", val authorImageUrl: String = ""
+    val source: String = "Open Library", val authorImageUrl: String = "", val coverUrl: String = ""
 )
 
 private fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
@@ -195,6 +195,7 @@ private fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
     var publisher = ""
     var source = "Open Library"
     var authorImageUrl = ""
+    var coverUrl = result.coverUrl
     runCatching {
         val key = result.sourceUrl.substringAfter("/works/", "").substringBefore("?")
         if (key.isNotBlank()) {
@@ -236,10 +237,21 @@ private fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
             pages = info.optInt("pageCount", 0).takeIf { it > 0 }?.toString().orEmpty()
             language = info.optString("language")
             publisher = info.optString("publisher")
+            coverUrl = info.optJSONObject("imageLinks")?.optString("large")?.ifBlank { info.optJSONObject("imageLinks")?.optString("thumbnail") }.orEmpty()
+                .replace("http://", "https://").ifBlank { coverUrl }
             source = "Open Library · Google Books"
         }
+        if (summary.isBlank() || coverUrl.isBlank()) {
+            val broad = java.net.URLEncoder.encode(result.title, "UTF-8")
+            val fallback = getJson("https://openlibrary.org/search.json?title=$broad&limit=5").optJSONArray("docs")
+            val row = fallback?.optJSONObject(0)
+            val id = row?.optInt("cover_i", 0) ?: 0
+            if (coverUrl.isBlank() && id > 0) coverUrl = "https://covers.openlibrary.org/b/id/$id-L.jpg"
+            if (summary.isBlank()) summary = row?.optJSONArray("first_sentence")?.optString(0).orEmpty()
+            if (summary.isNotBlank()) source = "$source · Open Library ampliado"
+        }
     }
-    return PublicBookDetails(summary.trim(), bio.trim(), published, pages, language, publisher, source, authorImageUrl)
+    return PublicBookDetails(summary.trim(), bio.trim(), published, pages, language, publisher, source, authorImageUrl, coverUrl)
 }
 
 private fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<PublicBookResult> {
@@ -494,7 +506,8 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
         Surface(Modifier.fillMaxWidth(), color = Paper.copy(alpha = .98f), shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp)) {
             Column(Modifier.padding(18.dp)) {
                 Box(Modifier.fillMaxWidth().height(270.dp), contentAlignment = Alignment.Center) {
-                    if (cover != null) Image(cover!!.asImageBitmap(), "Portada de ${result.title}", Modifier.fillMaxHeight().width(190.dp), contentScale = ContentScale.Fit)
+                    val detailCover by rememberPublicCover(details?.coverUrl?.ifBlank { result.coverUrl } ?: result.coverUrl)
+                    if (detailCover != null) Image(detailCover!!.asImageBitmap(), "Portada de ${result.title}", Modifier.fillMaxHeight().width(190.dp), contentScale = ContentScale.Fit)
                     else AppIcon("Libros", tint = Mahogany.copy(alpha = .5f), size = 64.dp)
                 }
                 Text(result.title, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 28.sp, color = Ink)
