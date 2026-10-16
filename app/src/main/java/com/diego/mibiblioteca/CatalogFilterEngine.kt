@@ -34,17 +34,21 @@ internal fun filterBooks(
     favorites: Boolean,
     section: String?,
     quality: String,
-    pending: Set<Uri>
+    pending: Set<Uri>,
+    searchMatches: Set<String>? = null
 ): List<Book> {
     val queryTerms = normalizeSearchText(query)
         .split(" ")
         .filter { it.length >= 2 }
 
     return books.filter { book ->
-        val fields = if (queryTerms.isEmpty()) emptyList()
-        else searchableBookFields(book).map(::normalizeSearchText)
-        val matchesQuery = queryTerms.isEmpty() || queryTerms.all { term ->
-            fields.any { field -> field.contains(term) }
+        val matchesQuery = when {
+            queryTerms.isEmpty() -> true
+            searchMatches != null -> book.uri.toString() in searchMatches
+            else -> {
+                val fields = searchableBookFields(book).map(::normalizeSearchText)
+                queryTerms.all { term -> fields.any { field -> field.contains(term) } }
+            }
         }
 
         matchesQuery &&
