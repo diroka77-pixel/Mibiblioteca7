@@ -3612,24 +3612,28 @@ private fun openCasaDelLibro(context: Context) {
     val sectionSnapshot = vm.selectedSection
     val qualitySnapshot = vm.qualityFilter
     val reviewSnapshot = vm.reviewPending
-    val filteredBooks = remember(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
-        sectionSnapshot, qualitySnapshot, reviewSnapshot, smartCollection) {
-        if (querySnapshot.isBlank() && statusSnapshot == null && !favoritesSnapshot &&
-            sectionSnapshot == null && qualitySnapshot == "Ninguno" && reviewSnapshot.isEmpty() &&
-            smartCollection == null) {
-            booksSnapshot
-        } else {
-            val base = filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
+    val hasCatalogFilters = querySnapshot.isNotBlank() || statusSnapshot != null ||
+        favoritesSnapshot || sectionSnapshot != null || qualitySnapshot != "Ninguno" ||
+        reviewSnapshot.isNotEmpty()
+    val baseFilteredBooks by produceState(
+        initialValue = if (hasCatalogFilters) emptyList() else booksSnapshot,
+        booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
+        sectionSnapshot, qualitySnapshot, reviewSnapshot
+    ) {
+        value = if (!hasCatalogFilters) booksSnapshot else withContext(Dispatchers.Default) {
+            filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
                 sectionSnapshot, qualitySnapshot, reviewSnapshot)
-            when (smartCollection) {
-                "abandonados" -> base.filter { it.status == ReadingStatus.PENDING &&
-                    vm.readingPercent(it.uri) in 1..99 }
-                "sin_terminar" -> base.filter { vm.readingPercent(it.uri) in 1..99 &&
-                    it.status != ReadingStatus.READ }
-                "pendientes" -> base.filter { it.status == ReadingStatus.PENDING &&
-                    it.startedDate.isBlank() && vm.readingPercent(it.uri) == 0 }
-                else -> base
-            }
+        }
+    }
+    val filteredBooks = remember(baseFilteredBooks, smartCollection) {
+        when (smartCollection) {
+            "abandonados" -> baseFilteredBooks.filter { it.status == ReadingStatus.PENDING &&
+                vm.readingPercent(it.uri) in 1..99 }
+            "sin_terminar" -> baseFilteredBooks.filter { vm.readingPercent(it.uri) in 1..99 &&
+                it.status != ReadingStatus.READ }
+            "pendientes" -> baseFilteredBooks.filter { it.status == ReadingStatus.PENDING &&
+                it.startedDate.isBlank() && vm.readingPercent(it.uri) == 0 }
+            else -> baseFilteredBooks
         }
     }
     val smartBooks = filteredBooks
