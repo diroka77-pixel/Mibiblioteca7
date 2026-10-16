@@ -4651,17 +4651,19 @@ private fun openCasaDelLibro(context: Context) {
             }
             if (tab == "Descubrir") item(key = "public-search-page") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                    Text("Descubrir libros", color = Color.White, fontFamily = FontFamily.Serif,
-                        fontWeight = FontWeight.Bold, fontSize = 27.sp,
+                    Text("Descubrir", color = Color.White, fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold, fontSize = 30.sp,
                         style = MaterialTheme.typography.headlineSmall.copy(shadow = WallpaperTextShadow))
-                    Text("Consulta información pública sin añadir nada a tu biblioteca.",
-                        color = Color.White.copy(alpha = .84f), fontSize = 14.sp)
-                    Spacer(Modifier.height(14.dp))
-                    OutlinedTextField(value = publicQuery, onValueChange = { publicQuery = it },
-                        modifier = Modifier.fillMaxWidth(), singleLine = true,
-                        placeholder = { Text("Título, autor o ISBN") },
-                        leadingIcon = { AppIcon("Buscar") },
-                        trailingIcon = { Row {
+                    Text("Busca un libro y consulta su información pública.", color = Color.White.copy(alpha = .86f), fontSize = 15.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Surface(Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
+                        color = Paper.copy(alpha = .98f), shadowElevation = 4.dp,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = .65f))) {
+                        OutlinedTextField(value = publicQuery, onValueChange = { publicQuery = it },
+                            modifier = Modifier.fillMaxWidth(), singleLine = true,
+                            placeholder = { Text("Título, autor o ISBN") },
+                            leadingIcon = { AppIcon("Buscar") },
+                            trailingIcon = { Row {
                             IconButton(onClick = { launchVoiceSearch(true) }) {
                                 Icon(Icons.Outlined.Mic, if (voiceListening) "Detener voz" else "Buscar por voz",
                                     tint = if (voiceListening) Teal else Mahogany)
@@ -4677,11 +4679,12 @@ private fun openCasaDelLibro(context: Context) {
                                     }
                                 }
                             }) { AppIcon("Buscar", "Consultar") }
-                        } },
-                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Paper,
+                            } },
+                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color.Transparent,
                             unfocusedContainerColor = Paper, focusedTextColor = Ink, unfocusedTextColor = Ink,
                             focusedBorderColor = Brass, unfocusedBorderColor = Brass.copy(alpha = .7f)),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                    }
                     if (publicSearching) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 10.dp), color = Brass)
                     Spacer(Modifier.height(14.dp))
                     if (!publicSearching && publicQuery.isNotBlank() && publicResults.isEmpty())
