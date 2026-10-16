@@ -541,7 +541,7 @@ private fun PublicBookCard(result: PublicBookResult, onOpen: () -> Unit, onWish:
 }
 
 @Composable
-private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDetails?, onBack: () -> Unit, onWish: () -> Unit) {
+private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDetails?, wishListed: Boolean, onBack: () -> Unit, onWish: () -> Unit) {
     val cover by rememberPublicCover(result.coverUrl)
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
         TextButton(onClick = onBack) { Text("← Volver a resultados", color = Brass) }
@@ -555,7 +555,7 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 Text(result.title, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 28.sp, color = Ink)
                 Text(result.author.ifBlank { "Autor no disponible" }, fontSize = 18.sp, color = Mahogany)
                 Spacer(Modifier.height(10.dp))
-                Button(onClick = onWish, colors = ButtonDefaults.buttonColors(containerColor = Teal), modifier = Modifier.fillMaxWidth()) { Text("♡  Añadir a deseos") }
+                Button(onClick = onWish, colors = ButtonDefaults.buttonColors(containerColor = Teal), modifier = Modifier.fillMaxWidth()) { Text(if (wishListed) "♥  Quitar de deseos" else "♡  Añadir a deseos") }
                 Spacer(Modifier.height(18.dp))
                 Text("Descripción", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
                 Text(details?.summary?.ifBlank { "No hay descripción disponible en las fuentes públicas." } ?: "Cargando información pública…", color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
@@ -4737,9 +4737,14 @@ private fun openCasaDelLibro(context: Context) {
                     }
                     selectedPublicResult?.let { result ->
                         val details by produceState<PublicBookDetails?>(initialValue = null, result.sourceUrl) { value = withContext(Dispatchers.IO) { loadPublicBookDetails(result) } }
-                        PublicBookDetailPage(result, details, onBack = { selectedPublicResult = null }, onWish = {
-                            vm.addGoodreadsWish(result.title, result.sourceUrl)
-                            android.widget.Toast.makeText(context, "Añadido a Quiero leer", android.widget.Toast.LENGTH_SHORT).show()
+                        PublicBookDetailPage(result, details, wishListed = vm.wishList.any { it.first.equals(result.title, true) && it.second == result.sourceUrl }, onBack = { selectedPublicResult = null }, onWish = {
+                            if (vm.wishList.any { it.first.equals(result.title, true) && it.second == result.sourceUrl }) {
+                                vm.removeGoodreadsWish(result.sourceUrl)
+                                android.widget.Toast.makeText(context, "Quitado de Quiero leer", android.widget.Toast.LENGTH_SHORT).show()
+                            } else {
+                                vm.addGoodreadsWish(result.title, result.sourceUrl)
+                                android.widget.Toast.makeText(context, "Añadido a Quiero leer", android.widget.Toast.LENGTH_SHORT).show()
+                            }
                         })
                     }
                 }
