@@ -4467,6 +4467,24 @@ private fun openCasaDelLibro(context: Context) {
                     },
                     onVoice = { launchVoiceSearch(false) }
                 )
+                if (tab == "Biblioteca" || tab == "Secciones") {
+                    UnifiedLibraryModeBar(
+                        current = when {
+                            tab == "Secciones" -> UnifiedLibraryMode.SECTIONS
+                            vm.groupMode == "Géneros" -> UnifiedLibraryMode.GENRES
+                            else -> UnifiedLibraryMode.BOOKS
+                        },
+                        onBooks = {
+                            vm.groupMode = "Todos"
+                            switchTab("Biblioteca")
+                        },
+                        onGenres = {
+                            vm.groupMode = "Géneros"
+                            switchTab("Biblioteca")
+                        },
+                        onSections = { switchTab("Secciones") }
+                    )
+                }
             }
         },
         bottomBar = {
@@ -4476,13 +4494,13 @@ private fun openCasaDelLibro(context: Context) {
                 listOf(
                     Triple("Inicio", "Inicio", "Inicio"),
                     Triple("Biblioteca", "Libros", "Libros"),
-                    Triple("Secciones", "Secciones", "Secciones"),
                     Triple("Descubrir", "Buscar", "Buscar"),
                     Triple("Favoritos", "Favoritos", "Favoritos"),
                     Triple("Estadísticas", "Estadísticas", "Estadísticas")
                 ).forEach { (targetTab, label, icon) ->
                     NavigationBarItem(
-                        selected = tab == targetTab,
+                        selected = tab == targetTab ||
+                            (targetTab == "Biblioteca" && tab == "Secciones"),
                         onClick = { switchTab(targetTab) },
                         icon = { AppIcon(icon, description = label, size = 22.dp) },
                         label = { Text(label, maxLines = 1, softWrap = false,
