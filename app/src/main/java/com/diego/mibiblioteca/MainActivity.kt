@@ -555,6 +555,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var activityLog by mutableStateOf<List<String>>(emptyList()); private set
 
     private val prefs = app.getSharedPreferences("library", Context.MODE_PRIVATE)
+    private val scopedViewModes = mutableStateMapOf<String, String>()
     var annualReadingGoal by mutableIntStateOf(prefs.getInt("annual_reading_goal", 12))
         private set
     fun updateAnnualReadingGoal(goal: Int) {
@@ -582,6 +583,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             refreshMissingCovers()
         }
         viewMode = prefs.getString("view_mode", "Galería") ?: "Galería"
+        (listOf("general") + sections).forEach { scope ->
+            scopedViewModes[scope] = prefs.getString("view_mode_$scope", viewMode) ?: viewMode
+        }
         if (!prefs.getBoolean("cover_first_v48", false)) {
             if (!prefs.contains("view_mode_general")) viewMode = "Galería"
             prefs.edit().putString("view_mode", viewMode)
@@ -2047,11 +2051,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         if (title.isNotBlank()) addActivity("$title · ${status.label}")
     }
     fun chooseViewMode(mode: String, section: String? = selectedSection) {
+        val scope = section ?: "general"
+        scopedViewModes[scope] = mode
         viewMode = mode
-        prefs.edit().putString("view_mode_" + (section ?: "general"), mode).apply()
+        prefs.edit().putString("view_mode_$scope", mode).apply()
     }
-    fun viewModeFor(section: String?): String = prefs.getString(
-        "view_mode_" + (section ?: "general"), viewMode) ?: viewMode
+    fun viewModeFor(section: String?): String =
+        scopedViewModes[section ?: "general"] ?: viewMode
     fun setHomeNews(show: Boolean) {
         showHomeNews = show; prefs.edit().putBoolean("show_home_news", show).apply()
     }
