@@ -1377,7 +1377,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         // Keep the progress strip visually separate while using the reading area efficiently.
                         val height = with(density) { (maxHeight - 4.dp).roundToPx() }
                         val textSizePx = with(density) { fontSize.sp.toPx() }
-                        val gap = with(density) { (14.dp * lineSpacing).roundToPx() }
+                        // Debe coincidir con el espacio real entre párrafos para no reservar
+                        // líneas invisibles al final de cada página.
+                        val gap = with(density) { 6.dp.roundToPx() }
                         val pages by produceState<List<ReadingPage>>(emptyList(), document,
                             width, height, fontSize, readerMargin, lineSpacing) {
                             ready = false
@@ -1575,8 +1577,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     transformOrigin = TransformOrigin(if (entering) 1f else 0f, 0.5f)
                                     cameraDistance = 12000f
                                     shadowElevation = if (angle == 0f) 0f else 18.dp.toPx()
-                                    }.background(background).padding(horizontal = readerMargin.dp, vertical = 4.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    }.background(background).padding(horizontal = readerMargin.dp, vertical = 2.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     pages[shown].slices.forEachIndexed { position, slice ->
                                         if (position == 0 && slice.start == 0 &&
                                             paragraphs[slice.paragraph].chapterStart)
