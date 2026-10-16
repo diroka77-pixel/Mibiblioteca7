@@ -40,7 +40,9 @@ fun LibrarySearchField(
     var draft by rememberSaveable { mutableStateOf(query) }
     LaunchedEffect(query) { if (query != draft) draft = query }
     LaunchedEffect(draft) {
-        delay(180)
+        // El catálogo se filtra cuando termina la ráfaga de escritura.
+        // Un intervalo corto provocaba recomposiciones mientras todavía se tecleaba.
+        delay(480)
         if (draft != query) onQueryCommit(draft)
     }
     OutlinedTextField(
