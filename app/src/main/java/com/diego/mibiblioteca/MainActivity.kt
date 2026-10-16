@@ -3599,7 +3599,9 @@ private fun openCasaDelLibro(context: Context) {
     }
     val querySnapshot = vm.query
     val statusSnapshot = vm.statusFilter
-    val favoritesSnapshot = vm.onlyFavorites
+    // El destino Favoritos aplica su estado desde el primer fotograma,
+    // sin esperar a que el ViewModel cambie después de la navegación.
+    val favoritesSnapshot = tab == "Favoritos" || vm.onlyFavorites
     val sectionSnapshot = vm.selectedSection
     val qualitySnapshot = vm.qualityFilter
     val reviewSnapshot = vm.reviewPending
