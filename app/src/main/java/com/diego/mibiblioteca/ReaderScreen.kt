@@ -180,8 +180,9 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
     paragraphs.forEachIndexed { index, paragraph ->
         workerContext.ensureActive()
         if (paragraph.chapterStart) {
-            finish()
-            occupied = (gapPx * 3).coerceAtMost(height / 4)
+            // Start a chapter on a new page only when the current page is nearly full.
+            if (slices.isNotEmpty() && occupied > (height * 0.82f).toInt()) finish()
+            occupied += (gapPx * 2).coerceAtMost(height / 8)
         }
         if (paragraph.imagePath != null) {
             // La ilustración comparte página con el texto siguiente cuando
