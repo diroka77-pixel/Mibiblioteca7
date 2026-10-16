@@ -186,10 +186,11 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
         if (paragraph.imagePath != null) {
             // La ilustración comparte página con el texto siguiente cuando
             // queda espacio, como en la maquetación EPUB original.
-            // Reservamos aproximadamente un tercio de la página. El dibujo
-            // se pinta con su proporción real y el espacio restante queda
-            // disponible para varias líneas del párrafo siguiente.
-            val imageHeight = (height * 0.30f).toInt().coerceAtLeast(150)
+            // La ilustración debe quedar integrada en la página, sin dejar
+            // un bloque vacío debajo. Reservamos una fracción compacta y
+            // dejamos que el texto siguiente ocupe todo el espacio restante.
+            // El límite superior evita que una imagen grande se coma la página.
+            val imageHeight = (height * 0.22f).toInt().coerceIn(140, 280)
             if (occupied + imageHeight > height && slices.isNotEmpty()) finish()
             slices += ReadingSlice(index, 0, 0, imageHeight)
             occupied += imageHeight + gapPx
