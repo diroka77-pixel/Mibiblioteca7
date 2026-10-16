@@ -394,20 +394,20 @@ private fun inferredSaga(book: Book): Pair<String, String> {
 private fun extractSagaFromText(raw: String): Pair<String, String>? {
     val source = raw.replace('_', ' ').replace(Regex("\\s+"), " ").trim()
     if (source.isBlank()) return null
-    val number = "(\\\\d+(?:[.,]\\\\d+)?)"
+    val number = "(\\d+(?:[.,]\\d+)?)"
     val patterns = listOf(
-        Regex("(?i)\\\\[([^]]{2,100}?)\\\\s*(?:#|№|n[ºo.]?|vol(?:umen)?[.]?|tomo|libro)\\\\s*$number\\\\]"),
-        Regex("(?i)\\\\(([^()]{2,100}?)\\\\s*(?:#|№|n[ºo.]?|vol(?:umen)?[.]?|tomo|libro)?\\\\s*$number\\\\)"),
-        Regex("(?i)^(.{2,100}?)\\\\s*(?:-|–|—|:)\\\\s*(?:libro|vol(?:umen)?|tomo|parte|n[ºo.]?)\\\\s*$number(?:\\\\s*[-–—:].*)?$"),
-        Regex("(?i)^(.{2,100}?)\\\\s+(?:#|№|n[ºo.]?|vol(?:umen)?[.]?|tomo|libro)\\\\s*$number(?:\\\\s*[-–—:].*)?$"),
-        Regex("(?i)^(.{2,100}?)\\\\s*[-–—:]\\\\s*(?:libro|vol(?:umen)?|tomo)?\\\\s*$number\\\\s*[-–—:]\\\\s*.+$"),
-        Regex("(?i)^(.{2,100}?)\\\\s*,?\\\\s*$number\\\\s*(?:de\\\\s+la\\\\s+serie|de\\\\s+la\\\\s+saga|series?)$")
+        Regex("(?i)\\[([^]]{2,100}?)\\s*(?:#|№|n[ºo.]?|vol(?:umen)?[.]?|tomo|libro)\\s*$number\\]"),
+        Regex("(?i)\\(([^()]{2,100}?)\\s*(?:#|№|n[ºo.]?|vol(?:umen)?[.]?|tomo|libro)?\\s*$number\\)"),
+        Regex("(?i)^(.{2,100}?)\\s*(?:-|–|—|:)\\s*(?:libro|vol(?:umen)?|tomo|parte|n[ºo.]?)\\s*$number(?:\\s*[-–—:].*)?$"),
+        Regex("(?i)^(.{2,100}?)\\s+(?:#|№|n[ºo.]?|vol(?:umen)?[.]?|tomo|libro)\\s*$number(?:\\s*[-–—:].*)?$"),
+        Regex("(?i)^(.{2,100}?)\\s*[-–—:]\\s*(?:libro|vol(?:umen)?|tomo)?\\s*$number\\s*[-–—:]\\s*.+$"),
+        Regex("(?i)^(.{2,100}?)\\s*,?\\s*$number\\s*(?:de\\s+la\\s+serie|de\\s+la\\s+saga|series?)$")
     )
     for (pattern in patterns) {
         val match = pattern.find(source) ?: continue
         val saga = match.groupValues.getOrNull(1).orEmpty()
             .trim(' ', '-', '–', '—', ':', ',', ';')
-            .replace(Regex("(?i)\\\\b(?:saga|serie|coleccion|collection)\\\\b"), "")
+            .replace(Regex("(?i)\\b(?:saga|serie|coleccion|collection)\\b"), "")
             .trim()
         val order = match.groupValues.lastOrNull().orEmpty().replace(',', '.')
         if (saga.length >= 2 && order.toDoubleOrNull()?.let { it !in 1900.0..2100.0 } == true) {
