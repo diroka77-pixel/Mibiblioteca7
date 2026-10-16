@@ -1373,7 +1373,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                         val density = LocalDensity.current
                         val width = with(density) { (maxWidth - (readerMargin * 2).dp).roundToPx() }
-                        val height = with(density) { (maxHeight - 16.dp).roundToPx() }
+                        // Keep the progress strip visually separate while using the reading area efficiently.
+                        val height = with(density) { (maxHeight - 4.dp).roundToPx() }
                         val textSizePx = with(density) { fontSize.sp.toPx() }
                         val gap = with(density) { (14.dp * lineSpacing).roundToPx() }
                         val pages by produceState<List<ReadingPage>>(emptyList(), document,
