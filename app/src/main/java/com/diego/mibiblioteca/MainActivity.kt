@@ -757,23 +757,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             withContext(Dispatchers.IO) {
                 saveMutex.withLock {
                     if (revision != saveVersion) return@withLock
-        val array = org.json.JSONArray()
-        snapshot.forEach { b -> array.put(JSONObject().put("uri", b.uri.toString())
-            .put("title", b.title).put("author", b.author).put("date", b.date)
-            .put("publisher", b.publisher).put("genre", b.genre).put("description", b.description)
-            .put("isbn", b.isbn).put("saga", b.saga).put("language", b.language)
-            .put("section", b.section).put("sections", org.json.JSONArray(bookSections(b)))
-            .put("notes", b.notes)
-            .put("goodreadsUrl", b.goodreadsUrl).put("wantToRead", b.wantToRead)
-            .put("customTitle", b.customTitle).put("customAuthor", b.customAuthor)
-            .put("sagaOrder", b.sagaOrder).put("favorite", b.favorite).put("status", b.status.name)
-            .put("sourceSize", b.sourceSize).put("sourceModified", b.sourceModified)
-            .put("metadataRevision", b.metadataRevision).put("sourceCoverChecked", b.sourceCoverChecked).put("hadEmbeddedCover", b.hadEmbeddedCover)
-            .put("plotSource", b.plotSource).put("bioSource", b.bioSource).put("coverSource", b.coverSource)
-            .put("rating", b.rating).put("startedDate", b.startedDate)
-            .put("finishedDate", b.finishedDate).put("quotes", b.quotes)
-            .put("tags", org.json.JSONArray(b.tags)).put("loanTo", b.loanTo)
-            .put("loanDate", b.loanDate).put("rereadCount", b.rereadCount)) }
+                    val array = booksToJsonArray(snapshot)
                     bookStore.replaceAll(array)
                     prefs.edit().putString("books_cache", array.toString()).apply()
                 }
