@@ -268,14 +268,28 @@ private fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): Lis
             val title = info.optString("title").trim()
             if (title.isBlank()) return@mapNotNull null
             val authors = info.optJSONArray("authors")
-            val author = (0 until (authors?.length() ?: 0)).joinToString(", ") { authors!!.optString(it) }
+            var author = (0 until (authors?.length() ?: 0)).joinToString(", ") { authors!!.optString(it) }
+            var authorKeyFallback = ""
+            var summaryFallback = info.optString("description")
+            if (author.isBlank() || summaryFallback.isBlank()) runCatching {
+                val exactTitle = java.net.URLEncoder.encode(title, "UTF-8")
+                val exactDocs = getJson("https://openlibrary.org/search.json?title=$exactTitle&limit=10").optJSONArray("docs")
+                val exactRow = (0 until (exactDocs?.length() ?: 0)).mapNotNull { n -> exactDocs?.optJSONObject(n) }
+                    .firstOrNull { it.optString("title").equals(title, true) }
+                if (exactRow != null) {
+                    val names = exactRow.optJSONArray("author_name")
+                    author = (0 until (names?.length() ?: 0)).joinToString(", ") { names!!.optString(it) }
+                    authorKeyFallback = exactRow.optJSONArray("author_key")?.optString(0).orEmpty()
+                    if (summaryFallback.isBlank()) summaryFallback = exactRow.optJSONArray("first_sentence")?.optString(0).orEmpty()
+                }
+            }
             val wanted = titleQuery.trim().lowercase()
             val exact = title.lowercase() == wanted || title.lowercase().contains(wanted)
             val authorOk = authorQuery.isBlank() || author.lowercase().contains(authorQuery.trim().lowercase())
             if (!exact || !authorOk) return@mapNotNull null
             val image = info.optJSONObject("imageLinks")?.optString("thumbnail").orEmpty().replace("http://", "https://")
             PublicBookResult(title, author, info.optString("publishedDate").take(4), info.optString("industryIdentifiers").takeIf { it.isNotBlank() }.orEmpty(), image,
-                info.optString("canonicalVolumeLink").ifBlank { "https://books.google.com/books?id=${row.optString("id")}" }, info.optString("description"))
+                info.optString("canonicalVolumeLink").ifBlank { "https://books.google.com/books?id=${row.optString("id")}" }, summaryFallback, authorKey = authorKeyFallback)
         }.distinctBy { (it.title + "|" + it.author).lowercase() }
         if (google.isNotEmpty()) return google.sortedByDescending { if (it.title.equals(titleQuery.trim(), true)) 1 else 0 }
     }
