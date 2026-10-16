@@ -76,4 +76,4 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
 
-# Pantalla Descubrir integrada antes de Favoritos
+# Búsqueda por voz y panel ampliado de resultados públicos
