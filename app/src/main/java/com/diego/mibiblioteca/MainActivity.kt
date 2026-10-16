@@ -3387,7 +3387,7 @@ private fun openCasaDelLibro(context: Context) {
     var draftAllGenres by remember { mutableStateOf(true) }
     var smartCollection by rememberSaveable { mutableStateOf<String?>(null) }
     val genrePickerListState = rememberLazyListState()
-    val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Descubrir", "Favoritos", "Estadísticas") }
+    val tabs = remember { listOf("Inicio", "Biblioteca", "Secciones", "Descubrir", "Favoritos", "Estadísticas") }
     val scope = rememberCoroutineScope()
     val pageMotion = remember { Animatable(0f) }
     val pageDrag = remember { mutableFloatStateOf(0f) }
@@ -3406,7 +3406,11 @@ private fun openCasaDelLibro(context: Context) {
     var sectionToRename by remember { mutableStateOf<String?>(null) }
     var renameSectionName by remember { mutableStateOf("") }
     var showWishList by remember { mutableStateOf(false) }
-    fun switchTab(name: String, showPending: Boolean = false) {
+    fun switchTab(requestedName: String, showPending: Boolean = false) {
+        val name = if (requestedName == "Géneros") {
+            vm.groupMode = "Géneros"
+            "Biblioteca"
+        } else requestedName
         tabTransitionJob?.cancel()
         tabTransitionJob = scope.launch {
             if (pageDrag.floatValue != 0f) {
@@ -3749,7 +3753,7 @@ private fun openCasaDelLibro(context: Context) {
             PackageManager.PERMISSION_GRANTED) { voiceTargetPublic = publicSearch; startVoiceWhenPermitted = true }
         else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
-    val readingBooks = remember(vm.books) { vm.readingBooks() }
+    val readingBooks = remember(vm.books, vm.query) { filterBooks(vm.readingBooks(), vm.query, null, false, null, "Ninguno", emptySet()) }
     // Secciones mantiene su propia vista, separada de Biblioteca.
     val activeViewScope: String? = if (tab == "Secciones") "__secciones__" else vm.selectedSection
     LaunchedEffect(vm.message) {
@@ -4621,8 +4625,8 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                 }
-                OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
-                    tab = "Biblioteca"; vm.qualityFilter = "Ninguno"
+                if (tab != "Descubrir") OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
+                    vm.qualityFilter = "Ninguno"
                 } },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
                     singleLine = true, placeholder = { Text("Buscar título, saga o autor") },
