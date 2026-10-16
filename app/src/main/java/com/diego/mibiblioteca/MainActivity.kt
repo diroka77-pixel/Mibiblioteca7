@@ -3220,7 +3220,6 @@ private fun openCasaDelLibro(context: Context) {
     var wishUrl by remember { mutableStateOf("") }
     var publicSearchOpen by remember { mutableStateOf(false) }
     var publicQuery by remember { mutableStateOf("") }
-    var publicAuthor by remember { mutableStateOf("") }
     var publicResults by remember { mutableStateOf<List<PublicBookResult>>(emptyList()) }
     var publicSearching by remember { mutableStateOf(false) }
     var selectedPublicResult by remember { mutableStateOf<PublicBookResult?>(null) }
@@ -4611,8 +4610,12 @@ private fun openCasaDelLibro(context: Context) {
                             IconButton(enabled = !publicSearching, onClick = {
                                 publicSearching = true
                                 scope.launch(Dispatchers.IO) {
-                                    val found = runCatching { searchPublicBooks(publicQuery, publicAuthor) }.getOrDefault(emptyList())
-                                    withContext(Dispatchers.Main) { publicResults = found; publicSearching = false }
+                                    val found = runCatching { searchPublicBooks(publicQuery) }.getOrDefault(emptyList())
+                                    withContext(Dispatchers.Main) {
+                                        publicResults = found
+                                        publicSearching = false
+                                        selectedPublicResult = found.firstOrNull()
+                                    }
                                 }
                             }) { AppIcon("Buscar", "Consultar") }
                         } },
@@ -4620,26 +4623,12 @@ private fun openCasaDelLibro(context: Context) {
                             unfocusedContainerColor = Paper, focusedTextColor = Ink, unfocusedTextColor = Ink,
                             focusedBorderColor = Brass, unfocusedBorderColor = Brass.copy(alpha = .7f)),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(value = publicAuthor, onValueChange = { publicAuthor = it },
-                        modifier = Modifier.fillMaxWidth(), singleLine = true,
-                        placeholder = { Text("Autor (opcional, para afinar)") },
-                        leadingIcon = { AppIcon("Autores") },
-                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Paper,
-                            unfocusedContainerColor = Paper, focusedTextColor = Ink, unfocusedTextColor = Ink,
-                            focusedBorderColor = Brass, unfocusedBorderColor = Brass.copy(alpha = .7f)),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
                     if (publicSearching) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 10.dp), color = Brass)
                     Spacer(Modifier.height(14.dp))
-                    if (!publicSearching && (publicQuery.isNotBlank() || publicAuthor.isNotBlank()) && publicResults.isEmpty())
+                    if (!publicSearching && publicQuery.isNotBlank() && publicResults.isEmpty())
                         Text("No se han encontrado resultados.", color = Color.White.copy(alpha = .9f))
-                    publicResults.forEach { result ->
-                        PublicBookCard(result, onOpen = { selectedPublicResult = result }) {
-                            vm.addGoodreadsWish(result.title, result.sourceUrl)
-                            android.widget.Toast.makeText(context, "Añadido a Quiero leer", android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                        Spacer(Modifier.height(10.dp))
-                    }
+                    if (publicResults.isNotEmpty() && selectedPublicResult == null)
+                        Text("Selecciona una búsqueda para abrir la ficha completa.", color = Color.White.copy(alpha = .9f))
                 }
             }
             if (tab != "Estadísticas" && tab != "Descubrir") item(key = "controls") {
