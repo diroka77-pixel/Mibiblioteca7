@@ -31,7 +31,7 @@ private val SearchBrass = Color(0xFFAD8248)
 private val SearchTeal = Color(0xFF5AA69E)
 
 @Composable
-private fun LibrarySearchField(
+fun LibrarySearchField(
     query: String,
     voiceListening: Boolean,
     onQueryCommit: (String) -> Unit,
@@ -69,7 +69,7 @@ private fun LibrarySearchField(
 }
 
 @Composable
-private fun DiscoverSearchField(
+fun DiscoverSearchField(
     query: String,
     searching: Boolean,
     voiceListening: Boolean,
