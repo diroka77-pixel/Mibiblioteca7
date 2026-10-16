@@ -27,6 +27,33 @@ internal fun searchableBookFields(book: Book): List<String> = listOf(
     Uri.decode(book.uri.lastPathSegment.orEmpty())
 )
 
+internal fun matchesCatalogFlags(
+    bookStatus: ReadingStatus,
+    isFavorite: Boolean,
+    sections: List<String>,
+    hasCover: Boolean,
+    hasPlot: Boolean,
+    hasBiography: Boolean,
+    hasKnownAuthor: Boolean,
+    needsReview: Boolean,
+    status: ReadingStatus?,
+    favoritesOnly: Boolean,
+    section: String?,
+    quality: String
+): Boolean =
+    (status == null || bookStatus == status) &&
+        (!favoritesOnly || isFavorite) &&
+        (section == null || section in sections) &&
+        when (quality) {
+            "Portada" -> !hasCover
+            "Argumento" -> !hasPlot
+            "Biografía" -> !hasBiography
+            "Autor" -> !hasKnownAuthor
+            "Revisar" -> needsReview
+            "Todos" -> !hasCover || !hasPlot || !hasBiography || !hasKnownAuthor || needsReview
+            else -> true
+        }
+
 internal fun filterBooks(
     books: List<Book>,
     query: String,
@@ -51,22 +78,19 @@ internal fun filterBooks(
             }
         }
 
-        matchesQuery &&
-            (status == null || book.status == status) &&
-            (!favorites || book.favorite) &&
-            (section == null || section in bookSections(book)) &&
-            when (quality) {
-                "Portada" -> book.cover == null
-                "Argumento" -> book.spanishPlot.isBlank()
-                "Biografía" -> book.authorBio.isBlank()
-                "Autor" -> displayAuthor(book) == "Biblioteca de Diroka77"
-                "Revisar" -> book.uri in pending
-                "Todos" -> book.cover == null ||
-                    book.spanishPlot.isBlank() ||
-                    book.authorBio.isBlank() ||
-                    displayAuthor(book) == "Biblioteca de Diroka77" ||
-                    book.uri in pending
-                else -> true
-            }
+        matchesQuery && matchesCatalogFlags(
+            bookStatus = book.status,
+            isFavorite = book.favorite,
+            sections = bookSections(book),
+            hasCover = book.cover != null,
+            hasPlot = book.spanishPlot.isNotBlank(),
+            hasBiography = book.authorBio.isNotBlank(),
+            hasKnownAuthor = displayAuthor(book) != "Biblioteca de Diroka77",
+            needsReview = book.uri in pending,
+            status = status,
+            favoritesOnly = favorites,
+            section = section,
+            quality = quality
+        )
     }
 }
