@@ -295,8 +295,11 @@ private fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): Lis
     }
     val titlePart = if (titleQuery.isBlank()) "" else "&title=$encoded"
     val authorPart = if (authorQuery.isBlank()) "" else "&author=${java.net.URLEncoder.encode(authorQuery.trim(), "UTF-8")}"
-    val docs = getJson("https://openlibrary.org/search.json?mode=everything&limit=10$titlePart$authorPart")
-        .optJSONArray("docs") ?: return emptyList()
+    val docs = runCatching {
+        getJson("https://openlibrary.org/search.json?q=$encoded&mode=everything&limit=20$authorPart").optJSONArray("docs")
+    }.getOrNull() ?: runCatching {
+        getJson("https://openlibrary.org/search.json?title=$encoded&limit=20").optJSONArray("docs")
+    }.getOrNull() ?: return emptyList()
     return (0 until docs.length()).mapNotNull { i ->
         val row = docs.optJSONObject(i) ?: return@mapNotNull null
         val key = row.optString("key").removePrefix("/works/")
