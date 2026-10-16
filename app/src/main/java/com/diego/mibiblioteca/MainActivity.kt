@@ -238,8 +238,8 @@ private fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
                 else -> description?.toString().orEmpty()
             }
         }
-        if (bio.isBlank() && result.author.isNotBlank()) {
-            val authorQ = java.net.URLEncoder.encode(result.author.substringBefore(",").trim(), "UTF-8")
+        if ((bio.isBlank() || authorImageUrl.isBlank()) && result.author.isNotBlank()) {
+            val authorQ = java.net.URLEncoder.encode("\"" + result.author.trim() + "\" escritor autor", "UTF-8")
             val hits = getJson("https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=$authorQ&format=json&origin=*").optJSONObject("query")?.optJSONArray("search")
             val page = hits?.optJSONObject(0)?.optString("title").orEmpty()
             if (page.isNotBlank()) {
@@ -247,7 +247,8 @@ private fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
                 val extract = getJson("https://es.wikipedia.org/w/api.php?action=query&prop=extracts|pageimages&piprop=thumbnail&pithumbsize=500&explaintext=1&exintro=1&titles=$title&format=json&origin=*").optJSONObject("query")?.optJSONObject("pages")
                 val key = extract?.keys()?.asSequence()?.firstOrNull()
                 val authorPage = key?.let { extract.optJSONObject(it) }
-                bio = authorPage?.optString("extract").orEmpty()
+                val wikipediaBio = authorPage?.optString("extract").orEmpty()
+                if (bio.isBlank()) bio = wikipediaBio
                 authorImageUrl = authorPage?.optJSONObject("thumbnail")?.optString("source").orEmpty()
                 if (bio.isNotBlank()) source = "$source · Wikipedia"
             }
@@ -280,7 +281,7 @@ private fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
 
 private fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<PublicBookResult> {
     if (titleQuery.isBlank() && authorQuery.isBlank()) return emptyList()
-    curatedPublicResult(titleQuery.trim(), authorQuery.trim())?.let { return listOf(it) }
+    val curated = curatedPublicResult(titleQuery.trim(), authorQuery.trim())
     val encoded = java.net.URLEncoder.encode(titleQuery.trim(), "UTF-8")
     // Google Books entiende consultas mixtas como «Hija del cielo Rodrigo Cortés»;
     // se usa primero porque devuelve la edición exacta y sus datos editoriales.
@@ -312,8 +313,20 @@ private fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): Lis
             val exact = title.lowercase() == wanted || title.lowercase().contains(wanted)
             val authorOk = authorQuery.isBlank() || author.lowercase().contains(authorQuery.trim().lowercase())
             if (!exact || !authorOk) return@mapNotNull null
-            val image = info.optJSONObject("imageLinks")?.optString("thumbnail").orEmpty().replace("http://", "https://")
-            PublicBookResult(title, author, info.optString("publishedDate").take(4), info.optString("industryIdentifiers").takeIf { it.isNotBlank() }.orEmpty(), image,
+            val identifiers = info.optJSONArray("industryIdentifiers")
+            val isbn = (0 until (identifiers?.length() ?: 0)).mapNotNull { n ->
+                identifiers?.optJSONObject(n)?.optString("identifier")?.filter(Char::isDigit)
+            }.firstOrNull { it.length == 13 }
+                ?: (0 until (identifiers?.length() ?: 0)).mapNotNull { n ->
+                    identifiers?.optJSONObject(n)?.optString("identifier")?.filter(Char::isDigit)
+                }.firstOrNull { it.length == 10 }.orEmpty()
+            val image = info.optJSONObject("imageLinks")?.let { links ->
+                listOf("extraLarge", "large", "medium", "thumbnail", "smallThumbnail")
+                    .firstNotNullOfOrNull { key -> links.optString(key).takeIf(String::isNotBlank) }
+            }.orEmpty().replace("http://", "https://").ifBlank {
+                if (isbn.isNotBlank()) "https://covers.openlibrary.org/b/isbn/$isbn-L.jpg?default=false" else ""
+            }
+            PublicBookResult(title, author, info.optString("publishedDate").take(4), isbn, image,
                 info.optString("canonicalVolumeLink").ifBlank { "https://books.google.com/books?id=${row.optString("id")}" }, summaryFallback, authorKey = authorKeyFallback)
         }.distinctBy { (it.title + "|" + it.author).lowercase() }
         if (google.isNotEmpty()) {
@@ -322,10 +335,13 @@ private fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): Lis
                 wanted.split(" ").filter { it.length > 1 }.all { term ->
                     normalizeSearchText(it.title + " " + it.author).contains(term)
                 } }
-            return (if (exact.isNotEmpty()) exact else google).sortedByDescending {
+            val ranked = (if (exact.isNotEmpty()) exact else google).sortedByDescending {
                 if (normalizeSearchText(it.title) == wanted) 2 else
                     if (normalizeSearchText(it.title).contains(wanted)) 1 else 0
             }
+            return (listOfNotNull(curated) + ranked)
+                .distinctBy { (it.title + "|" + it.author).lowercase() }
+                .take(12)
         }
     }
     val titlePart = if (titleQuery.isBlank()) "" else "&title=$encoded"
@@ -335,7 +351,7 @@ private fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): Lis
     }.getOrNull() ?: runCatching {
         getJson("https://openlibrary.org/search.json?title=$encoded&limit=20$authorPart").optJSONArray("docs")
     }.getOrNull() ?: return emptyList()
-    return (0 until docs.length()).mapNotNull { i ->
+    val openLibraryResults = (0 until docs.length()).mapNotNull { i ->
         val row = docs.optJSONObject(i) ?: return@mapNotNull null
         val key = row.optString("key").removePrefix("/works/")
         val title = row.optString("title").trim()
@@ -370,6 +386,9 @@ private fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): Lis
         }.thenByDescending {
             if (authorQuery.isBlank()) 0 else if (it.author.lowercase().contains(authorQuery.trim().lowercase())) 1 else 0
         })
+    return (listOfNotNull(curated) + openLibraryResults)
+        .distinctBy { (it.title + "|" + it.author).lowercase() }
+        .take(12)
 }
 
 private data class BackupRestoreResult(val matched: Int, val pending: String?)
@@ -505,30 +524,49 @@ private val newsImageCache = object : LruCache<String, Bitmap>(12 * 1024) {
     }
 }
 
+private val publicImageCache = object : LruCache<String, Bitmap>(16 * 1024) {
+    override fun sizeOf(key: String, value: Bitmap): Int =
+        (value.byteCount / 1024).coerceAtLeast(1)
+}
+
 @Composable
 private fun rememberPublicCover(url: String): State<Bitmap?> {
-    return produceState<Bitmap?>(initialValue = null, url) {
-        if (url.isBlank()) return@produceState
+    val cached = remember(url) {
+        if (url.isBlank()) null else synchronized(publicImageCache) { publicImageCache.get(url) }
+    }
+    return produceState<Bitmap?>(initialValue = cached, url) {
+        if (url.isBlank() || cached != null) return@produceState
         value = withContext(Dispatchers.IO) {
-            val candidates = listOf(url,
-                url.replace("/isbn/", "/b/isbn/"),
-                url.replace("-L.jpg", "-M.jpg"),
-                url.replace("-L.jpg", "-S.jpg"),
+            val candidates = listOf(
+                url.replace("http://", "https://"),
+                url.replace("http://", "https://").replace("/isbn/", "/b/isbn/"),
+                url.replace("http://", "https://").replace("-L.jpg", "-M.jpg"),
                 url + if (url.contains("?")) "&default=false" else "?default=false"
-            ).distinct()
+            ).filter(String::isNotBlank).distinct()
             candidates.firstNotNullOfOrNull { candidate ->
                 runCatching {
                     val connection = (URL(candidate).openConnection() as HttpURLConnection).apply {
-                        connectTimeout = 5000
-                        readTimeout = 7000
+                        connectTimeout = 6500
+                        readTimeout = 9000
+                        instanceFollowRedirects = true
                         setRequestProperty("User-Agent", "MiBiblioteca/1.0 Android")
+                        setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
                     }
                     try {
-                        val bytes = connection.inputStream.use { it.readNBytes(2_500_001) }
-                        if (bytes.isEmpty() || bytes.size > 2_500_000) null
-                        else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        if (connection.responseCode !in 200..299) return@runCatching null
+                        val bytes = connection.inputStream.use { it.readNBytes(6_000_001) }
+                        if (bytes.isEmpty() || bytes.size > 6_000_000) return@runCatching null
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                        if (bounds.outWidth < 80 || bounds.outHeight < 80) return@runCatching null
+                        var sample = 1
+                        while (bounds.outWidth / sample > 1400 || bounds.outHeight / sample > 1400) sample *= 2
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
+                            BitmapFactory.Options().apply { inSampleSize = sample })
                     } finally { connection.disconnect() }
                 }.getOrNull()
+            }?.also { bitmap ->
+                synchronized(publicImageCache) { publicImageCache.put(url, bitmap) }
             }
         }
     }
@@ -3401,6 +3439,85 @@ private fun openCasaDelLibro(context: Context) {
     LibraryActionButton(onClick = onClick, modifier = modifier, enabled = enabled, content = content)
 }
 
+@Composable
+private fun LibrarySearchField(
+    query: String,
+    voiceListening: Boolean,
+    onQueryCommit: (String) -> Unit,
+    onVoice: () -> Unit
+) {
+    var draft by rememberSaveable { mutableStateOf(query) }
+    LaunchedEffect(query) { if (query != draft) draft = query }
+    LaunchedEffect(draft) {
+        delay(180)
+        if (draft != query) onQueryCommit(draft)
+    }
+    OutlinedTextField(
+        value = draft,
+        onValueChange = { draft = it },
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
+        singleLine = true,
+        placeholder = { Text("Buscar título, saga o autor") },
+        leadingIcon = { AppIcon("Buscar") },
+        trailingIcon = {
+            if (draft.isNotEmpty()) IconButton(onClick = {
+                draft = ""
+                onQueryCommit("")
+            }) { AppIcon("Cerrar", "Borrar búsqueda") }
+            else IconButton(onClick = onVoice) {
+                Icon(Icons.Outlined.Mic,
+                    if (voiceListening) "Detener búsqueda por voz" else "Búsqueda por voz",
+                    tint = if (voiceListening) Teal else Mahogany)
+            }
+        },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = Paper, unfocusedContainerColor = Paper,
+            focusedTextColor = Ink, unfocusedTextColor = Ink),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
+    )
+}
+
+@Composable
+private fun DiscoverSearchField(
+    query: String,
+    searching: Boolean,
+    voiceListening: Boolean,
+    onVoice: () -> Unit,
+    onSearch: (String) -> Unit
+) {
+    var draft by rememberSaveable { mutableStateOf(query) }
+    LaunchedEffect(query) { if (query != draft) draft = query }
+    OutlinedTextField(
+        value = draft,
+        onValueChange = { draft = it },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        placeholder = { Text("Título, autor o ISBN") },
+        leadingIcon = { AppIcon("Buscar") },
+        trailingIcon = {
+            Row {
+                IconButton(onClick = onVoice) {
+                    Icon(Icons.Outlined.Mic,
+                        if (voiceListening) "Detener voz" else "Buscar por voz",
+                        tint = if (voiceListening) Teal else Mahogany)
+                }
+                IconButton(enabled = !searching && draft.isNotBlank(),
+                    onClick = { onSearch(draft.trim()) }) {
+                    AppIcon("Buscar", "Consultar")
+                }
+            }
+        },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = Color.Transparent,
+            unfocusedContainerColor = Paper,
+            focusedTextColor = Ink,
+            unfocusedTextColor = Ink,
+            focusedBorderColor = Brass,
+            unfocusedBorderColor = Brass.copy(alpha = .7f)),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp)
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable fun LibraryApp(vm: LibraryViewModel = viewModel()) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -3791,6 +3908,7 @@ private fun openCasaDelLibro(context: Context) {
     val readingBooks = remember(vm.books) { vm.readingBooks() }
     // Secciones mantiene su propia vista, separada de Biblioteca.
     val activeViewScope: String? = if (tab == "Secciones") "__secciones__" else vm.selectedSection
+    val activeViewMode = vm.viewModeFor(activeViewScope)
     LaunchedEffect(vm.message) {
         if (vm.message != null) {
             kotlinx.coroutines.delay(2200)
@@ -4568,7 +4686,7 @@ private fun openCasaDelLibro(context: Context) {
                         Row(Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("Lista", "Galería", "Compacta").forEach { mode ->
-                                CatalogChip(mode, vm.viewModeFor(activeViewScope) == mode) {
+                                CatalogChip(mode, activeViewMode == mode) {
                                     vm.chooseViewMode(mode, activeViewScope); scope.launch { drawerState.close() }
                                 }
                             }
@@ -4655,25 +4773,15 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                 }
-                if (tab != "Descubrir" && tab != "Inicio") OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
-                    vm.qualityFilter = "Ninguno"
-                } },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
-                    singleLine = true, placeholder = { Text("Buscar título, saga o autor") },
-                    leadingIcon = { AppIcon("Buscar") },
-                    trailingIcon = {
-                        if (vm.query.isNotEmpty()) IconButton(onClick = { vm.query = "" }) {
-                            AppIcon("Cerrar", "Borrar búsqueda")
-                        } else IconButton(onClick = ::launchVoiceSearch) {
-                            Icon(Icons.Outlined.Mic,
-                                if (voiceListening) "Detener búsqueda por voz" else "Búsqueda por voz",
-                                tint = if (voiceListening) Teal else Mahogany)
-                        }
+                if (tab != "Descubrir" && tab != "Inicio") LibrarySearchField(
+                    query = vm.query,
+                    voiceListening = voiceListening,
+                    onQueryCommit = { value ->
+                        vm.query = value
+                        if (value.isNotBlank()) vm.qualityFilter = "Ninguno"
                     },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = Paper, unfocusedContainerColor = Paper,
-                        focusedTextColor = Ink, unfocusedTextColor = Ink),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp))
+                    onVoice = { launchVoiceSearch(false) }
+                )
             }
         },
         bottomBar = {
@@ -4788,31 +4896,25 @@ private fun openCasaDelLibro(context: Context) {
                     Surface(Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
                         color = Paper.copy(alpha = .98f), shadowElevation = 4.dp,
                         border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = .65f))) {
-                        OutlinedTextField(value = publicQuery, onValueChange = { publicQuery = it },
-                            modifier = Modifier.fillMaxWidth(), singleLine = true,
-                            placeholder = { Text("Título, autor o ISBN") },
-                            leadingIcon = { AppIcon("Buscar") },
-                            trailingIcon = { Row {
-                            IconButton(onClick = { launchVoiceSearch(true) }) {
-                                Icon(Icons.Outlined.Mic, if (voiceListening) "Detener voz" else "Buscar por voz",
-                                    tint = if (voiceListening) Teal else Mahogany)
-                            }
-                            IconButton(enabled = !publicSearching, onClick = {
+                        DiscoverSearchField(
+                            query = publicQuery,
+                            searching = publicSearching,
+                            voiceListening = voiceListening,
+                            onVoice = { launchVoiceSearch(true) },
+                            onSearch = { requested ->
+                                publicQuery = requested
                                 publicSearching = true
                                 scope.launch(Dispatchers.IO) {
-                                    val found = runCatching { searchPublicBooks(publicQuery) }.getOrDefault(emptyList())
+                                    val found = runCatching { searchPublicBooks(requested) }
+                                        .getOrDefault(emptyList())
                                     withContext(Dispatchers.Main) {
                                         publicResults = found
                                         publicSearching = false
                                         selectedPublicResult = null
                                     }
                                 }
-                            }) { AppIcon("Buscar", "Consultar") }
-                            } },
-                            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Paper, focusedTextColor = Ink, unfocusedTextColor = Ink,
-                            focusedBorderColor = Brass, unfocusedBorderColor = Brass.copy(alpha = .7f)),
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                            }
+                        )
                     }
                     if (publicSearching) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 10.dp), color = Brass)
                     Spacer(Modifier.height(14.dp))
@@ -4936,7 +5038,7 @@ private fun openCasaDelLibro(context: Context) {
                                     fontSize = 13.sp)
                             }
                             if (!showWishList) {
-                                ConceptViewSelector(vm.viewModeFor(activeViewScope),
+                                ConceptViewSelector(activeViewMode,
                                     onGallery = {
                                         // Preserve the current position when switching presentation.
                                         vm.chooseViewMode("Galería", activeViewScope)
@@ -4974,7 +5076,7 @@ private fun openCasaDelLibro(context: Context) {
                         }
                         Text("Vista", color = Color.White.copy(alpha = .82f),
                             fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
-                        ConceptViewSelector(vm.viewModeFor(activeViewScope),
+                        ConceptViewSelector(activeViewMode,
                             onGallery = { vm.chooseViewMode("Galería", activeViewScope) },
                             onList = { vm.chooseViewMode("Lista", activeViewScope) })
                     }
@@ -5219,7 +5321,7 @@ private fun openCasaDelLibro(context: Context) {
                                 }
                             }
                         }
-                    } else when (vm.viewModeFor(activeViewScope)) {
+                    } else when (activeViewMode) {
                         "Galería" -> items(
                             count = (ordered.size + 1) / 2,
                             key = { index -> "grid:" + name + ":" + ordered[index * 2].uri },
@@ -5244,8 +5346,8 @@ private fun openCasaDelLibro(context: Context) {
                             }
                         }
                         else -> items(ordered, key = { name + ":" + it.uri },
-                            contentType = { vm.viewModeFor(activeViewScope) }) { book ->
-                            if (vm.viewModeFor(activeViewScope) == "Compacta")
+                            contentType = { activeViewMode }) { book ->
+                            if (activeViewMode == "Compacta")
                                 BookCompactCard(book, book.uri in offlineBookUris,
                                     { bookMenu = book }) { openBookFromList(book) }
                             else BookCard(book, book.uri in offlineBookUris,
