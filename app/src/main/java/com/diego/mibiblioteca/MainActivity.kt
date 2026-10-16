@@ -3460,6 +3460,7 @@ private fun openCasaDelLibro(context: Context) {
             val distance = pageTravelPx
             pageMotion.animateTo(direction * distance, tween(motionDuration(175), easing = FastOutSlowInEasing))
             tab = name
+            vm.query = ""
             showWishList = showPending
             vm.selectedSection = null
             vm.qualityFilter = "Ninguno"
@@ -3787,7 +3788,7 @@ private fun openCasaDelLibro(context: Context) {
             PackageManager.PERMISSION_GRANTED) { voiceTargetPublic = publicSearch; startVoiceWhenPermitted = true }
         else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
-    val readingBooks = remember(vm.books, vm.query) { filterBooks(vm.readingBooks(), vm.query, null, false, null, "Ninguno", emptySet()) }
+    val readingBooks = remember(vm.books) { vm.readingBooks() }
     // Secciones mantiene su propia vista, separada de Biblioteca.
     val activeViewScope: String? = if (tab == "Secciones") "__secciones__" else vm.selectedSection
     LaunchedEffect(vm.message) {
@@ -3821,30 +3822,25 @@ private fun openCasaDelLibro(context: Context) {
     val sectionSnapshot = vm.selectedSection
     val qualitySnapshot = vm.qualityFilter
     val reviewSnapshot = vm.reviewPending
-    var filteredBooks by remember { mutableStateOf(booksSnapshot) }
-    LaunchedEffect(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
+    val filteredBooks = remember(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
         sectionSnapshot, qualitySnapshot, reviewSnapshot, smartCollection) {
-        // Filtering a large library must not block tab-button feedback or list scrolling.
-        // Keep the last complete layout until its replacement is ready; resetting to an empty
-        // list for one frame collapsed the rows and made covers jump.
-            filteredBooks = withContext(Dispatchers.Default) {
-                if (querySnapshot.isBlank() && statusSnapshot == null && !favoritesSnapshot &&
-                    sectionSnapshot == null && qualitySnapshot == "Ninguno" && reviewSnapshot.isEmpty() &&
-                    smartCollection == null) booksSnapshot
-                else {
-                val base = filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
-                    sectionSnapshot, qualitySnapshot, reviewSnapshot)
-                when (smartCollection) {
-                    "abandonados" -> base.filter { it.status == ReadingStatus.PENDING &&
-                        vm.readingPercent(it.uri) in 1..99 }
-                    "sin_terminar" -> base.filter { vm.readingPercent(it.uri) in 1..99 &&
-                        it.status != ReadingStatus.READ }
-                    "pendientes" -> base.filter { it.status == ReadingStatus.PENDING &&
-                        it.startedDate.isBlank() && vm.readingPercent(it.uri) == 0 }
-                    else -> base
-                }
-                }
+        if (querySnapshot.isBlank() && statusSnapshot == null && !favoritesSnapshot &&
+            sectionSnapshot == null && qualitySnapshot == "Ninguno" && reviewSnapshot.isEmpty() &&
+            smartCollection == null) {
+            booksSnapshot
+        } else {
+            val base = filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
+                sectionSnapshot, qualitySnapshot, reviewSnapshot)
+            when (smartCollection) {
+                "abandonados" -> base.filter { it.status == ReadingStatus.PENDING &&
+                    vm.readingPercent(it.uri) in 1..99 }
+                "sin_terminar" -> base.filter { vm.readingPercent(it.uri) in 1..99 &&
+                    it.status != ReadingStatus.READ }
+                "pendientes" -> base.filter { it.status == ReadingStatus.PENDING &&
+                    it.startedDate.isBlank() && vm.readingPercent(it.uri) == 0 }
+                else -> base
             }
+        }
     }
     val smartBooks = filteredBooks
     val visibleBooks = if (tab == "Inicio") emptyList() else smartBooks
@@ -4659,7 +4655,7 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                 }
-                if (tab != "Descubrir") OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
+                if (tab != "Descubrir" && tab != "Inicio") OutlinedTextField(vm.query, { vm.query = it; if (it.isNotBlank()) {
                     vm.qualityFilter = "Ninguno"
                 } },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
