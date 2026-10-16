@@ -3115,7 +3115,7 @@ private fun openCasaDelLibro(context: Context) {
     var draftAllGenres by remember { mutableStateOf(true) }
     var smartCollection by rememberSaveable { mutableStateOf<String?>(null) }
     val genrePickerListState = rememberLazyListState()
-    val tabs = remember { listOf("Inicio", "Biblioteca", "Descubrir", "Géneros", "Secciones", "Favoritos", "Estadísticas") }
+    val tabs = remember { listOf("Inicio", "Biblioteca", "Géneros", "Secciones", "Descubrir", "Favoritos", "Estadísticas") }
     val scope = rememberCoroutineScope()
     val pageMotion = remember { Animatable(0f) }
     val pageDrag = remember { mutableFloatStateOf(0f) }
@@ -4391,8 +4391,8 @@ private fun openCasaDelLibro(context: Context) {
                 listOf(
                     Triple("Inicio", "Inicio", "Inicio"),
                     Triple("Biblioteca", "Libros", "Libros"),
-                    Triple("Descubrir", "Buscar", "Buscar"),
                     Triple("Secciones", "Secciones", "Secciones"),
+                    Triple("Descubrir", "Buscar", "Buscar"),
                     Triple("Favoritos", "Favoritos", "Favoritos"),
                     Triple("Estadísticas", "Estadísticas", "Estadísticas")
                 ).forEach { (targetTab, label, icon) ->
