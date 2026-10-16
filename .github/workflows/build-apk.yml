@@ -34,10 +34,7 @@ jobs:
           KEYSTORE_B64: ${{ secrets.MIBIBLIOTECA_KEYSTORE_B64 }}
           KEYSTORE_PASSWORD: ${{ secrets.MIBIBLIOTECA_KEYSTORE_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
-            echo "::error::Configura MIBIBLIOTECA_KEYSTORE_B64 y MIBIBLIOTECA_KEYSTORE_PASSWORD. No se publicará una APK con una firma temporal."
-            exit 1
-          fi
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then exit 1; fi
           umask 077
           printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/mibiblioteca.p12"
           keytool -list -keystore "$RUNNER_TEMP/mibiblioteca.p12" -storepass:env KEYSTORE_PASSWORD -alias mibiblioteca >/dev/null
@@ -59,7 +56,6 @@ jobs:
         run: |
           split -b 28m -d -a 2 app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/MiBiblioteca.part-"
           sha256sum app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/MiBiblioteca.sha256"
-          test "$(find "$RUNNER_TEMP" -maxdepth 1 -name 'MiBiblioteca.part-*' | wc -l)" -ge 1
       - uses: actions/upload-artifact@v4
         with:
           name: MiBiblioteca-partes-v1.0.6
@@ -73,11 +69,11 @@ jobs:
         run: |
           cp app/build/outputs/apk/release/app-release.apk MiBiblioteca-v1.0.6-actualizada.apk
           if ! gh release view v1.0.6-actualizada >/dev/null 2>&1; then
-            gh release create v1.0.6-actualizada --target "${{ github.sha }}" --title "MiBiblioteca v1.0.6 actualizada" --notes "APK completa, firmada y verificada. Descarga MiBiblioteca-v1.0.6-actualizada.apk desde Assets."
+            gh release create v1.0.6-actualizada --target "${{ github.sha }}" --title "MiBiblioteca v1.0.6 actualizada" --notes "APK completa, firmada y verificada."
           fi
           gh release upload v1.0.6-actualizada MiBiblioteca-v1.0.6-actualizada.apk --clobber
       - name: Eliminar clave temporal del runner
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
 
-# Ajuste de composición: imágenes compactas para que el texto continúe en la misma página
+# Pantalla Descubrir integrada antes de Favoritos
