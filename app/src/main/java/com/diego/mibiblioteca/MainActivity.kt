@@ -212,6 +212,18 @@ private fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
                 else -> description?.toString().orEmpty()
             }
         }
+        if (bio.isBlank() && result.author.isNotBlank()) {
+            val authorQ = java.net.URLEncoder.encode(result.author.substringBefore(",").trim(), "UTF-8")
+            val hits = getJson("https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=$authorQ&format=json&origin=*").optJSONObject("query")?.optJSONArray("search")
+            val page = hits?.optJSONObject(0)?.optString("title").orEmpty()
+            if (page.isNotBlank()) {
+                val title = java.net.URLEncoder.encode(page, "UTF-8")
+                val extract = getJson("https://es.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&exintro=1&titles=$title&format=json&origin=*").optJSONObject("query")?.optJSONObject("pages")
+                val key = extract?.keys()?.asSequence()?.firstOrNull()
+                bio = key?.let { extract.optJSONObject(it)?.optString("extract") }.orEmpty()
+                if (bio.isNotBlank()) source = "$source · Wikipedia"
+            }
+        }
         val q = java.net.URLEncoder.encode("intitle:${result.title} inauthor:${result.author}", "UTF-8")
         val volumes = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=5").optJSONArray("items")
         val info = volumes?.optJSONObject(0)?.optJSONObject("volumeInfo")
@@ -3364,38 +3376,8 @@ private fun openCasaDelLibro(context: Context) {
         }) { Text("Añadir") } },
         dismissButton = { LibraryTextButton(onClick = { addWishDialog = false }) { Text("Cancelar") } }
     )
-    if (publicSearchOpen) AlertDialog(
-        onDismissRequest = { publicSearchOpen = false },
-        title = { Text("Consultar libros") },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
-                Text("Consulta metadatos públicos de Open Library. No añade libros ni descarga obras.", fontSize = 12.sp)
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(publicQuery, { publicQuery = it }, label = { Text("Título, autor o ISBN") },
-                        singleLine = true, modifier = Modifier.weight(1f))
-                    IconButton(enabled = !publicSearching, onClick = {
-                        publicSearching = true
-                        scope.launch(Dispatchers.IO) {
-                            val found = runCatching { searchPublicBooks(publicQuery) }.getOrDefault(emptyList())
-                            withContext(Dispatchers.Main) { publicResults = found; publicSearching = false }
-                        }
-                    }) { Icon(Icons.Outlined.Search, "Buscar") }
-                }
-                if (publicSearching) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-                LazyColumn(Modifier.heightIn(max = 360.dp).padding(top = 8.dp)) {
-                    items(publicResults) { result ->
-                        ListItem(headlineContent = { Text(result.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                            supportingContent = { Text(listOf(result.author, result.year).filter(String::isNotBlank).joinToString(" · ")) },
-                            trailingContent = {
-                                TextButton(onClick = { vm.addGoodreadsWish(result.title, result.sourceUrl) }) { Text("Quiero leer") }
-                            })
-                        HorizontalDivider()
-                    }
-                }
-            }
-        },
-        confirmButton = { LibraryTextButton(onClick = { publicSearchOpen = false }) { Text("Cerrar") } }
-    )
+    // La consulta pública vive en la pestaña Descubrir; no se abre otra ventana ni otro campo.
+    if (publicSearchOpen) publicSearchOpen = false
     selectedPublicResult?.let { result ->
         val details by produceState<PublicBookDetails?>(initialValue = null, result.sourceUrl) {
             value = withContext(Dispatchers.IO) { loadPublicBookDetails(result) }
@@ -4266,7 +4248,8 @@ private fun openCasaDelLibro(context: Context) {
                             })
                         NavigationDrawerItem(label = { Text("Consultar libros públicos") }, selected = false,
                             icon = { Icon(Icons.Outlined.Search, null) }, onClick = {
-                                publicSearchOpen = true
+                                publicSearchOpen = false
+                                tab = "Descubrir"
                             })
                         NavigationDrawerItem(
                             label = { Text(if (vm.coverUpdateRunning)
