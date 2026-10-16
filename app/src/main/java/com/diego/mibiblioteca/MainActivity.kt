@@ -179,7 +179,7 @@ private fun safeSavedArray(raw: String?): org.json.JSONArray = try {
     org.json.JSONArray(raw ?: "[]")
 } catch (_: Exception) { org.json.JSONArray() }
 
-private fun bookSections(book: Book): List<String> =
+internal fun bookSections(book: Book): List<String> =
     (book.sections + book.section).map(String::trim).filter(String::isNotBlank).distinct()
 
 data class InfoCandidate(
@@ -195,7 +195,7 @@ private fun normalizeSagaName(value: String): String = java.text.Normalizer
     .replace(Regex("(?i)\\b(saga|serie|coleccion|collection)\\b"), " ")
     .replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
 
-private fun inferredSaga(book: Book): Pair<String, String> {
+internal fun inferredSaga(book: Book): Pair<String, String> {
     if (book.saga.isNotBlank()) return book.saga.trim() to book.sagaOrder.trim()
     val sources = listOf(displayTitle(book), Uri.decode(book.uri.lastPathSegment.orEmpty()))
     sources.forEach { source -> extractSagaFromText(source)?.let { return it } }
@@ -429,43 +429,6 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
         }
     }
 }
-
-private fun normalizeSearchText(value: String): String = java.text.Normalizer
-    .normalize(value.lowercase(), java.text.Normalizer.Form.NFD)
-    .replace(Regex("\\p{M}+"), "")
-    .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
-    .trim()
-
-private fun searchableBookFields(book: Book): List<String> = listOf(
-    book.title, displayTitle(book), book.customTitle, book.author, displayAuthor(book),
-    book.customAuthor, book.saga, inferredSaga(book).first,
-    Uri.decode(book.uri.lastPathSegment.orEmpty())
-)
-
-private fun filterBooks(books: List<Book>, query: String, status: ReadingStatus?,
-    favorites: Boolean, section: String?, quality: String, pending: Set<Uri>): List<Book> =
-    books.filter { book ->
-        val normalizedQuery = normalizeSearchText(query)
-        val queryTerms = normalizedQuery.split(" ").filter { it.length >= 2 }
-        val fields = searchableBookFields(book).map(::normalizeSearchText)
-        val matches = queryTerms.isEmpty() || queryTerms.all { term ->
-            fields.any { field -> field.contains(term) }
-        }
-        matches && (status == null || book.status == status) &&
-            (!favorites || book.favorite) &&
-            (section == null || section in bookSections(book)) &&
-            when (quality) {
-                "Portada" -> book.cover == null
-                "Argumento" -> book.spanishPlot.isBlank()
-                "Biografía" -> book.authorBio.isBlank()
-                "Autor" -> displayAuthor(book) == "Biblioteca de Diroka77"
-                "Revisar" -> book.uri in pending
-                "Todos" -> book.cover == null || book.spanishPlot.isBlank() ||
-                    book.authorBio.isBlank() || displayAuthor(book) == "Biblioteca de Diroka77" ||
-                    book.uri in pending
-                else -> true
-            }
-    }
 
 private fun findDuplicateGroups(books: List<Book>): List<List<Book>> {
     val normalized = Regex("[^\\p{L}\\p{N}]")
