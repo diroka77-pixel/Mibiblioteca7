@@ -592,11 +592,27 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
     }
 }
 
+private fun normalizeSearchText(value: String): String = java.text.Normalizer
+    .normalize(value.lowercase(), java.text.Normalizer.Form.NFD)
+    .replace(Regex("\\p{M}+"), "")
+    .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+    .trim()
+
+private fun searchableBookFields(book: Book): List<String> = listOf(
+    book.title, displayTitle(book), book.customTitle, book.author, displayAuthor(book),
+    book.customAuthor, book.saga, inferredSaga(book).first,
+    Uri.decode(book.uri.lastPathSegment.orEmpty())
+)
+
 private fun filterBooks(books: List<Book>, query: String, status: ReadingStatus?,
     favorites: Boolean, section: String?, quality: String, pending: Set<Uri>): List<Book> =
     books.filter { book ->
-        val matches = query.isBlank() || listOf(book.title, displayTitle(book), book.author, book.saga)
-            .any { it.contains(query, ignoreCase = true) }
+        val normalizedQuery = normalizeSearchText(query)
+        val queryTerms = normalizedQuery.split(" ").filter { it.length >= 2 }
+        val fields = searchableBookFields(book).map(::normalizeSearchText)
+        val matches = queryTerms.isEmpty() || queryTerms.all { term ->
+            fields.any { field -> field.contains(term) }
+        }
         matches && (status == null || book.status == status) &&
             (!favorites || book.favorite) &&
             (section == null || section in bookSections(book)) &&
@@ -3739,6 +3755,10 @@ private fun openCasaDelLibro(context: Context) {
         // Keep the last complete layout until its replacement is ready; resetting to an empty
         // list for one frame collapsed the rows and made covers jump.
             filteredBooks = withContext(Dispatchers.Default) {
+                if (querySnapshot.isBlank() && statusSnapshot == null && !favoritesSnapshot &&
+                    sectionSnapshot == null && qualitySnapshot == "Ninguno" && reviewSnapshot.isEmpty() &&
+                    smartCollection == null) booksSnapshot
+                else {
                 val base = filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
                     sectionSnapshot, qualitySnapshot, reviewSnapshot)
                 when (smartCollection) {
@@ -3749,6 +3769,7 @@ private fun openCasaDelLibro(context: Context) {
                     "pendientes" -> base.filter { it.status == ReadingStatus.PENDING &&
                         it.startedDate.isBlank() && vm.readingPercent(it.uri) == 0 }
                     else -> base
+                }
                 }
             }
     }
@@ -4668,34 +4689,11 @@ private fun openCasaDelLibro(context: Context) {
                     Row(Modifier.fillMaxWidth().padding(top = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.End) {
-                            Text("Vista", color = Color.White,
-                                style = MaterialTheme.typography.labelMedium.copy(shadow = WallpaperTextShadow),
-                                modifier = Modifier.padding(end = 6.dp))
-                            Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-                                color = Color(0xB3211D1A),
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp, Color.White.copy(alpha = .38f))) {
-                            Row(Modifier.padding(3.dp)) {
-                            IconToggleButton(
-                                checked = genreCarousel == "Horizontal",
-                                onCheckedChange = { if (it) genreCarousel = "Horizontal" },
-                                modifier = Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)
-                                    .background(if (genreCarousel == "Horizontal") Teal else Color.Transparent)
-                            ) {
-                                Icon(Icons.Outlined.ViewCarousel, "Carrusel horizontal",
-                                    tint = Color.White)
-                            }
-                            IconToggleButton(
-                                checked = genreCarousel == "Vertical",
-                                onCheckedChange = { if (it) genreCarousel = "Vertical" },
-                                modifier = Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)
-                                    .background(if (genreCarousel == "Vertical") Teal else Color.Transparent)
-                            ) {
-                                Icon(Icons.Outlined.ViewStream, "Vista vertical",
-                                    tint = Color.White)
-                            }
-                            }
-                            }
+                            ConceptViewSelector(
+                                if (genreCarousel == "Horizontal") "Galería" else "Lista",
+                                onGallery = { genreCarousel = "Horizontal" },
+                                onList = { genreCarousel = "Vertical" }
+                            )
                         }
                 }
             }
