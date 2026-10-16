@@ -202,7 +202,7 @@ internal fun inferredSaga(book: Book): Pair<String, String> {
     return "" to book.sagaOrder.trim()
 }
 
-private fun extractSagaFromText(raw: String): Pair<String, String>? {
+internal fun extractSagaFromText(raw: String): Pair<String, String>? {
     val source = raw.replace('_', ' ').replace(Regex("\\s+"), " ").trim()
     if (source.isBlank()) return null
     val number = "(\\d+(?:[.,]\\d+)?)"
@@ -748,7 +748,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val publishAfterSave = !syncing
         val revision = ++saveVersion
         prefs.edit().putLong("local_revision", System.currentTimeMillis()).apply()
+        // Agrupa cambios consecutivos (favorito, estado, edición, clasificación)
+        // en una sola escritura del catálogo y una sola copia en la nube.
+        catalogSaveJob?.cancel()
         catalogSaveJob = viewModelScope.launch {
+            delay(260)
             try {
             withContext(Dispatchers.IO) {
                 saveMutex.withLock {
@@ -3193,6 +3197,9 @@ private fun openCasaDelLibro(context: Context) {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable fun LibraryApp(vm: LibraryViewModel = viewModel()) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val catalogSearchIndex = remember(context.applicationContext) {
+        PersistentCatalogSearchIndex(context.applicationContext)
+    }
     var selected by remember { mutableStateOf<Book?>(null) }
     var readingUri by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingReader by remember { mutableStateOf<Book?>(null) }
@@ -3621,8 +3628,10 @@ private fun openCasaDelLibro(context: Context) {
         sectionSnapshot, qualitySnapshot, reviewSnapshot
     ) {
         value = if (!hasCatalogFilters) booksSnapshot else withContext(Dispatchers.Default) {
+            val indexedMatches = if (querySnapshot.isBlank()) null
+                else catalogSearchIndex.matchingBookUris(booksSnapshot, querySnapshot)
             filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
-                sectionSnapshot, qualitySnapshot, reviewSnapshot)
+                sectionSnapshot, qualitySnapshot, reviewSnapshot, indexedMatches)
         }
     }
     val filteredBooks = remember(baseFilteredBooks, smartCollection) {
@@ -5566,7 +5575,10 @@ private fun decodeCover(book: Book, targetWidthPx: Int, targetHeightPx: Int): Bi
     while (bounds.outWidth / (sample * 2) >= targetWidth &&
         bounds.outHeight / (sample * 2) >= targetHeight) sample *= 2
     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
-        BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
+        BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.RGB_565
+        }) ?: return null
     synchronized(coverBitmapCache) { coverBitmapCache.put(key, bitmap) }
     return bitmap
 }
