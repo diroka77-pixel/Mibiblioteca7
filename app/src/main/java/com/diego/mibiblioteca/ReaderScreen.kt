@@ -163,7 +163,7 @@ private fun openingParagraph(paragraphs: List<ReadingParagraph>, index: Int): Bo
     !paragraphs[index].heading && (index == 0 || paragraphs[index - 1].heading)
 
 private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int, height: Int,
-    textSizePx: Float, gapPx: Int): List<ReadingPage> {
+    textSizePx: Float, gapPx: Int, lineSpacing: Float = 1.45f): List<ReadingPage> {
     val pages = mutableListOf<ReadingPage>()
     val slices = mutableListOf<ReadingSlice>()
     var occupied = 0
@@ -215,7 +215,7 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
         val layout = StaticLayout.Builder.obtain(measured, 0, measured.length,
             paint, width.coerceAtLeast(1)).setAlignment(Layout.Alignment.ALIGN_NORMAL)
             .setJustificationMode(Layout.JUSTIFICATION_MODE_NONE)
-            .setLineSpacing(0f, 1.45f).setIncludePad(false).build()
+            .setLineSpacing(0f, lineSpacing.coerceIn(1.0f, 2.0f)).setIncludePad(false).build()
         var line = 0
         while (line < layout.lineCount) {
             if (slices.isNotEmpty() && occupied + gapPx +
@@ -1375,7 +1375,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         val density = LocalDensity.current
                         val width = with(density) { (maxWidth - (readerMargin * 2).dp).roundToPx() }
                         // Keep the progress strip visually separate while using the reading area efficiently.
-                        val height = with(density) { (maxHeight - 4.dp).roundToPx() }
+                        val height = with(density) { maxHeight.roundToPx() }
                         val textSizePx = with(density) { fontSize.sp.toPx() }
                         // Debe coincidir con el espacio real entre párrafos para no reservar
                         // líneas invisibles al final de cada página.
@@ -1385,7 +1385,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             ready = false
                             value = emptyList()
                             value = withContext(Dispatchers.Default) {
-                                paginateText(paragraphs, width, height.coerceAtLeast(1), textSizePx, gap)
+                                paginateText(paragraphs, width, height.coerceAtLeast(1), textSizePx, gap, lineSpacing)
                             }
                         }
                         if (pages.isEmpty()) {
