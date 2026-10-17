@@ -21,6 +21,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -86,20 +89,20 @@ fun DiscoverSearchField(
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
         placeholder = { Text("Título, autor o ISBN") },
-        leadingIcon = { AppIcon("Buscar") },
+        leadingIcon = { Icon(Icons.Outlined.Search, "Buscar") },
         trailingIcon = {
-            Row {
-                IconButton(onClick = onVoice) {
-                    Icon(Icons.Outlined.Mic,
-                        if (voiceListening) "Detener voz" else "Buscar por voz",
-                        tint = if (voiceListening) SearchTeal else SearchMahogany)
-                }
-                IconButton(enabled = !searching && draft.isNotBlank(),
-                    onClick = { onSearch(draft.trim()) }) {
-                    Icon(Icons.Outlined.Search, "Consultar")
-                }
+            IconButton(onClick = onVoice) {
+                Icon(Icons.Outlined.Mic,
+                    if (voiceListening) "Detener voz" else "Buscar por voz",
+                    tint = if (voiceListening) SearchTeal else SearchMahogany)
             }
         },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = {
+            if (!searching && draft.isNotBlank()) onSearch(draft.trim())
+        }, onDone = {
+            if (!searching && draft.isNotBlank()) onSearch(draft.trim())
+        }),
         colors = OutlinedTextFieldDefaults.colors(
             focusedContainerColor = Color.Transparent,
             unfocusedContainerColor = SearchPaper,
