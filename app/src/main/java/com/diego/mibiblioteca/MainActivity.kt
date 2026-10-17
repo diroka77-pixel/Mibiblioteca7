@@ -1723,7 +1723,16 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 else "${result.size} libros y documentos encontrados"
                 completed = true
                 } catch (e: Exception) {
-                message = "No se pudo leer la carpeta de Drive: ${e.localizedMessage ?: "error de acceso"}"
+                val detail = e.localizedMessage.orEmpty()
+                val accessError = e is SecurityException ||
+                    detail.contains("access", true) || detail.contains("permission", true) ||
+                    detail.contains("acceso", true)
+                if (accessError) {
+                    prefs.edit().remove(folderKey).remove("folder_name").apply()
+                    message = "El permiso de Drive ha caducado. Vuelve a seleccionar la carpeta de libros."
+                } else {
+                    message = "No se pudo leer la carpeta de Drive: ${e.localizedMessage ?: "error de acceso"}"
+                }
                 syncReport = message.orEmpty()
             } finally {
                 syncing = false
