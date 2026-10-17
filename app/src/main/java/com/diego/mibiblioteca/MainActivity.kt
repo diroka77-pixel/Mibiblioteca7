@@ -1611,13 +1611,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         if (uri == null) { message = "Selecciona primero tu carpeta de libros."; return }
         if (syncing) return
         val switchingFolder = prefs.getString(folderKey, null) != uri.toString()
-        val cachedBooks = prefs.getString("books_cache", null)
-        if (switchingFolder && (books.isNotEmpty() ||
-                (!cachedBooks.isNullOrBlank() && cachedBooks != "[]") ||
-                !prefs.getString("pending_backup", null).isNullOrBlank())) {
-            message = "Hay datos de otra biblioteca en este dispositivo. Guarda un respaldo y borra los datos de Mi Biblioteca desde Ajustes de Android antes de elegir otra carpeta o cuenta."
-            return
-        }
         viewModelScope.launch {
             syncing = true; syncCount = 0; message = null
             var completed = false

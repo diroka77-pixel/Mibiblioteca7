@@ -1,3 +1,7 @@
+## Versión 1.0.30
+- Se elimina el bloqueo que impedía volver a seleccionar la carpeta de Drive cuando había una biblioteca existente en el teléfono.
+- La sincronización conserva el catálogo y los datos personales, y añade los libros que encuentre en la carpeta seleccionada.
+
 ## Versión 1.0.29
 - La sincronización al abrir la aplicación hace una única pasada rápida por Drive y reutiliza los metadatos locales; ya no vuelve a buscar portadas automáticamente.
 - Las portadas pendientes solo se buscan desde el botón manual del panel lateral.
