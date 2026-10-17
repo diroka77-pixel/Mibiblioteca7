@@ -3322,8 +3322,8 @@ private fun openCasaDelLibro(context: Context) {
                 DiscoverSearchField(
                     query = publicQuery,
                     searching = publicSearching,
-                    voiceListening = voiceListening,
-                    onVoice = { launchVoiceSearch(true) },
+                    voiceListening = false,
+                    onVoice = { },
                     onSearch = { requested ->
                         publicQuery = requested
                         publicSearching = true
