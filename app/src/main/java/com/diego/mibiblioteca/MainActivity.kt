@@ -1595,12 +1595,22 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     detailMessage = "No se pudo recuperar el respaldo de Drive: ${e.localizedMessage}"
                 }
                 val cached = if (changedFolder) emptyMap() else books.associateBy { it.uri }
+                // Drive puede devolver una instantánea incompleta justo después de
+                // abrir una carpeta o al renovar el permiso. Repetimos la lectura
+                // cuando parece sospechosamente pequeña y unimos los resultados;
+                // así una primera respuesta con un solo archivo no sustituye toda
+                // la biblioteca.
                 val result = withContext(Dispatchers.IO) {
-                    scanFolder(getApplication(), uri, cached) { count ->
-                        if (count == 1 || count % 5 == 0) {
-                            viewModelScope.launch(Dispatchers.Main) { syncCount = count }
+                    val collected = linkedMapOf<Uri, Book>()
+                    repeat(3) { attempt ->
+                        val pass = scanFolder(getApplication(), uri, cached) { count ->
+                            viewModelScope.launch(Dispatchers.Main) { syncCount = collected.size + count }
                         }
+                        pass.forEach { collected[it.uri] = it }
+                        if (collected.size > 1 || attempt == 2) return@repeat
+                        Thread.sleep(900L)
                     }
+                    collected.values.sortedBy { it.title.lowercase() }
                 }
                 if (result.isEmpty()) {
                     message = "Drive no devolvió libros. Se conserva la biblioteca y el respaldo anteriores."
