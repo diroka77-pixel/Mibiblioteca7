@@ -1621,20 +1621,19 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     detailMessage = "No se pudo recuperar el respaldo de Drive: ${e.localizedMessage}"
                 }
                 val cached = if (changedFolder) emptyMap() else books.associateBy { it.uri }
-                // Drive puede devolver una instantánea incompleta justo después de
-                // abrir una carpeta o al renovar el permiso. Repetimos la lectura
-                // cuando parece sospechosamente pequeña y unimos los resultados;
-                // así una primera respuesta con un solo archivo no sustituye toda
-                // la biblioteca.
+                // Google Drive puede devolver una lista antigua aun sin marcarla
+                // como "loading". Hacemos dos lecturas separadas incluso cuando la
+                // primera parece completa y combinamos sus resultados por URI. Los
+                // metadatos ya catalogados se reutilizan para que la verificación
+                // no vuelva a descargar ni analizar todos los EPUB.
                 val result = withContext(Dispatchers.IO) {
                     val collected = linkedMapOf<Uri, Book>()
-                    for (attempt in 0 until 3) {
+                    repeat(2) { attempt ->
                         val pass = scanFolder(getApplication(), uri, cached) { count ->
                             viewModelScope.launch(Dispatchers.Main) { syncCount = collected.size + count }
                         }
                         pass.forEach { collected[it.uri] = it }
-                        if (collected.size > 1) break
-                        if (attempt < 2) Thread.sleep(900L)
+                        if (attempt == 0) Thread.sleep(1200L)
                     }
                     collected.values.sortedBy { it.title.lowercase() }
                 }
@@ -4241,6 +4240,10 @@ private fun openCasaDelLibro(context: Context) {
                         vm.downloadForOffline(book)
                     }
                 }
+                if (book.favorite)
+                    option("Quitar de favoritos", "Favoritos") { vm.toggleFavorite(book.uri) }
+                else
+                    option("Añadir a favoritos", "Favorito") { vm.toggleFavorite(book.uri) }
                 if (book.status == ReadingStatus.READING)
                     option("Quitar de Estoy leyendo", "Cerrar") { vm.setStatus(book.uri, ReadingStatus.PENDING) }
                 option("Búsqueda IA del libro", "Búsqueda IA") {

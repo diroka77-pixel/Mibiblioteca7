@@ -1,3 +1,7 @@
+## Versión 1.0.22
+- Sincronización de Drive con una segunda lectura independiente para detectar libros recién añadidos aunque el proveedor devuelva temporalmente un listado antiguo.
+- Acción para añadir o quitar libros de favoritos desde el menú contextual.
+
 # MiBiblioteca v1.0.21
 
 ## Cambios de la versión 1.0.21
