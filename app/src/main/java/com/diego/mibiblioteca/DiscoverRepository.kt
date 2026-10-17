@@ -81,14 +81,28 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
                 val key = extract?.keys()?.asSequence()?.firstOrNull()
                 val authorPage = key?.let { extract.optJSONObject(it) }
                 val wikipediaBio = authorPage?.optString("extract").orEmpty()
-                if (bio.isBlank()) bio = wikipediaBio
+                // La Wikipedia en español prevalece sobre biografías inglesas de Open Library.
+                if (wikipediaBio.isNotBlank()) bio = wikipediaBio
                 authorImageUrl = authorPage?.optJSONObject("thumbnail")?.optString("source").orEmpty()
                 if (bio.isNotBlank()) source = "$source · Wikipedia"
             }
         }
         val q = java.net.URLEncoder.encode("intitle:${result.title} inauthor:${result.author}", "UTF-8")
-        val volumes = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=5").optJSONArray("items")
-        val info = volumes?.optJSONObject(0)?.optJSONObject("volumeInfo")
+        val volumes = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=10").optJSONArray("items")
+        val wantedTitle = discoverNormalizeSearchText(result.title)
+        val wantedAuthor = discoverNormalizeSearchText(result.author)
+        val info = (0 until (volumes?.length() ?: 0))
+            .mapNotNull { volumes?.optJSONObject(it)?.optJSONObject("volumeInfo") }
+            .maxByOrNull { candidate ->
+                val candidateTitle = discoverNormalizeSearchText(candidate.optString("title"))
+                val candidateAuthors = candidate.optJSONArray("authors")?.let { authors ->
+                    (0 until authors.length()).joinToString(" ") { authors.optString(it) }
+                }.orEmpty()
+                val candidateAuthor = discoverNormalizeSearchText(candidateAuthors)
+                (if (candidateTitle == wantedTitle) 100 else 0) +
+                    wantedTitle.split(" ").count { it.length > 1 && candidateTitle.contains(it) } * 10 +
+                    wantedAuthor.split(" ").count { it.length > 2 && candidateAuthor.contains(it) } * 5
+            }
         if (info != null) {
             summary = info.optString("description").ifBlank { summary }
             published = info.optString("publishedDate").ifBlank { published }
@@ -98,6 +112,30 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
             coverUrl = info.optJSONObject("imageLinks")?.optString("large")?.ifBlank { info.optJSONObject("imageLinks")?.optString("thumbnail") }.orEmpty()
                 .replace("http://", "https://").ifBlank { coverUrl }
             source = "Open Library · Google Books"
+        }
+        if (summary.length < 80 && result.title.isNotBlank()) {
+            val bookQuery = java.net.URLEncoder.encode(
+                "\"" + result.title.trim() + "\" " + result.author.trim() + " libro novela",
+                "UTF-8"
+            )
+            val hits = getJson("https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=$bookQuery&format=json&origin=*")
+                .optJSONObject("query")?.optJSONArray("search")
+            val page = hits?.optJSONObject(0)?.optString("title").orEmpty()
+            if (page.isNotBlank()) {
+                val encodedPage = java.net.URLEncoder.encode(page, "UTF-8")
+                val pagesJson = getJson("https://es.wikipedia.org/w/api.php?action=query&prop=extracts|pageimages&piprop=thumbnail&pithumbsize=800&explaintext=1&exintro=1&titles=$encodedPage&format=json&origin=*")
+                    .optJSONObject("query")?.optJSONObject("pages")
+                val pageKey = pagesJson?.keys()?.asSequence()?.firstOrNull()
+                val bookPage = pageKey?.let { pagesJson.optJSONObject(it) }
+                val extract = bookPage?.optString("extract").orEmpty().trim()
+                if (extract.length >= 80) {
+                    summary = extract
+                    source = "$source · Wikipedia en español"
+                }
+                if (coverUrl.isBlank()) {
+                    coverUrl = bookPage?.optJSONObject("thumbnail")?.optString("source").orEmpty()
+                }
+            }
         }
         if (summary.isBlank() || coverUrl.isBlank()) {
             val broad = java.net.URLEncoder.encode(result.title, "UTF-8")
