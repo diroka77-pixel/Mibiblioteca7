@@ -10,7 +10,8 @@ data class PublicBookResult(
     val title: String, val author: String, val year: String,
     val isbn: String, val coverUrl: String, val sourceUrl: String,
     val summary: String = "", val authorKey: String = "",
-    val publishDates: String = ""
+    val publishDates: String = "", val confidence: Int = 0,
+    val source: String = ""
 )
 
 data class PublicBookDetails(
@@ -151,113 +152,133 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
 }
 
 fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<PublicBookResult> {
-    if (titleQuery.isBlank() && authorQuery.isBlank()) return emptyList()
-    val curated = curatedPublicResult(titleQuery.trim(), authorQuery.trim())
-    val encoded = java.net.URLEncoder.encode(titleQuery.trim(), "UTF-8")
-    // Google Books entiende consultas mixtas como «Hija del cielo Rodrigo Cortés»;
-    // se usa primero porque devuelve la edición exacta y sus datos editoriales.
-    runCatching {
-        val q = java.net.URLEncoder.encode(listOf(titleQuery.trim(), authorQuery.trim()).filter { it.isNotBlank() }.joinToString(" "), "UTF-8")
-        val items = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=10&printType=books").optJSONArray("items")
-        val google = (0 until (items?.length() ?: 0)).mapNotNull { i ->
-            val row = items?.optJSONObject(i) ?: return@mapNotNull null
-            val info = row.optJSONObject("volumeInfo") ?: return@mapNotNull null
-            val title = info.optString("title").trim()
-            if (title.isBlank()) return@mapNotNull null
-            val authors = info.optJSONArray("authors")
-            var author = (0 until (authors?.length() ?: 0)).joinToString(", ") { authors!!.optString(it) }
-            var authorKeyFallback = ""
-            var summaryFallback = info.optString("description")
-            if (author.isBlank() || summaryFallback.isBlank()) runCatching {
-                val exactTitle = java.net.URLEncoder.encode(title, "UTF-8")
-                val exactDocs = getJson("https://openlibrary.org/search.json?title=$exactTitle&limit=10").optJSONArray("docs")
-                val exactRow = (0 until (exactDocs?.length() ?: 0)).mapNotNull { n -> exactDocs?.optJSONObject(n) }
-                    .firstOrNull { it.optString("title").equals(title, true) }
-                if (exactRow != null) {
-                    val names = exactRow.optJSONArray("author_name")
-                    author = (0 until (names?.length() ?: 0)).joinToString(", ") { names!!.optString(it) }
-                    authorKeyFallback = exactRow.optJSONArray("author_key")?.optString(0).orEmpty()
-                    if (summaryFallback.isBlank()) summaryFallback = exactRow.optJSONArray("first_sentence")?.optString(0).orEmpty()
+    val wantedTitle = titleQuery.trim()
+    val wantedAuthor = authorQuery.trim()
+    if (wantedTitle.isBlank() && wantedAuthor.isBlank()) return emptyList()
+    val candidates = mutableListOf<PublicBookResult>()
+    curatedPublicResult(wantedTitle, wantedAuthor)?.let(candidates::add)
+
+    fun confidence(title: String, author: String, isbn: String = "") =
+        CatalogQuality.confidenceForIdentity(wantedTitle, wantedAuthor, title, author, "", isbn)
+
+    val googleQueries = listOf(
+        listOf("intitle:$wantedTitle", wantedAuthor.takeIf(String::isNotBlank)?.let { "inauthor:$it" })
+            .filterNotNull().joinToString(" "),
+        listOf(wantedTitle, wantedAuthor).filter(String::isNotBlank).joinToString(" ")
+    ).distinct()
+    googleQueries.forEachIndexed { queryIndex, raw ->
+        runCatching {
+            val query = java.net.URLEncoder.encode(raw, "UTF-8")
+            val language = if (queryIndex == 0) "&langRestrict=es" else ""
+            val items = getJson(
+                "https://www.googleapis.com/books/v1/volumes?q=$query&maxResults=20&printType=books$language"
+            ).optJSONArray("items")
+            for (index in 0 until (items?.length() ?: 0)) {
+                val row = items?.optJSONObject(index) ?: continue
+                val info = row.optJSONObject("volumeInfo") ?: continue
+                val title = info.optString("title").trim()
+                if (title.isBlank()) continue
+                val authors = info.optJSONArray("authors")
+                val author = (0 until (authors?.length() ?: 0))
+                    .joinToString(", ") { authors!!.optString(it) }.trim()
+                val identifiers = info.optJSONArray("industryIdentifiers")
+                val allIdentifiers = (0 until (identifiers?.length() ?: 0)).mapNotNull { item ->
+                    identifiers?.optJSONObject(item)?.optString("identifier")
+                        ?.filter(Char::isDigit)?.takeIf { it.length in setOf(10, 13) }
                 }
+                val isbn = allIdentifiers.firstOrNull { it.length == 13 }
+                    ?: allIdentifiers.firstOrNull().orEmpty()
+                val score = confidence(title, author, isbn)
+                if (score < 42) continue
+                val image = info.optJSONObject("imageLinks")?.let { links ->
+                    listOf("extraLarge", "large", "medium", "thumbnail", "smallThumbnail")
+                        .firstNotNullOfOrNull { key ->
+                            links.optString(key).takeIf(String::isNotBlank)
+                        }
+                }.orEmpty().replace("http://", "https://").ifBlank {
+                    if (isbn.isNotBlank())
+                        "https://covers.openlibrary.org/b/isbn/$isbn-L.jpg?default=false"
+                    else ""
+                }
+                candidates += PublicBookResult(
+                    title = title,
+                    author = author,
+                    year = info.optString("publishedDate").take(4),
+                    isbn = isbn,
+                    coverUrl = image,
+                    sourceUrl = info.optString("canonicalVolumeLink").ifBlank {
+                        "https://books.google.com/books?id=" + row.optString("id")
+                    },
+                    summary = info.optString("description"),
+                    confidence = score,
+                    source = if (queryIndex == 0) "Google Books ES" else "Google Books"
+                )
             }
-            val wanted = titleQuery.trim().lowercase()
-            val exact = title.lowercase() == wanted || title.lowercase().contains(wanted)
-            val authorOk = authorQuery.isBlank() || author.lowercase().contains(authorQuery.trim().lowercase())
-            if (!exact || !authorOk) return@mapNotNull null
-            val identifiers = info.optJSONArray("industryIdentifiers")
-            val isbn = (0 until (identifiers?.length() ?: 0)).mapNotNull { n ->
-                identifiers?.optJSONObject(n)?.optString("identifier")?.filter(Char::isDigit)
-            }.firstOrNull { it.length == 13 }
-                ?: (0 until (identifiers?.length() ?: 0)).mapNotNull { n ->
-                    identifiers?.optJSONObject(n)?.optString("identifier")?.filter(Char::isDigit)
-                }.firstOrNull { it.length == 10 }.orEmpty()
-            val image = info.optJSONObject("imageLinks")?.let { links ->
-                listOf("extraLarge", "large", "medium", "thumbnail", "smallThumbnail")
-                    .firstNotNullOfOrNull { key -> links.optString(key).takeIf(String::isNotBlank) }
-            }.orEmpty().replace("http://", "https://").ifBlank {
-                if (isbn.isNotBlank()) "https://covers.openlibrary.org/b/isbn/$isbn-L.jpg?default=false" else ""
-            }
-            PublicBookResult(title, author, info.optString("publishedDate").take(4), isbn, image,
-                info.optString("canonicalVolumeLink").ifBlank { "https://books.google.com/books?id=${row.optString("id")}" }, summaryFallback, authorKey = authorKeyFallback)
-        }.distinctBy { (it.title + "|" + it.author).lowercase() }
-        if (google.isNotEmpty()) {
-            val wanted = discoverNormalizeSearchText(titleQuery)
-            val exact = google.filter { discoverNormalizeSearchText(it.title).contains(wanted) ||
-                wanted.split(" ").filter { it.length > 1 }.all { term ->
-                    discoverNormalizeSearchText(it.title + " " + it.author).contains(term)
-                } }
-            val ranked = (if (exact.isNotEmpty()) exact else google).sortedByDescending {
-                if (discoverNormalizeSearchText(it.title) == wanted) 2 else
-                    if (discoverNormalizeSearchText(it.title).contains(wanted)) 1 else 0
-            }
-            return (listOfNotNull(curated) + ranked)
-                .distinctBy { (it.title + "|" + it.author).lowercase() }
-                .take(12)
         }
     }
-    val titlePart = if (titleQuery.isBlank()) "" else "&title=$encoded"
-    val authorPart = if (authorQuery.isBlank()) "" else "&author=${java.net.URLEncoder.encode(authorQuery.trim(), "UTF-8")}"
-    val docs = runCatching {
-        getJson("https://openlibrary.org/search.json?q=$encoded&mode=everything&limit=20$authorPart").optJSONArray("docs")
-    }.getOrNull() ?: runCatching {
-        getJson("https://openlibrary.org/search.json?title=$encoded&limit=20$authorPart").optJSONArray("docs")
-    }.getOrNull() ?: return emptyList()
-    val openLibraryResults = (0 until docs.length()).mapNotNull { i ->
-        val row = docs.optJSONObject(i) ?: return@mapNotNull null
-        val key = row.optString("key").removePrefix("/works/")
-        val title = row.optString("title").trim()
-        if (title.isBlank()) return@mapNotNull null
-        val authors = row.optJSONArray("author_name")
-        val author = (0 until (authors?.length() ?: 0)).map { authors!!.optString(it) }
-            .filter(String::isNotBlank).joinToString(", ")
-        val isbns = row.optJSONArray("isbn")
-        val isbn = isbns?.optString(0).orEmpty()
-        val coverId = row.optInt("cover_i", 0)
-        val summary = row.optJSONArray("first_sentence")?.optString(0).orEmpty()
-            .ifBlank { row.optJSONArray("subject")?.let { subjects ->
-                (0 until minOf(subjects.length(), 5)).joinToString(", ") { subjects.optString(it) }
-            }.orEmpty() }
-        val authorKeys = row.optJSONArray("author_key")
-        val authorKey = authorKeys?.optString(0).orEmpty()
-        val dates = row.optJSONArray("publish_date")?.let { values ->
-            (0 until minOf(values.length(), 5)).joinToString(" · ") { values.optString(it) }
-        }.orEmpty()
-        PublicBookResult(title, author, row.optInt("first_publish_year", 0).takeIf { it > 0 }?.toString().orEmpty(),
-            isbn, if (coverId > 0) "https://covers.openlibrary.org/b/id/$coverId-M.jpg" else "",
-            if (key.isNotBlank()) "https://openlibrary.org/works/$key" else "https://openlibrary.org/search?q=$encoded", summary, authorKey, dates)
-    }.distinctBy { (it.title + "|" + it.author).lowercase() }
-        .sortedWith(compareByDescending<PublicBookResult> {
-            val wanted = titleQuery.trim().lowercase()
-            when {
-                it.title.lowercase() == wanted -> 3
-                it.title.lowercase().contains(wanted) -> 2
-                wanted.contains(it.title.lowercase()) -> 1
-                else -> 0
+
+    runCatching {
+        val combined = listOf(wantedTitle, wantedAuthor).filter(String::isNotBlank).joinToString(" ")
+        val encoded = java.net.URLEncoder.encode(combined, "UTF-8")
+        val docs = getJson(
+            "https://openlibrary.org/search.json?q=$encoded&mode=everything&limit=35&fields=key,title,author_name,author_key,isbn,cover_i,first_publish_year,first_sentence,subject,publish_date"
+        ).optJSONArray("docs")
+        for (index in 0 until docs.length()) {
+            val row = docs.optJSONObject(index) ?: continue
+            val title = row.optString("title").trim()
+            if (title.isBlank()) continue
+            val authors = row.optJSONArray("author_name")
+            val author = (0 until (authors?.length() ?: 0))
+                .joinToString(", ") { authors!!.optString(it) }.trim()
+            val isbns = row.optJSONArray("isbn")
+            val isbnValues = (0 until (isbns?.length() ?: 0)).map {
+                isbns!!.optString(it).filter(Char::isDigit)
             }
-        }.thenByDescending {
-            if (authorQuery.isBlank()) 0 else if (it.author.lowercase().contains(authorQuery.trim().lowercase())) 1 else 0
-        })
-    return (listOfNotNull(curated) + openLibraryResults)
-        .distinctBy { (it.title + "|" + it.author).lowercase() }
-        .take(12)
+            val isbn = isbnValues.firstOrNull { it.length == 13 }
+                ?: isbnValues.firstOrNull { it.length == 10 }.orEmpty()
+            val score = confidence(title, author, isbn)
+            if (score < 42) continue
+            val coverId = row.optInt("cover_i", 0)
+            val summary = row.optJSONArray("first_sentence")?.optString(0).orEmpty()
+            val key = row.optString("key").removePrefix("/works/")
+            val authorKey = row.optJSONArray("author_key")?.optString(0).orEmpty()
+            val dates = row.optJSONArray("publish_date")?.let { values ->
+                (0 until minOf(values.length(), 5)).joinToString(" · ") { values.optString(it) }
+            }.orEmpty()
+            candidates += PublicBookResult(
+                title = title,
+                author = author,
+                year = row.optInt("first_publish_year", 0).takeIf { it > 0 }?.toString().orEmpty(),
+                isbn = isbn,
+                coverUrl = when {
+                    coverId > 0 -> "https://covers.openlibrary.org/b/id/$coverId-L.jpg?default=false"
+                    isbn.isNotBlank() -> "https://covers.openlibrary.org/b/isbn/$isbn-L.jpg?default=false"
+                    else -> ""
+                },
+                sourceUrl = if (key.isNotBlank()) "https://openlibrary.org/works/$key"
+                    else "https://openlibrary.org/search?q=$encoded",
+                summary = summary,
+                authorKey = authorKey,
+                publishDates = dates,
+                confidence = score,
+                source = "Open Library"
+            )
+        }
+    }
+
+    return candidates.groupBy { result ->
+        result.isbn.filter(Char::isDigit).takeIf { it.length >= 10 }
+            ?: (discoverNormalizeSearchText(result.title) + "|" +
+                discoverNormalizeSearchText(result.author))
+    }.values.mapNotNull { editions ->
+        editions.maxWithOrNull(
+            compareBy<PublicBookResult> { it.confidence }
+                .thenBy { if (it.coverUrl.isNotBlank()) 1 else 0 }
+                .thenBy { it.summary.length }
+        )
+    }.sortedWith(
+        compareByDescending<PublicBookResult> { it.confidence }
+            .thenByDescending { if (it.coverUrl.isNotBlank()) 1 else 0 }
+            .thenBy { discoverNormalizeSearchText(it.title) }
+    ).take(20)
 }
