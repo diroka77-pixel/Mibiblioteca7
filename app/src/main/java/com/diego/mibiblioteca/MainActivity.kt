@@ -220,8 +220,11 @@ internal fun extractSagaFromText(raw: String): Pair<String, String>? {
             .trim(' ', '-', '–', '—', ':', ',', ';')
             .replace(Regex("(?i)\\b(?:saga|serie|coleccion|collection)\\b"), "")
             .trim()
-        val order = match.groupValues.lastOrNull().orEmpty().replace(',', '.')
-        if (saga.length >= 2 && order.toDoubleOrNull()?.let { it !in 1900.0..2100.0 } == true) {
+        val rawOrder = match.groupValues.lastOrNull().orEmpty().replace(',', '.')
+        val numericOrder = rawOrder.toDoubleOrNull()
+        val order = if (numericOrder != null && numericOrder % 1.0 == 0.0)
+            numericOrder.toInt().toString() else rawOrder.trimStart('0').ifBlank { "0" }
+        if (saga.length >= 2 && numericOrder?.let { it !in 1900.0..2100.0 } == true) {
             return saga to order
         }
     }
