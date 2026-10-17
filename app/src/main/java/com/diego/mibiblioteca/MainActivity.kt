@@ -518,6 +518,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             // Las portadas se buscan manualmente desde Ajustes. Así abrir la app
             // no vuelve a recorrer toda la biblioteca ni consume red.
         }
+        viewModelScope.launch {
+            initialRestoreJob?.join()
+            if (prefs.getString(folderKey, null) != null) {
+                delay(350)
+                sync()
+            }
+        }
         viewMode = prefs.getString("view_mode", "Galería") ?: "Galería"
         (listOf("general") + sections).forEach { scope ->
             scopedViewModes[scope] = prefs.getString("view_mode_$scope", viewMode) ?: viewMode
@@ -2204,6 +2211,7 @@ private fun queryDriveChildren(
         DocumentsContract.Document.COLUMN_SIZE,
         DocumentsContract.Document.COLUMN_LAST_MODIFIED
     )
+    val accumulated = linkedMapOf<String, DriveDocumentEntry>()
     var latest = emptyList<DriveDocumentEntry>()
     repeat(6) { attempt ->
         val cursor = resolver.query(childrenUri, projection, null, null, null)
@@ -2228,7 +2236,8 @@ private fun queryDriveChildren(
                     modified = if (modifiedColumn >= 0 && !cursor.isNull(modifiedColumn)) cursor.getLong(modifiedColumn) else -1L
                 )
             }
-            latest = rows
+            rows.forEach { accumulated[it.documentId] = it }
+            latest = accumulated.values.toList()
             cursor.extras?.getBoolean(DocumentsContract.EXTRA_LOADING, false) == true
         } finally {
             cursor.close()

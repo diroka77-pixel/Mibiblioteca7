@@ -1,3 +1,7 @@
+## Versión 1.0.27
+- La consulta de Drive acumula páginas sucesivas en vez de quedarse con la última página devuelta por el proveedor.
+- La biblioteca vuelve a sincronizarse automáticamente al abrirse si ya existe una carpeta guardada.
+
 ## Versión 1.0.26
 - Drive ya no descarta archivos sin extensión visible cuando la carpeta contiene libros; los intenta analizar como EPUB.
 
