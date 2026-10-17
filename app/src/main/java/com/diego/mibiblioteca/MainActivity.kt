@@ -233,37 +233,6 @@ internal fun extractSagaFromText(raw: String): Pair<String, String>? {
 
 private fun sagaGroupKey(book: Book): String = normalizeSagaName(inferredSaga(book).first)
 
-private class BookStore(context: Context) : SQLiteOpenHelper(context, "catalog.db", null, 1) {
-    override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL("CREATE TABLE books (uri TEXT PRIMARY KEY, content TEXT NOT NULL)")
-    }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
-
-    fun readArray(): org.json.JSONArray {
-        val result = org.json.JSONArray()
-        readableDatabase.rawQuery("SELECT content FROM books ORDER BY rowid", null).use { cursor ->
-            while (cursor.moveToNext()) result.put(JSONObject(cursor.getString(0)))
-        }
-        return result
-    }
-
-    fun replaceAll(array: org.json.JSONArray) {
-        val db = writableDatabase
-        db.beginTransaction()
-        try {
-            db.delete("books", null, null)
-            for (i in 0 until array.length()) {
-                val book = array.getJSONObject(i)
-                db.insertOrThrow("books", null, ContentValues().apply {
-                    put("uri", book.getString("uri"))
-                    put("content", book.toString())
-                })
-            }
-            db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
-    }
-}
-
 private val newsImageCache = object : LruCache<String, Bitmap>(12 * 1024) {
     override fun sizeOf(key: String, value: Bitmap): Int =
         (value.byteCount / 1024).coerceAtLeast(1)
@@ -1712,7 +1681,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale("es", "ES"))
                         .format(java.util.Date()) +
                     "\n${result.size} archivos · $added nuevos · $changed modificados · $missing no confirmados; se conservan sus fichas."
-                prefs.edit().putString("sync_report", syncReport).apply()
+                prefs.edit()
+                    .putString("sync_report", syncReport)
+                    .putString("sync_manifest", LibrarySyncManifest.from(books).toJson())
+                    .apply()
                 folderName = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(getApplication(), uri)?.name }
                 prefs.edit().putString("folder_name", folderName).apply()
                 message = "${result.size} libros y documentos encontrados"
