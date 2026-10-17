@@ -1,3 +1,7 @@
+## Versión 1.0.25
+- La sincronización muestra un aviso con los títulos nuevos detectados en Drive.
+- El botón de actualizar fuerza la lectura completa de la carpeta guardada.
+
 ## Versión 1.0.24
 - La sincronización combina la consulta directa de Drive con la lista del selector de documentos para detectar archivos recién incorporados.
 

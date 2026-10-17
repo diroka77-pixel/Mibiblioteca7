@@ -480,6 +480,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var syncCount by mutableIntStateOf(0); private set
     var syncReport by mutableStateOf(""); private set
     var syncSummary by mutableStateOf(""); private set
+    var newBooksNotice by mutableStateOf<String?>(null); private set
+    fun clearNewBooksNotice() { newBooksNotice = null }
     var launchNews by mutableStateOf<List<LaunchNews>>(emptyList()); private set
     var newsRefreshing by mutableStateOf(false); private set
     var hiddenNewsSources by mutableStateOf<Set<String>>(emptySet()); private set
@@ -1684,7 +1686,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     .sortedBy { it.title.lowercase() }
                 val previousUris = cached.keys
                 val currentUris = result.map { it.uri }.toSet()
-                val added = (currentUris - previousUris).size
+                val addedUris = currentUris - previousUris
+                val added = addedUris.size
+                val addedTitles = result.filter { it.uri in addedUris }
+                    .map(::displayTitle).filter(String::isNotBlank).distinct()
+                newBooksNotice = addedTitles.takeIf { it.isNotEmpty() }?.joinToString("\n")
                 val changed = result.count { fresh ->
                     cached[fresh.uri]?.let { old ->
                         old.sourceSize != fresh.sourceSize || old.sourceModified != fresh.sourceModified
@@ -4105,6 +4111,18 @@ private fun openCasaDelLibro(context: Context) {
             }
         } },
         confirmButton = { LibraryTextButton(onClick = { duplicateDialog = false }) { Text("Cerrar") } })
+    vm.newBooksNotice?.let { titles ->
+        AlertDialog(onDismissRequest = vm::clearNewBooksNotice,
+            title = { Text("Nuevas incorporaciones") },
+            text = { Column {
+                Text("La sincronización ha encontrado estos libros nuevos:")
+                Spacer(Modifier.height(10.dp))
+                Text(titles, fontWeight = FontWeight.SemiBold)
+            } },
+            confirmButton = {
+                LibraryTextButton(onClick = vm::clearNewBooksNotice) { Text("Aceptar") }
+            })
+    }
     if (showSyncReport) AlertDialog(onDismissRequest = { showSyncReport = false },
         title = { Text("Sincronización de Drive") },
         text = { Column {
