@@ -2383,11 +2383,14 @@ private fun downloadImage(url: String): ByteArray? {
     finally { connection.disconnect() }
 }
 
-internal fun catalogMatch(candidateTitle: String, candidateAuthors: List<String>, book: Book): Boolean =
-    coverTitleMatches(displayTitle(book), candidateTitle) &&
-        (unknownAuthor(displayAuthor(book)) || candidateAuthors.any {
-            coverAuthorMatches(displayAuthor(book), it)
-        })
+internal fun catalogMatch(candidateTitle: String, candidateAuthors: List<String>, book: Book): Boolean {
+    val expectedAuthor = displayAuthor(book).takeUnless(::unknownAuthor).orEmpty()
+    val candidateAuthor = candidateAuthors.joinToString(", ")
+    val confidence = CatalogQuality.confidenceForIdentity(
+        displayTitle(book), expectedAuthor, candidateTitle, candidateAuthor, book.isbn, ""
+    )
+    return confidence >= if (expectedAuthor.isBlank()) 76 else 70
+}
 
 private fun publicCoverPage(url: String): String = Jsoup.connect(url)
     .userAgent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36")
