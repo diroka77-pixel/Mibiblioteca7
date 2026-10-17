@@ -1036,19 +1036,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             }
         } ?: return
         val cloudBookCount = cloud.optJSONArray("books")?.length() ?: return
-        val recoverIncompleteCatalog = !force && books.isNotEmpty() &&
+        val booksBeforeRecovery = if (force) emptyList() else books.toList()
+        val restoreCompleteCatalog = force || books.isEmpty() ||
             shouldRecoverDriveCatalog(books.size, cloudBookCount)
-        if (!force && books.isNotEmpty() && !recoverIncompleteCatalog &&
+        if (!force && books.isNotEmpty() && !restoreCompleteCatalog &&
             cloud.optLong("updatedAt") <= prefs.getLong("local_revision", 0L)) return
         withContext(Dispatchers.IO) { validateBackupImages(cloud) }
-        // Existing local records must never disappear because a cloud snapshot is incomplete.
-        val booksBeforeRecovery = if (recoverIncompleteCatalog) books.toList() else emptyList()
-        if (books.isNotEmpty() && !recoverIncompleteCatalog) {
+        if (!restoreCompleteCatalog) {
             val result = applyBackup(cloud)
             if (result.pending != null) prefs.edit().putString("pending_backup", result.pending).apply()
             return
         }
-        if (recoverIncompleteCatalog) books = emptyList()
         val booksArray = cloud.optJSONArray("books") ?: return
         catalogSaveJob?.join()
         withContext(Dispatchers.IO) { bookStore.applySnapshot(booksArray) }
@@ -1089,12 +1087,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         loadWishList()
         prefs.edit().putString("pending_backup", cloud.toString()).apply()
         restoreCachedBooks()
-        if (recoverIncompleteCatalog) {
+        if (restoreCompleteCatalog && booksBeforeRecovery.isNotEmpty()) {
             val recovered = books.associateBy { it.uri }.toMutableMap()
             booksBeforeRecovery.forEach { recovered[it.uri] = it }
             books = recovered.values.sortedBy { it.title.lowercase() }
             saveBooks()
-            detailMessage = "Se recuperó el catálogo completo del respaldo anterior de Drive ($cloudBookCount fichas)."
+            detailMessage = "Catálogo restaurado desde Drive ($cloudBookCount fichas); se conserva el libro abierto."
         }
     }
 
@@ -6534,7 +6532,15 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
             title = { Text("Mi Biblioteca", fontFamily = FontFamily.Serif, color = Paper,
                 style = MaterialTheme.typography.titleLarge.copy(shadow = WallpaperTextShadow)) },
             navigationIcon = { IconButton(onClick = back) { AppIcon("Volver", "Volver", tint = Paper) } },
-            actions = { IconButton(onClick = toggleFavorite) { AppIcon(if (book.favorite) "Favorito" else "Favoritos", "Favorito", tint = Paper) } },
+            actions = {
+                IconButton(onClick = toggleFavorite,
+                    modifier = Modifier.semantics {
+                        contentDescription = if (book.favorite) "Quitar de favoritos" else "Añadir a favoritos"
+                    }) {
+                    AppIcon(if (book.favorite) "Favorito" else "Favoritos",
+                        if (book.favorite) "Quitar de favoritos" else "Añadir a favoritos", tint = Paper)
+                }
+            },
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = Color(0x85211711),
                 scrolledContainerColor = Color(0xA6211711))
