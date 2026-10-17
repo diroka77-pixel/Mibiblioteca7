@@ -1011,6 +1011,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun restoreCloud(tree: Uri, force: Boolean = false) {
+        val knownLocalCatalogSize = books.size
         val cloud = withContext(Dispatchers.IO) {
             val root = DocumentFile.fromTreeUri(getApplication(), tree) ?: return@withContext null
             fun readSnapshot(name: String): JSONObject? = root.findFile(name)?.let { file ->
@@ -1018,19 +1019,38 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     parseBackup(it.readLimited(FileLimits.BACKUP_BYTES).toString(Charsets.UTF_8)).also(::validateBackupImages)
                 }
             }
-            try { readSnapshot(cloudName) ?: readSnapshot(cloudName + ".previous") }
-            catch (failure: Exception) { readSnapshot(cloudName + ".previous") ?: throw failure }
+            var currentFailure: Exception? = null
+            val current = try { readSnapshot(cloudName) }
+                catch (failure: Exception) { currentFailure = failure; null }
+            val previous = try { readSnapshot(cloudName + ".previous") }
+                catch (_: Exception) { null }
+            when {
+                current == null -> previous ?: currentFailure?.let { throw it }
+                previous == null -> current
+                shouldPreferPreviousDriveSnapshot(
+                    localCatalogSize = knownLocalCatalogSize,
+                    currentSnapshotSize = current.optJSONArray("books")?.length() ?: 0,
+                    previousSnapshotSize = previous.optJSONArray("books")?.length() ?: 0
+                ) -> previous
+                else -> current
+            }
         } ?: return
-        if (!force && books.isNotEmpty() &&
+        val cloudBookCount = cloud.optJSONArray("books")?.length() ?: return
+        val recoverIncompleteCatalog = !force && books.isNotEmpty() &&
+            shouldRecoverDriveCatalog(books.size, cloudBookCount)
+        if (!force && books.isNotEmpty() && !recoverIncompleteCatalog &&
             cloud.optLong("updatedAt") <= prefs.getLong("local_revision", 0L)) return
         withContext(Dispatchers.IO) { validateBackupImages(cloud) }
         // Existing local records must never disappear because a cloud snapshot is incomplete.
-        if (books.isNotEmpty()) {
+        val booksBeforeRecovery = if (recoverIncompleteCatalog) books.toList() else emptyList()
+        if (books.isNotEmpty() && !recoverIncompleteCatalog) {
             val result = applyBackup(cloud)
             if (result.pending != null) prefs.edit().putString("pending_backup", result.pending).apply()
             return
         }
+        if (recoverIncompleteCatalog) books = emptyList()
         val booksArray = cloud.optJSONArray("books") ?: return
+        catalogSaveJob?.join()
         withContext(Dispatchers.IO) { bookStore.applySnapshot(booksArray) }
         prefs.edit().remove("books_cache")
             .putBoolean("catalog_v2_ready", true)
@@ -1069,6 +1089,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         loadWishList()
         prefs.edit().putString("pending_backup", cloud.toString()).apply()
         restoreCachedBooks()
+        if (recoverIncompleteCatalog) {
+            val recovered = books.associateBy { it.uri }.toMutableMap()
+            booksBeforeRecovery.forEach { recovered[it.uri] = it }
+            books = recovered.values.sortedBy { it.title.lowercase() }
+            saveBooks()
+            detailMessage = "Se recuperó el catálogo completo del respaldo anterior de Drive ($cloudBookCount fichas)."
+        }
     }
 
     fun addSection(name: String) {
@@ -1683,14 +1710,16 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 syncReport = "Última sincronización: " +
                     java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale("es", "ES"))
                         .format(java.util.Date()) +
-                    "\n${result.size} archivos · $added nuevos · $changed modificados · $missing no confirmados; se conservan sus fichas."
+                    "\n${result.size} archivos detectados · ${books.size} libros en la biblioteca · $added nuevos · $changed modificados · $missing no confirmados; se conservan sus fichas."
                 prefs.edit()
                     .putString("sync_report", syncReport)
                     .putString("sync_manifest", LibrarySyncManifest.from(books).toJson())
                     .apply()
                 folderName = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(getApplication(), uri)?.name }
                 prefs.edit().putString("folder_name", folderName).apply()
-                message = "${result.size} libros y documentos encontrados"
+                message = if (partialDriveScan)
+                    "Drive devolvió ${result.size} archivos; se conservaron ${books.size} libros de la biblioteca."
+                else "${result.size} libros y documentos encontrados"
                 completed = true
                 refreshMissingCovers()
                 } catch (e: Exception) {

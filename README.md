@@ -1,4 +1,9 @@
-# MiBiblioteca v0.96.0
+# MiBiblioteca v1.0.20
+
+## Cambios de la versión 1.0.20
+
+- Recuperación del catálogo desde el respaldo anterior cuando una lectura externa deja solo una ficha guardada.
+- Reintento y conservación de la colección si Drive entrega un listado incompleto.
 
 ## Cambios de la versión 0.96
 
