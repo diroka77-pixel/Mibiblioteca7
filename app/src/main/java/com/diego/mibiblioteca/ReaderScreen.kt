@@ -191,7 +191,16 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
             // un bloque vacío debajo. Reservamos una fracción compacta y
             // dejamos que el texto siguiente ocupe todo el espacio restante.
             // El límite superior evita que una imagen grande se coma la página.
-            val imageHeight = (height * 0.22f).toInt().coerceIn(140, 280)
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(paragraph.imagePath, bounds)
+            val targetWidth = (width * 0.78f).toInt().coerceAtLeast(1)
+            val proportionalHeight = if (bounds.outWidth > 0 && bounds.outHeight > 0)
+                (targetWidth.toLong() * bounds.outHeight / bounds.outWidth).toInt()
+            else (height * 0.24f).toInt()
+            val imageHeight = proportionalHeight.coerceIn(
+                (height * 0.14f).toInt().coerceAtLeast(1),
+                (height * 0.55f).toInt().coerceAtLeast(1)
+            )
             if (occupied + imageHeight > height && slices.isNotEmpty()) finish()
             slices += ReadingSlice(index, 0, 0, imageHeight)
             occupied += imageHeight + gapPx
