@@ -565,7 +565,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         annualReadingGoal = goal.coerceIn(1, 365)
         prefs.edit().putInt("annual_reading_goal", annualReadingGoal).apply()
     }
-    private val bookStore = BookStore(app)
+    private val bookStore = CatalogStoreV2(app)
     private val saveMutex = Mutex()
     private var catalogSaveJob: Job? = null
     private var initialRestoreJob: Job? = null
@@ -761,7 +761,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 saveMutex.withLock {
                     if (revision != saveVersion) return@withLock
                     val array = booksToJsonArray(snapshot)
-                    bookStore.replaceAll(array)
+                    bookStore.applySnapshot(array)
                     prefs.edit().putString("books_cache", array.toString()).apply()
                 }
             }
@@ -1092,7 +1092,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         val booksArray = cloud.optJSONArray("books") ?: return
-        withContext(Dispatchers.IO) { bookStore.replaceAll(booksArray) }
+        withContext(Dispatchers.IO) { bookStore.applySnapshot(booksArray) }
         prefs.edit().putString("books_cache", booksArray.toString())
             .putString("sections", cloud.optJSONArray("sections")?.toString() ?: "[]")
             .putString("wish_list", cloud.optJSONArray("wishList")?.toString() ?: "[]")
@@ -3625,10 +3625,15 @@ private fun openCasaDelLibro(context: Context) {
         sectionSnapshot, qualitySnapshot, reviewSnapshot
     ) {
         value = if (!hasCatalogFilters) booksSnapshot else withContext(Dispatchers.Default) {
-            val indexedMatches = if (querySnapshot.isBlank()) null
-                else catalogSearchIndex.matchingBookUris(booksSnapshot, querySnapshot)
-            filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
+            val indexedMatches = if (querySnapshot.isBlank()) null else {
+                val exactAndPrefix = catalogSearchIndex.matchingBookUris(booksSnapshot, querySnapshot)
+                val tolerant = CatalogQuality.rank(booksSnapshot, querySnapshot)
+                    .asSequence().map { it.uri }.toSet()
+                exactAndPrefix + tolerant
+            }
+            val filtered = filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
                 sectionSnapshot, qualitySnapshot, reviewSnapshot, indexedMatches)
+            if (querySnapshot.isBlank()) filtered else CatalogQuality.rank(filtered, querySnapshot)
         }
     }
     val filteredBooks = remember(baseFilteredBooks, smartCollection) {
