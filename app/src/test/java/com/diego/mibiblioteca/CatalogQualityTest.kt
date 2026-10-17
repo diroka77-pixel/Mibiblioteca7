@@ -34,4 +34,19 @@ class CatalogQualityTest {
         assertTrue(!CatalogQuality.acceptableCover(40, 600, 900))
         assertTrue(!CatalogQuality.acceptableCover(90, 80, 80))
     }
+
+    @Test fun metadataCompletaGanaSinAceptarOtraIdentidad() {
+        val selected = bestMetadataEvidence(
+            "El dique", "Michael McDowell", "",
+            listOf(
+                MetadataEvidence("El dique", "Michael McDowell", summary = "Breve", confidence = 70),
+                MetadataEvidence("El dique", "Michael McDowell",
+                    summary = "Un argumento suficientemente completo para presentar correctamente la obra al lector.",
+                    coverUrl = "https://example.test/cover.jpg", confidence = 80),
+                MetadataEvidence("El dique", "Otro autor", confidence = 95)
+            )
+        )
+        assertEquals("Michael McDowell", selected?.author)
+        assertTrue(selected?.coverUrl?.isNotBlank() == true)
+    }
 }

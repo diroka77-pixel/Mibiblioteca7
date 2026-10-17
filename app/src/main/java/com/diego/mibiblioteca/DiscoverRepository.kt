@@ -76,7 +76,10 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
             val authorQ = java.net.URLEncoder.encode("\"" + result.author.trim() + "\" escritor autor", "UTF-8")
             val hits = getJson("https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=$authorQ&format=json&origin=*").optJSONObject("query")?.optJSONArray("search")
             val page = hits?.optJSONObject(0)?.optString("title").orEmpty()
-            if (page.isNotBlank()) {
+            val expectedAuthorTerms = discoverNormalizeSearchText(result.author).split(' ')
+                .filter { it.length >= 3 }.toSet()
+            val normalizedPage = discoverNormalizeSearchText(page)
+            if (page.isNotBlank() && expectedAuthorTerms.any(normalizedPage::contains)) {
                 val title = java.net.URLEncoder.encode(page, "UTF-8")
                 val extract = getJson("https://es.wikipedia.org/w/api.php?action=query&prop=extracts|pageimages&piprop=thumbnail&pithumbsize=500&explaintext=1&exintro=1&titles=$title&format=json&origin=*").optJSONObject("query")?.optJSONObject("pages")
                 val key = extract?.keys()?.asSequence()?.firstOrNull()
@@ -122,7 +125,11 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
             val hits = getJson("https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=$bookQuery&format=json&origin=*")
                 .optJSONObject("query")?.optJSONArray("search")
             val page = hits?.optJSONObject(0)?.optString("title").orEmpty()
-            if (page.isNotBlank()) {
+            val wantedTerms = discoverNormalizeSearchText(result.title).split(' ')
+                .filter { it.length >= 3 }.toSet()
+            val pageTerms = discoverNormalizeSearchText(page)
+            if (page.isNotBlank() && wantedTerms.isNotEmpty() &&
+                wantedTerms.count(pageTerms::contains) * 2 >= wantedTerms.size) {
                 val encodedPage = java.net.URLEncoder.encode(page, "UTF-8")
                 val pagesJson = getJson("https://es.wikipedia.org/w/api.php?action=query&prop=extracts|pageimages&piprop=thumbnail&pithumbsize=800&explaintext=1&exintro=1&titles=$encodedPage&format=json&origin=*")
                     .optJSONObject("query")?.optJSONObject("pages")
@@ -141,7 +148,13 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
         if (summary.isBlank() || coverUrl.isBlank()) {
             val broad = java.net.URLEncoder.encode(result.title, "UTF-8")
             val fallback = getJson("https://openlibrary.org/search.json?title=$broad&limit=5").optJSONArray("docs")
-            val row = fallback?.optJSONObject(0)
+            val row = (0 until (fallback?.length() ?: 0)).mapNotNull { fallback?.optJSONObject(it) }
+                .maxByOrNull {
+                    CatalogQuality.confidenceForIdentity(result.title, result.author,
+                        it.optString("title"), it.optJSONArray("author_name")?.let { names ->
+                            (0 until names.length()).joinToString(", ") { index -> names.optString(index) }
+                        }.orEmpty())
+                }
             val id = row?.optInt("cover_i", 0) ?: 0
             if (coverUrl.isBlank() && id > 0) coverUrl = "https://covers.openlibrary.org/b/id/$id-L.jpg"
             if (summary.isBlank()) summary = row?.optJSONArray("first_sentence")?.optString(0).orEmpty()
@@ -157,15 +170,17 @@ fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<Public
     if (wantedTitle.isBlank() && wantedAuthor.isBlank()) return emptyList()
     val candidates = mutableListOf<PublicBookResult>()
     curatedPublicResult(wantedTitle, wantedAuthor)?.let(candidates::add)
+    val wantedIsbn = wantedTitle.filter(Char::isDigit).takeIf { it.length in setOf(10, 13) }.orEmpty()
 
     fun confidence(title: String, author: String, isbn: String = "") =
-        CatalogQuality.confidenceForIdentity(wantedTitle, wantedAuthor, title, author, "", isbn)
+        CatalogQuality.confidenceForIdentity(wantedTitle, wantedAuthor, title, author, wantedIsbn, isbn)
 
     val googleQueries = listOf(
+        wantedIsbn.takeIf(String::isNotBlank)?.let { "isbn:$it" },
         listOf("intitle:$wantedTitle", wantedAuthor.takeIf(String::isNotBlank)?.let { "inauthor:$it" })
             .filterNotNull().joinToString(" "),
         listOf(wantedTitle, wantedAuthor).filter(String::isNotBlank).joinToString(" ")
-    ).distinct()
+    ).filterNotNull().distinct()
     googleQueries.forEachIndexed { queryIndex, raw ->
         runCatching {
             val query = java.net.URLEncoder.encode(raw, "UTF-8")

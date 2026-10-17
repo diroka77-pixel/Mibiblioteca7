@@ -1,7 +1,6 @@
 package com.diego.mibiblioteca
 
 import java.text.Normalizer
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -73,7 +72,11 @@ internal object CatalogQuality {
         val title = similarity(normalize(expectedTitle), normalize(candidateTitle))
         val author = if (expectedAuthor.isBlank()) 0.65
             else similarity(normalize(expectedAuthor), normalize(candidateAuthor))
-        return ((title * 72.0) + (author * 28.0)).toInt().coerceIn(0, 99)
+        val combined = ((title * 72.0) + (author * 28.0)).toInt().coerceIn(0, 99)
+        // Una portada con un título casi idéntico pero otro autor es un falso
+        // positivo frecuente. Sin ISBN coincidente no debe aprobarse sola.
+        return if (expectedAuthor.isNotBlank() && candidateAuthor.isNotBlank() && author < 0.45)
+            combined.coerceAtMost(64) else combined
     }
 
     fun acceptableCover(confidence: Int, width: Int, height: Int): Boolean =
@@ -131,14 +134,15 @@ internal fun bestMetadataEvidence(
     wantedIsbn: String,
     candidates: List<MetadataEvidence>
 ): MetadataEvidence? = candidates
-    .map { candidate ->
+    .mapNotNull { candidate ->
         val identity = CatalogQuality.confidenceForIdentity(
             wantedTitle, wantedAuthor, candidate.title, candidate.author,
             wantedIsbn, candidate.isbn
         )
-        candidate.copy(confidence = max(candidate.confidence, identity))
+        if (identity < 55) null else candidate.copy(
+            confidence = ((identity * 4 + candidate.confidence.coerceIn(0, 100)) / 5)
+        )
     }
-    .filter { it.confidence >= 55 }
     .maxWithOrNull(compareBy<MetadataEvidence> { it.confidence }
         .thenBy { if (it.summary.length >= 80) 1 else 0 }
         .thenBy { if (it.coverUrl.isNotBlank()) 1 else 0 })

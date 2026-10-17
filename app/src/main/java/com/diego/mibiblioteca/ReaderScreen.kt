@@ -70,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -115,6 +116,23 @@ private data class ReadingSlice(val paragraph: Int, val start: Int, val end: Int
 private data class ReadingPage(val slices: List<ReadingSlice>, val startChar: Int)
 private data class SpeechPage(val text: String, val sourcePositions: IntArray)
 internal data class SpeechChunk(val start: Int, val text: String)
+
+internal fun readerImageHeight(
+    sourceWidth: Int,
+    sourceHeight: Int,
+    contentWidth: Int,
+    pageHeight: Int
+): Int {
+    if (pageHeight <= 0) return 1
+    val targetWidth = (contentWidth * 0.78f).toInt().coerceAtLeast(1)
+    val proportional = if (sourceWidth > 0 && sourceHeight > 0)
+        (targetWidth.toLong() * sourceHeight / sourceWidth).toInt()
+    else (pageHeight * 0.24f).toInt()
+    return proportional.coerceIn(
+        (pageHeight * 0.14f).toInt().coerceAtLeast(1),
+        (pageHeight * 0.55f).toInt().coerceAtLeast(1)
+    )
+}
 internal fun speechWordChunks(text: String, maxChars: Int = 900): List<SpeechChunk> {
     if (text.isBlank()) return emptyList()
     val limit = maxChars.coerceAtLeast(120)
@@ -193,13 +211,8 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
             // El límite superior evita que una imagen grande se coma la página.
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(paragraph.imagePath, bounds)
-            val targetWidth = (width * 0.78f).toInt().coerceAtLeast(1)
-            val proportionalHeight = if (bounds.outWidth > 0 && bounds.outHeight > 0)
-                (targetWidth.toLong() * bounds.outHeight / bounds.outWidth).toInt()
-            else (height * 0.24f).toInt()
-            val imageHeight = proportionalHeight.coerceIn(
-                (height * 0.14f).toInt().coerceAtLeast(1),
-                (height * 0.55f).toInt().coerceAtLeast(1)
+            val imageHeight = readerImageHeight(
+                bounds.outWidth, bounds.outHeight, width, height
             )
             if (occupied + imageHeight > height && slices.isNotEmpty()) finish()
             slices += ReadingSlice(index, 0, 0, imageHeight)
@@ -666,8 +679,19 @@ private fun SelectableParagraph(
     val lookupAction by rememberUpdatedState(onLookup)
     val bookmarkAction by rememberUpdatedState(onBookmarkChar)
     if (paragraph.imagePath != null) {
-        val bitmap by produceState<Bitmap?>(null, paragraph.imagePath) {
-            value = withContext(Dispatchers.IO) { runCatching { BitmapFactory.decodeFile(paragraph.imagePath) }.getOrNull() }
+        val density = LocalDensity.current
+        val targetWidthPx = with(density) { LocalConfiguration.current.screenWidthDp.dp.roundToPx() }
+        val bitmap by produceState<Bitmap?>(null, paragraph.imagePath, reservedHeightPx, targetWidthPx) {
+            value = withContext(Dispatchers.IO) { runCatching {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(paragraph.imagePath, bounds)
+                val sample = imageSampleSize(
+                    bounds.outWidth, bounds.outHeight,
+                    targetWidthPx.coerceAtLeast(1), reservedHeightPx.coerceAtLeast(1)
+                )
+                BitmapFactory.decodeFile(paragraph.imagePath,
+                    BitmapFactory.Options().apply { inSampleSize = sample })
+            }.getOrNull() }
         }
         if (bitmap != null) {
             // Las ilustraciones deben conservar una escala editorial razonable:
@@ -675,7 +699,7 @@ private fun SelectableParagraph(
             // El ancho limitado deja margen de texto alrededor, como en los
             // lectores EPUB convencionales, y el alto se calcula manteniendo
             // la proporción original.
-            val reservedHeight = with(LocalDensity.current) {
+            val reservedHeight = with(density) {
                 reservedHeightPx.coerceAtLeast(1).toDp()
             }
             Box(

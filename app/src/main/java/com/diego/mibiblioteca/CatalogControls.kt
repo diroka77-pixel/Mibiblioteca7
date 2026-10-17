@@ -1,7 +1,7 @@
 package com.diego.mibiblioteca
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -48,7 +49,8 @@ internal fun UnifiedLibraryModeBar(
             actions.forEach { (mode, icon, action) ->
                 val selected = current == mode
                 Surface(
-                    modifier = Modifier.weight(1f).height(38.dp).clickable(onClick = action),
+                    modifier = Modifier.weight(1f).height(42.dp)
+                        .selectable(selected = selected, onClick = action, role = Role.Tab),
                     color = if (selected) Color(0xFF9A6843) else Color.Transparent,
                     shape = RoundedCornerShape(13.dp)
                 ) {
@@ -56,7 +58,7 @@ internal fun UnifiedLibraryModeBar(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(horizontal = 7.dp)
                     ) {
-                        Icon(icon, null, tint = Color.White)
+                        Icon(icon, contentDescription = null, tint = Color.White)
                         Text(
                             mode.label,
                             modifier = Modifier.padding(start = 5.dp),

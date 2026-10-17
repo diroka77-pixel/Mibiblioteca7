@@ -3,6 +3,7 @@ package com.diego.mibiblioteca
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
+import java.security.MessageDigest
 import java.util.Base64
 
 internal fun checkJsonDepth(raw: String) {
@@ -38,9 +39,28 @@ internal fun decodeBackupCover(image: String): ByteArray {
     }
 }
 
+internal fun backupChecksum(backup: JSONObject): String {
+    val canonical = buildString {
+        append(backup.optLong("updatedAt")); append('\n')
+        append(backup.optJSONArray("sections")?.toString() ?: "[]"); append('\n')
+        append(backup.optJSONArray("wishList")?.toString() ?: "[]"); append('\n')
+        append(backup.optJSONArray("books")?.toString() ?: "[]")
+    }
+    return MessageDigest.getInstance("SHA-256")
+        .digest(canonical.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+}
+
 /** Validate the complete payload before touching preferences, files or the database. */
 internal fun validateBackup(backup: JSONObject): JSONObject {
-    require(backup.optInt("backupVersion") == 1) { "Versión de respaldo no compatible." }
+    val version = backup.optInt("backupVersion")
+    require(version in 1..2) { "Versión de respaldo no compatible." }
+    if (version >= 2) {
+        val stored = backup.optString("contentSha256")
+        require(stored.length == 64 && stored == backupChecksum(backup)) {
+            "El respaldo no supera la verificación de integridad."
+        }
+    }
     val books = backup.getJSONArray("books")
     require(books.length() <= 10000) { "El respaldo contiene demasiados libros." }
     fun inspect(value: Any?, depth: Int = 0, key: String = "") {
@@ -92,9 +112,16 @@ internal fun validateBackup(backup: JSONObject): JSONObject {
     backup.optJSONArray("wishList")?.let { wishes ->
         for (i in 0 until wishes.length()) {
             val item = wishes.getJSONObject(i)
-            val url = URI(item.getString("url"))
-            require(url.scheme == "https" && url.host in setOf("goodreads.com", "www.goodreads.com")) {
-                "Enlace de Goodreads inválido."
+            val rawUrl = item.optString("url")
+            if (rawUrl.isBlank()) continue
+            val url = URI(rawUrl)
+            val allowedHosts = setOf(
+                "goodreads.com", "www.goodreads.com", "openlibrary.org",
+                "books.google.com", "play.google.com", "penguinlibros.com",
+                "www.penguinlibros.com"
+            )
+            require(url.scheme == "https" && url.host in allowedHosts) {
+                "Enlace público de libro inválido."
             }
         }
     }

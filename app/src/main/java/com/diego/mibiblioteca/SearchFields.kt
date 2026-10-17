@@ -20,6 +20,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardActions
@@ -45,7 +47,7 @@ fun LibrarySearchField(
     LaunchedEffect(draft) {
         // El catálogo se filtra cuando termina la ráfaga de escritura.
         // Un intervalo corto provocaba recomposiciones mientras todavía se tecleaba.
-        delay(480)
+        delay(250)
         if (draft != query) onQueryCommit(draft)
     }
     OutlinedTextField(
@@ -82,6 +84,15 @@ fun DiscoverSearchField(
     onSearch: (String) -> Unit
 ) {
     var draft by rememberSaveable { mutableStateOf(query) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    fun submit() {
+        if (!searching && draft.isNotBlank()) {
+            onSearch(draft.trim())
+            keyboard?.hide()
+            focusManager.clearFocus()
+        }
+    }
     LaunchedEffect(query) { if (query != draft) draft = query }
     OutlinedTextField(
         value = draft,
@@ -98,11 +109,7 @@ fun DiscoverSearchField(
             }
         },
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = {
-            if (!searching && draft.isNotBlank()) onSearch(draft.trim())
-        }, onDone = {
-            if (!searching && draft.isNotBlank()) onSearch(draft.trim())
-        }),
+        keyboardActions = KeyboardActions(onSearch = { submit() }, onDone = { submit() }),
         colors = OutlinedTextFieldDefaults.colors(
             focusedContainerColor = Color.Transparent,
             unfocusedContainerColor = SearchPaper,

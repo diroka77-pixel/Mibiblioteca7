@@ -47,4 +47,23 @@ class BackupValidationTest {
                 .put("title", "Un libro").put("url", "https://www.goodreads.com.evil.test/book/1"))))
         }
     }
+
+    @Test fun acceptsDiscoverAndManualWishLinks() {
+        assertNotNull(validateBackup(backup(book()).put("wishList", JSONArray()
+            .put(JSONObject().put("title", "Uno").put("url", "https://openlibrary.org/works/OL1W"))
+            .put(JSONObject().put("title", "Dos").put("url", "")))))
+    }
+
+    @Test fun currentBackupDetectsAnyLaterModification() {
+        val current = JSONObject()
+            .put("backupVersion", 2)
+            .put("updatedAt", 123L)
+            .put("sections", JSONArray())
+            .put("wishList", JSONArray())
+            .put("books", JSONArray().put(book()))
+        current.put("contentSha256", backupChecksum(current))
+        assertNotNull(validateBackup(current))
+        current.getJSONArray("books").getJSONObject(0).put("title", "Alterado")
+        assertThrows(IllegalArgumentException::class.java) { validateBackup(current) }
+    }
 }

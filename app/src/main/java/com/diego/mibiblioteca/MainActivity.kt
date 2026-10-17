@@ -81,6 +81,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -128,50 +129,6 @@ import org.xmlpull.v1.XmlPullParserFactory
 import java.io.ByteArrayInputStream
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipFile
-
-enum class ReadingStatus(val label: String) { PENDING("Pendiente"), READING("Leyendo"), READ("Leído") }
-
-data class Book(
-    val uri: Uri,
-    val title: String,
-    val author: String = "Autor desconocido",
-    val date: String = "",
-    val publisher: String = "",
-    val genre: String = "",
-    val description: String = "Sin descripción disponible.",
-    val isbn: String = "",
-    val saga: String = "",
-    val cover: ByteArray? = null,
-    val favorite: Boolean = false,
-    val status: ReadingStatus = ReadingStatus.PENDING,
-    val language: String = "",
-    val spanishPlot: String = "",
-    val authorBio: String = "",
-    val section: String = "",
-    val sections: List<String> = emptyList(),
-    val notes: String = "",
-    val goodreadsUrl: String = "",
-    val wantToRead: Boolean = false,
-    val customTitle: String = "",
-    val customAuthor: String = "",
-    val sagaOrder: String = "",
-    val sourceSize: Long = -1L,
-    val sourceModified: Long = -1L,
-    val metadataRevision: Int = 0,
-    val sourceCoverChecked: Boolean = false,
-    val hadEmbeddedCover: Boolean = false,
-    val plotSource: String = "",
-    val bioSource: String = "",
-    val coverSource: String = "",
-    val rating: Int = 0,
-    val startedDate: String = "",
-    val finishedDate: String = "",
-    val quotes: String = "",
-    val tags: List<String> = emptyList(),
-    val loanTo: String = "",
-    val loanDate: String = "",
-    val rereadCount: Int = 0
-)
 
 private data class BackupRestoreResult(val matched: Int, val pending: String?)
 
@@ -369,7 +326,6 @@ private fun PublicBookCard(result: PublicBookResult, onOpen: () -> Unit, onWish:
 
 @Composable
 private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDetails?, wishListed: Boolean, onBack: () -> Unit, onWish: () -> Unit) {
-    val cover by rememberPublicCover(result.coverUrl)
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
         TextButton(onClick = onBack) { Text("← Volver a resultados", color = Brass) }
         Surface(Modifier.fillMaxWidth(), color = Paper.copy(alpha = .98f), shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp)) {
@@ -377,7 +333,11 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 Box(Modifier.fillMaxWidth().height(270.dp), contentAlignment = Alignment.Center) {
                     val detailCover by rememberPublicCover(details?.coverUrl?.ifBlank { result.coverUrl } ?: result.coverUrl)
                     if (detailCover != null) Image(detailCover!!.asImageBitmap(), "Portada de ${result.title}", Modifier.fillMaxHeight().width(190.dp), contentScale = ContentScale.Fit)
-                    else AppIcon("Libros", tint = Mahogany.copy(alpha = .5f), size = 64.dp)
+                    else if (details == null) CircularProgressIndicator(color = Brass)
+                    else Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        AppIcon("Libros", tint = Mahogany.copy(alpha = .5f), size = 64.dp)
+                        Text("Portada no disponible", color = Mahogany.copy(alpha = .7f), fontSize = 12.sp)
+                    }
                 }
                 Text(result.title, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 28.sp, color = Ink)
                 Text(result.author.ifBlank { "Autor no disponible" }, fontSize = 18.sp, color = Mahogany)
@@ -397,6 +357,8 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 rows.forEach { (label, value) -> Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) { Text("$label: ", fontWeight = FontWeight.Bold, color = Ink); Text(value, color = Ink) } }
                 Spacer(Modifier.height(12.dp))
                 Text("Metadatos públicos: ${details?.source ?: "Open Library"}", fontSize = 12.sp, color = Mahogany.copy(alpha = .7f))
+                if (result.confidence > 0) Text("Coincidencia: ${result.confidence} % · ${result.source}",
+                    fontSize = 11.sp, color = Mahogany.copy(alpha = .62f))
             }
         }
     }
@@ -552,6 +514,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             normalizeCachedIdentities()
             // Repara progresivamente todas las portadas pendientes y las guarda en caché.
             // Las dos tareas controladas evitan saturar la red incluso en bibliotecas grandes.
+            delay(2_000)
             refreshMissingCovers()
         }
         viewMode = prefs.getString("view_mode", "Galería") ?: "Galería"
@@ -731,7 +694,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     if (revision != saveVersion) return@withLock
                     val array = booksToJsonArray(snapshot)
                     bookStore.applySnapshot(array)
-                    prefs.edit().putString("books_cache", array.toString()).apply()
+                    // SharedPreferences conservaba otra copia completa y obligaba
+                    // a serializar cientos de fichas con cada cambio. La base
+                    // transaccional ya es la fuente local; se elimina la copia
+                    // antigua después de migrarla correctamente.
+                    prefs.edit().putBoolean("catalog_v2_ready", true)
+                        .remove("books_cache").apply()
                 }
             }
             if (revision == saveVersion && publishAfterSave) saveCloud()
@@ -765,13 +733,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun removeGoodreadsWish(url: String) {
-        wishList = wishList.filterNot { it.second == url }
+    fun removeGoodreadsWish(title: String, url: String) {
+        wishList = wishList.filterNot { it.first.equals(title, true) && it.second == url }
         saveWishList()
     }
 
     private fun cloudSnapshot(): String {
-        val booksJson = safeSavedArray(prefs.getString("books_cache", "[]"))
+        val booksJson = booksToJsonArray(books)
         for (i in 0 until booksJson.length()) {
             val j = booksJson.getJSONObject(i)
             val uri = Uri.parse(j.getString("uri"))
@@ -794,11 +762,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 j.put("coverBase64", Base64.encodeToString(manual.readBytes(), Base64.NO_WRAP))
             }
         }
-        return JSONObject().put("backupVersion", 1)
+        val backup = JSONObject().put("backupVersion", 2)
             .put("updatedAt", prefs.getLong("local_revision", 0L))
             .put("sections", org.json.JSONArray(sections))
             .put("wishList", safeSavedArray(prefs.getString("wish_list", "[]")))
-            .put("books", booksJson).toString().also {
+            .put("books", booksJson)
+        backup.put("contentSha256", backupChecksum(backup))
+        return backup.toString().also {
                 parseBackup(it)
                 require(it.toByteArray(Charsets.UTF_8).size <= FileLimits.BACKUP_BYTES) {
                     "El respaldo supera el límite de 32 MB."
@@ -1062,7 +1032,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
         val booksArray = cloud.optJSONArray("books") ?: return
         withContext(Dispatchers.IO) { bookStore.applySnapshot(booksArray) }
-        prefs.edit().putString("books_cache", booksArray.toString())
+        prefs.edit().remove("books_cache")
+            .putBoolean("catalog_v2_ready", true)
             .putString("sections", cloud.optJSONArray("sections")?.toString() ?: "[]")
             .putString("wish_list", cloud.optJSONArray("wishList")?.toString() ?: "[]")
             .putLong("local_revision", cloud.optLong("updatedAt")).apply()
@@ -1156,6 +1127,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun searchSaga(uri: Uri) {
         if (uri in sagaSearches) return
         val book = books.firstOrNull { it.uri == uri } ?: return
+        if (prefs.getBoolean("manual_identity_" + uri, false)) {
+            detailMessage = "Se conserva la saga editada manualmente. Puedes cambiarla desde Editar datos."
+            return
+        }
         viewModelScope.launch {
             sagaSearches = sagaSearches + uri
             try {
@@ -2858,6 +2833,13 @@ internal suspend fun ensureSpanish(text: String): String {
     finally { translator.close() }
 }
 
+private suspend fun localizedPublicBookDetails(result: PublicBookResult): PublicBookDetails {
+    val details = withContext(Dispatchers.IO) { loadPublicBookDetails(result) }
+    val translatedSummary = ensureSpanish(details.summary).ifBlank { details.summary }
+    val translatedBio = ensureSpanish(details.authorBio).ifBlank { details.authorBio }
+    return details.copy(summary = translatedSummary, authorBio = translatedBio)
+}
+
 private fun normalizePath(path: String): String {
     val parts = mutableListOf<String>()
     path.replace('\\','/').split('/').forEach { when(it) { "", "." -> {}; ".." -> if(parts.isNotEmpty()) parts.removeAt(parts.lastIndex); else -> parts += it } }
@@ -3163,8 +3145,11 @@ private fun openCasaDelLibro(context: Context) {
     SideEffect {
         hostActivity?.window?.let { window ->
             window.statusBarColor = android.graphics.Color.TRANSPARENT
-            androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-                .isAppearanceLightStatusBars = false
+            window.navigationBarColor = Parchment.toArgb()
+            androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+                isAppearanceLightStatusBars = false
+                isAppearanceLightNavigationBars = true
+            }
         }
     }
     val catalogSearchIndex = remember(context.applicationContext) {
@@ -3219,12 +3204,13 @@ private fun openCasaDelLibro(context: Context) {
             }
             if (name == tab) {
                 showWishList = showPending
-                pageMotion.animateTo(0f, tween(motionDuration(180), easing = FastOutSlowInEasing))
+                pageMotion.animateTo(0f, tween(motionDuration(120), easing = FastOutSlowInEasing))
                 return@launch
             }
             val direction = if (tabs.indexOf(name) > tabs.indexOf(tab)) -1f else 1f
             val distance = pageTravelPx
-            pageMotion.animateTo(direction * distance, tween(motionDuration(175), easing = FastOutSlowInEasing))
+            // El destino cambia en el mismo fotograma del toque. Antes se esperaba
+            // a terminar una animación de salida y el botón parecía no responder.
             tab = name
             vm.query = ""
             showWishList = showPending
@@ -3233,10 +3219,9 @@ private fun openCasaDelLibro(context: Context) {
             vm.statusFilter = null
             vm.onlyFavorites = name == "Favoritos"
             smartCollection = null
-            pageMotion.snapTo(-direction * distance)
-            // Compose the destination while fully transparent, then bring it gently into view.
+            pageMotion.snapTo(-direction * distance * .55f)
             withFrameNanos { }
-            pageMotion.animateTo(0f, tween(motionDuration(300), easing = FastOutSlowInEasing))
+            pageMotion.animateTo(0f, tween(motionDuration(210), easing = FastOutSlowInEasing))
         }
     }
     fun settlePage() {
@@ -3255,6 +3240,7 @@ private fun openCasaDelLibro(context: Context) {
     var publicQuery by remember { mutableStateOf("") }
     var publicResults by remember { mutableStateOf<List<PublicBookResult>>(emptyList()) }
     var publicSearching by remember { mutableStateOf(false) }
+    var publicSearchJob by remember { mutableStateOf<Job?>(null) }
     var selectedPublicResult by remember { mutableStateOf<PublicBookResult?>(null) }
     var wallpaperPickerOpen by remember { mutableStateOf(false) }
     var animationPickerOpen by remember { mutableStateOf(false) }
@@ -3325,11 +3311,6 @@ private fun openCasaDelLibro(context: Context) {
     )
     // La consulta pública vive en la pestaña Descubrir; no se abre otra ventana ni otro campo.
     if (publicSearchOpen) publicSearchOpen = false
-    selectedPublicResult?.let { result ->
-        val details by produceState<PublicBookDetails?>(initialValue = null, result.sourceUrl) {
-            value = withContext(Dispatchers.IO) { loadPublicBookDetails(result) }
-        }
-    }
     sagaRenameSource?.let { source -> AlertDialog(
         onDismissRequest = { sagaRenameSource = null },
         title = { Text("Unificar nombre de saga") },
@@ -3603,7 +3584,7 @@ private fun openCasaDelLibro(context: Context) {
             val indexedMatches = if (querySnapshot.isBlank()) null else {
                 val exactAndPrefix = catalogSearchIndex.matchingBookUris(booksSnapshot, querySnapshot)
                 val tolerant = CatalogQuality.rank(booksSnapshot, querySnapshot)
-                    .asSequence().map { it.uri }.toSet()
+                    .asSequence().map { it.uri.toString() }.toSet()
                 exactAndPrefix + tolerant
             }
             val filtered = filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
@@ -4592,7 +4573,8 @@ private fun openCasaDelLibro(context: Context) {
                             onSearch = { requested ->
                                 publicQuery = requested
                                 publicSearching = true
-                                scope.launch(Dispatchers.IO) {
+                                publicSearchJob?.cancel()
+                                publicSearchJob = scope.launch(Dispatchers.IO) {
                                     val found = runCatching { searchPublicBooks(requested) }
                                         .getOrDefault(emptyList())
                                     withContext(Dispatchers.Main) {
@@ -4615,7 +4597,7 @@ private fun openCasaDelLibro(context: Context) {
                             fontFamily = FontFamily.Serif,
                             fontSize = 20.sp
                         )
-                        publicResults.take(12).forEach { result ->
+                        publicResults.forEach { result ->
                             Spacer(Modifier.height(12.dp))
                             PublicBookCard(
                                 result,
@@ -4625,10 +4607,12 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                     selectedPublicResult?.let { result ->
-                        val details by produceState<PublicBookDetails?>(initialValue = null, result.sourceUrl) { value = withContext(Dispatchers.IO) { loadPublicBookDetails(result) } }
+                        val details by produceState<PublicBookDetails?>(initialValue = null, result.sourceUrl) {
+                            value = localizedPublicBookDetails(result)
+                        }
                         PublicBookDetailPage(result, details, wishListed = vm.wishList.any { it.first.equals(result.title, true) && it.second == result.sourceUrl }, onBack = { selectedPublicResult = null }, onWish = {
                             if (vm.wishList.any { it.first.equals(result.title, true) && it.second == result.sourceUrl }) {
-                                vm.removeGoodreadsWish(result.sourceUrl)
+                                vm.removeGoodreadsWish(result.title, result.sourceUrl)
                                 android.widget.Toast.makeText(context, "Quitado de Quiero leer", android.widget.Toast.LENGTH_SHORT).show()
                             } else {
                                 vm.addGoodreadsWish(result.title, result.sourceUrl)
@@ -4881,7 +4865,9 @@ private fun openCasaDelLibro(context: Context) {
                             else searchInGoogleApp(context, "$title libro EPUB comprar préstamo")
                         },
                             modifier = Modifier.weight(1f)) { Text(title.ifBlank { "Libro de reseñas" }) }
-                        IconButton(onClick = { vm.removeGoodreadsWish(url) }) { AppIcon("Cerrar", "Quitar de pendientes") }
+                        IconButton(onClick = { vm.removeGoodreadsWish(title, url) }) {
+                            AppIcon("Cerrar", "Quitar de pendientes")
+                        }
                     }
                 }
             } else if (tab == "Descubrir") {
