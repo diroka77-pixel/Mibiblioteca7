@@ -1,3 +1,6 @@
+## Versión 1.0.26
+- Drive ya no descarta archivos sin extensión visible cuando la carpeta contiene libros; los intenta analizar como EPUB.
+
 ## Versión 1.0.25
 - La sincronización muestra un aviso con los títulos nuevos detectados en Drive.
 - El botón de actualizar fuerza la lectura completa de la carpeta guardada.

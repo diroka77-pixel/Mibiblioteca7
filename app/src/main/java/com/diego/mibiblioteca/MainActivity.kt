@@ -2261,7 +2261,11 @@ private fun queryDriveChildren(
 
 private fun isSupportedBookFile(name: String, mimeType: String): Boolean {
     val extension = name.substringAfterLast('.', "").lowercase()
+    val hasNoExtension = name.isNotBlank() && !name.contains('.')
     return extension in setOf("epub", "pdf", "mobi", "azw", "azw3", "fb2", "txt", "html", "htm", "rtf", "docx", "md") ||
+        (hasNoExtension && mimeType.lowercase() !in setOf(
+            "image/jpeg", "image/png", "image/webp", "application/json"
+        )) ||
         mimeType.lowercase() in setOf(
             "application/epub+zip", "application/pdf", "application/x-mobipocket-ebook",
             "application/vnd.amazon.ebook", "text/plain", "text/html",
@@ -2301,6 +2305,7 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
                     (!prior.hadEmbeddedCover || file.exists() || removed)
                 val epub = if (unchanged) prior!! else {
                     val isEpub = f.name.endsWith(".epub", true) ||
+                        !f.name.contains('.') ||
                         f.mimeType.equals("application/epub+zip", ignoreCase = true)
                     val parsed = if (isEpub)
                         readEpub(context, f.uri, f.name.ifBlank { "Libro" }, size, modified)
