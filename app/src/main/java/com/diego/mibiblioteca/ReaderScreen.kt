@@ -825,6 +825,20 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         mutableStateOf(prefs.getBoolean("lock_orientation_$key", false))
     }
     var dark by remember { mutableStateOf(prefs.getBoolean("dark", false)) }
+    DisposableEffect(keepAwakeActivity, dark) {
+        val window = keepAwakeActivity?.window
+        if (window != null) {
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+                .isAppearanceLightStatusBars = !dark
+        }
+        onDispose {
+            if (window != null) {
+                androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+                    .isAppearanceLightStatusBars = false
+            }
+        }
+    }
     var sepia by remember { mutableStateOf(prefs.getBoolean("sepia", false)) }
     DisposableEffect(lockOrientation) {
         val activity = context as? Activity
