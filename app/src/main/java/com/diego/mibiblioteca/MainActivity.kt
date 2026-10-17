@@ -1508,6 +1508,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun importLocalEpub(source: Uri) {
         viewModelScope.launch {
             try {
+                // Abrir un archivo desde Drive lanza la actividad con ACTION_VIEW.
+                // Cargamos primero el catálogo persistente para no sustituirlo por
+                // el único libro que se acaba de abrir.
+                initialRestoreJob?.join()
+                if (books.isEmpty()) restoreCachedBooks(onlyIfEmpty = true)
                 val imported = withContext(Dispatchers.IO) {
                     val context = getApplication<Application>()
                     val name = DocumentFile.fromSingleUri(context, source)?.name
@@ -3172,7 +3177,7 @@ private fun openCasaDelLibro(context: Context) {
     var draftAllGenres by remember { mutableStateOf(true) }
     var smartCollection by rememberSaveable { mutableStateOf<String?>(null) }
     val genrePickerListState = rememberLazyListState()
-    val tabs = remember { listOf("Inicio", "Biblioteca", "Secciones", "Descubrir", "Favoritos", "Estadísticas") }
+    val tabs = remember { listOf("Inicio", "Biblioteca", "Secciones", "Favoritos", "Estadísticas") }
     val scope = rememberCoroutineScope()
     val pageMotion = remember { Animatable(0f) }
     val pageDrag = remember { mutableFloatStateOf(0f) }
@@ -3309,8 +3314,60 @@ private fun openCasaDelLibro(context: Context) {
         }) { Text("Añadir") } },
         dismissButton = { LibraryTextButton(onClick = { addWishDialog = false }) { Text("Cancelar") } }
     )
-    // La consulta pública vive en la pestaña Descubrir; no se abre otra ventana ni otro campo.
-    if (publicSearchOpen) publicSearchOpen = false
+    if (publicSearchOpen) AlertDialog(
+        onDismissRequest = { publicSearchOpen = false; selectedPublicResult = null },
+        title = { Text("Consultar libros públicos", fontFamily = FontFamily.Serif, color = Ink) },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                DiscoverSearchField(
+                    query = publicQuery,
+                    searching = publicSearching,
+                    voiceListening = voiceListening,
+                    onVoice = { launchVoiceSearch(true) },
+                    onSearch = { requested ->
+                        publicQuery = requested
+                        publicSearching = true
+                        publicSearchJob?.cancel()
+                        publicSearchJob = scope.launch(Dispatchers.IO) {
+                            val found = runCatching { searchPublicBooks(requested) }.getOrDefault(emptyList())
+                            withContext(Dispatchers.Main) {
+                                publicResults = found
+                                publicSearching = false
+                                selectedPublicResult = null
+                            }
+                        }
+                    }
+                )
+                Spacer(Modifier.height(10.dp))
+                if (publicSearching) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
+                if (!publicSearching && publicQuery.isNotBlank() && publicResults.isEmpty())
+                    Text("No se han encontrado resultados.", color = Mahogany)
+                if (selectedPublicResult == null) {
+                    LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                        items(publicResults, key = { it.sourceUrl.ifBlank { it.title + "|" + it.author } }) { result ->
+                            PublicBookCard(result, onOpen = { selectedPublicResult = result },
+                                onWish = { vm.addGoodreadsWish(result.title, result.sourceUrl) })
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
+                } else {
+                    val result = selectedPublicResult!!
+                    val details by produceState<PublicBookDetails?>(initialValue = null, result.sourceUrl) {
+                        value = withContext(Dispatchers.IO) { loadPublicBookDetails(result) }
+                    }
+                    LazyColumn(Modifier.heightIn(max = 470.dp)) {
+                        item {
+                            PublicBookDetailPage(result, details,
+                                wishListed = vm.wishList.any { it.first.equals(result.title, true) && it.second == result.sourceUrl },
+                                onBack = { selectedPublicResult = null },
+                                onWish = { vm.addGoodreadsWish(result.title, result.sourceUrl) })
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { publicSearchOpen = false; selectedPublicResult = null }) { Text("Cerrar") } }
+    )
     sagaRenameSource?.let { source -> AlertDialog(
         onDismissRequest = { sagaRenameSource = null },
         title = { Text("Unificar nombre de saga") },
@@ -4198,8 +4255,8 @@ private fun openCasaDelLibro(context: Context) {
                             })
                         NavigationDrawerItem(label = { Text("Consultar libros públicos") }, selected = false,
                             icon = { Icon(Icons.Outlined.Search, null) }, onClick = {
-                                publicSearchOpen = false
-                                tab = "Descubrir"
+                                publicSearchOpen = true
+                                scope.launch { drawerState.close() }
                             })
                         NavigationDrawerItem(
                             label = { Text(if (vm.coverUpdateRunning)
@@ -4460,7 +4517,6 @@ private fun openCasaDelLibro(context: Context) {
                 listOf(
                     Triple("Inicio", "Inicio", "Inicio"),
                     Triple("Biblioteca", "Libros", "Libros"),
-                    Triple("Descubrir", "Buscar", "Buscar"),
                     Triple("Favoritos", "Favoritos", "Favoritos"),
                     Triple("Estadísticas", "Estadísticas", "Estadísticas")
                 ).forEach { (targetTab, label, icon) ->
