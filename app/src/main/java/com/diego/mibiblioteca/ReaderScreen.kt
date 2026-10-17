@@ -643,7 +643,7 @@ private fun renderPdfPage(file: File, index: Int): Bitmap =
 
 @Composable
 private fun SelectableParagraph(
-    paragraph: ReadingParagraph, index: Int, start: Int, end: Int, size: Float, lineSpacing: Float, foreground: Color,
+    paragraph: ReadingParagraph, index: Int, start: Int, end: Int, reservedHeightPx: Int, size: Float, lineSpacing: Float, foreground: Color,
     dark: Boolean, opening: Boolean, highlightColor: String, highlights: List<ReaderHighlight>,
     onHighlight: (ReaderHighlight) -> Unit, onNote: (ReaderHighlight) -> Unit,
     onRemoveHighlight: (Int, Int, Int) -> Boolean,
@@ -666,11 +666,17 @@ private fun SelectableParagraph(
             // El ancho limitado deja margen de texto alrededor, como en los
             // lectores EPUB convencionales, y el alto se calcula manteniendo
             // la proporción original.
-            Image(bitmap!!.asImageBitmap(), "Imagen del libro",
-                Modifier.fillMaxWidth(0.78f)
-                    .heightIn(min = 120.dp, max = 460.dp)
-                    .wrapContentHeight(),
-                contentScale = ContentScale.Fit)
+            val reservedHeight = with(LocalDensity.current) {
+                reservedHeightPx.coerceAtLeast(1).toDp()
+            }
+            Box(
+                Modifier.fillMaxWidth().height(reservedHeight),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(bitmap!!.asImageBitmap(), "Imagen del libro",
+                    Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit)
+            }
         }
         return
     }
@@ -1584,7 +1590,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             paragraphs[slice.paragraph].chapterStart)
                                             Spacer(Modifier.height(28.dp))
                                         SelectableParagraph(paragraphs[slice.paragraph], slice.paragraph,
-                                            slice.start, slice.end, fontSize, lineSpacing, foreground, dark,
+                                            slice.start, slice.end, slice.height, fontSize, lineSpacing, foreground, dark,
                                             openingParagraph(paragraphs, slice.paragraph), highlightColor, highlights,
                                             onHighlight = { mark ->
                                                 highlights = (highlights + mark).distinct()
