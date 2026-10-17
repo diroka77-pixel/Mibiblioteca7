@@ -513,10 +513,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         initialRestoreJob = viewModelScope.launch {
             restoreCachedBooks(onlyIfEmpty = true)
             normalizeCachedIdentities()
-            // Repara progresivamente todas las portadas pendientes y las guarda en caché.
-            // Las dos tareas controladas evitan saturar la red incluso en bibliotecas grandes.
-            delay(2_000)
-            refreshMissingCovers()
+            // Las portadas se buscan manualmente desde Ajustes. Así abrir la app
+            // no vuelve a recorrer toda la biblioteca ni consume red.
         }
         viewMode = prefs.getString("view_mode", "Galería") ?: "Galería"
         (listOf("general") + sections).forEach { scope ->
@@ -2235,6 +2233,17 @@ private fun queryDriveChildren(
     return latest
 }
 
+private fun isSupportedBookFile(name: String, mimeType: String): Boolean {
+    val extension = name.substringAfterLast('.', "").lowercase()
+    return extension in setOf("epub", "pdf", "mobi", "azw", "azw3", "fb2", "txt", "html", "htm", "rtf", "docx", "md") ||
+        mimeType.lowercase() in setOf(
+            "application/epub+zip", "application/pdf", "application/x-mobipocket-ebook",
+            "application/vnd.amazon.ebook", "text/plain", "text/html",
+            "application/rtf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "text/markdown"
+        )
+}
+
 private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, onProgress: (Int) -> Unit): List<Book> {
     val root = DocumentFile.fromTreeUri(context, treeUri) ?: throw IllegalStateException("Carpeta no disponible")
     require(root.canRead()) { "No se puede leer la carpeta. Se conserva el catálogo anterior." }
@@ -2246,8 +2255,7 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
         require(visited.size <= 10000) { "La carpeta contiene demasiados subdirectorios." }
         queryDriveChildren(context, treeUri, parentDocumentId).forEach { f ->
             if (f.isDirectory) walk(f.documentId, depth + 1)
-            else if (f.name.substringAfterLast('.', "").lowercase() in
-                setOf("epub", "pdf", "mobi", "azw", "azw3", "fb2", "txt", "html", "htm", "rtf", "docx", "md")) {
+            else if (isSupportedBookFile(f.name, f.mimeType)) {
                 require(out.size < 10000) { "La carpeta supera el límite de 10000 libros." }
                 val size = f.size
                 val modified = f.modified
@@ -2266,7 +2274,9 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
                     prior.sourceCoverChecked &&
                     (!prior.hadEmbeddedCover || file.exists() || removed)
                 val epub = if (unchanged) prior!! else {
-                    val parsed = if (f.name.endsWith(".epub", true))
+                    val isEpub = f.name.endsWith(".epub", true) ||
+                        f.mimeType.equals("application/epub+zip", ignoreCase = true)
+                    val parsed = if (isEpub)
                         readEpub(context, f.uri, f.name.ifBlank { "Libro" }, size, modified)
                     else inferFilenameIdentity(f.name).let { inferred ->
                         Book(f.uri, inferred.title,

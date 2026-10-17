@@ -52,7 +52,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: MiBiblioteca-v1.0.22-firmada
+          name: MiBiblioteca-v1.0.23-firmada
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
       - name: Dividir APK para descarga directa
@@ -62,7 +62,7 @@ jobs:
           test "$(find "$RUNNER_TEMP" -maxdepth 1 -name 'MiBiblioteca.part-*' | wc -l)" -ge 1
       - uses: actions/upload-artifact@v4
         with:
-          name: MiBiblioteca-partes-v1.0.22
+          name: MiBiblioteca-partes-v1.0.23
           path: |
             ${{ runner.temp }}/MiBiblioteca.part-*
             ${{ runner.temp }}/MiBiblioteca.sha256
@@ -71,11 +71,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/release/app-release.apk MiBiblioteca-v1.0.22.apk
-          if ! gh release view v1.0.22 >/dev/null 2>&1; then
-            gh release create v1.0.22 --target "${{ github.sha }}" --title "MiBiblioteca v1.0.22" --notes "APK completa, firmada y verificada. Descarga MiBiblioteca-v1.0.22.apk desde Assets."
+          cp app/build/outputs/apk/release/app-release.apk MiBiblioteca-v1.0.23.apk
+          if ! gh release view v1.0.23 >/dev/null 2>&1; then
+            gh release create v1.0.23 --target "${{ github.sha }}" --title "MiBiblioteca v1.0.23" --notes "APK completa, firmada y verificada. Descarga MiBiblioteca-v1.0.23.apk desde Assets."
           fi
-          gh release upload v1.0.22 MiBiblioteca-v1.0.22.apk --clobber
+          gh release upload v1.0.23 MiBiblioteca-v1.0.23.apk --clobber
       - name: Eliminar clave temporal del runner
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
