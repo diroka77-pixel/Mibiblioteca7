@@ -1635,12 +1635,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 // no vuelva a descargar ni analizar todos los EPUB.
                 val result = withContext(Dispatchers.IO) {
                     val collected = linkedMapOf<Uri, Book>()
-                    repeat(2) { attempt ->
+                    repeat(1) { attempt ->
                         val pass = scanFolder(getApplication(), uri, cached) { count ->
                             viewModelScope.launch(Dispatchers.Main) { syncCount = collected.size + count }
                         }
                         pass.forEach { collected[it.uri] = it }
-                        if (attempt == 0) Thread.sleep(1200L)
                     }
                     collected.values.sortedBy { it.title.lowercase() }
                 }
@@ -1730,7 +1729,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     "Drive devolvió ${result.size} archivos; se conservaron ${books.size} libros de la biblioteca."
                 else "${result.size} libros y documentos encontrados"
                 completed = true
-                refreshMissingCovers()
                 } catch (e: Exception) {
                 message = "No se pudo leer la carpeta de Drive: ${e.localizedMessage ?: "error de acceso"}"
                 syncReport = message.orEmpty()

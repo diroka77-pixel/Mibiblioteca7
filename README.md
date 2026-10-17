@@ -1,3 +1,7 @@
+## Versión 1.0.29
+- La sincronización al abrir la aplicación hace una única pasada rápida por Drive y reutiliza los metadatos locales; ya no vuelve a buscar portadas automáticamente.
+- Las portadas pendientes solo se buscan desde el botón manual del panel lateral.
+
 ## Versión 1.0.28
 - La búsqueda ya no devuelve resultados por palabras comunes aisladas; exige que los términos coincidan completos en el título, autor o saga.
 
