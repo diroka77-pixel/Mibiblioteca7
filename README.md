@@ -1,3 +1,6 @@
+## Versión 1.0.24
+- La sincronización combina la consulta directa de Drive con la lista del selector de documentos para detectar archivos recién incorporados.
+
 ## Versión 1.0.23
 - La aplicación ya no busca portadas automáticamente al abrirse; se mantienen en el botón manual de Ajustes.
 - La sincronización reconoce EPUB y otros libros por extensión y por tipo MIME de Drive para incorporar archivos nuevos aunque Drive no muestre la extensión.

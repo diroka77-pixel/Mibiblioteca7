@@ -2227,7 +2227,27 @@ private fun queryDriveChildren(
         } finally {
             cursor.close()
         }
-        if (!loading) return latest
+        if (!loading) {
+            // Algunos proveedores, especialmente Google Drive, actualizan
+            // DocumentContract con retraso. DocumentFile consulta la misma
+            // carpeta por la vía que usa el selector del sistema; unimos ambas
+            // respuestas para no perder archivos recién subidos.
+            val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId)
+            val parent = DocumentFile.fromSingleUri(context, parentUri)
+            parent?.listFiles()?.forEach { child ->
+                val id = try { DocumentsContract.getDocumentId(child.uri) } catch (_: Exception) { "" }
+                if (id.isBlank() || latest.any { it.documentId == id }) return@forEach
+                latest = latest + DriveDocumentEntry(
+                    documentId = id,
+                    uri = child.uri,
+                    name = child.name.orEmpty(),
+                    mimeType = child.type.orEmpty(),
+                    size = child.length(),
+                    modified = child.lastModified()
+                )
+            }
+            return latest
+        }
         if (attempt < 5) Thread.sleep(400L)
     }
     return latest
