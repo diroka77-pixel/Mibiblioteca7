@@ -3184,6 +3184,14 @@ private fun openCasaDelLibro(context: Context) {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable fun LibraryApp(vm: LibraryViewModel = viewModel()) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val hostActivity = context as? android.app.Activity
+    SideEffect {
+        hostActivity?.window?.let { window ->
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+                .isAppearanceLightStatusBars = false
+        }
+    }
     val catalogSearchIndex = remember(context.applicationContext) {
         PersistentCatalogSearchIndex(context.applicationContext)
     }
@@ -3758,7 +3766,15 @@ private fun openCasaDelLibro(context: Context) {
             favoritesSnapshot, sectionSnapshot, qualitySnapshot, reviewSnapshot)
     }
     val groupedBooks by key(groupingKey, visibleBooks) {
-      produceState(groupingCache[groupingKey].orEmpty(), visibleBooks, groupingKey) {
+      produceState(
+          if (groupMode == "Todos") mapOf("" to visibleBooks)
+          else groupingCache[groupingKey].orEmpty(),
+          visibleBooks, groupingKey
+      ) {
+        if (groupMode == "Todos") {
+            value = mapOf("" to visibleBooks)
+            return@produceState
+        }
         groupingCache[groupingKey]?.takeIf { it.isNotEmpty() || visibleBooks.isEmpty() }?.let { cached ->
             value = cached
             return@produceState
@@ -4680,7 +4696,12 @@ private fun openCasaDelLibro(context: Context) {
                             verticalAlignment = Alignment.CenterVertically) {
                             ConceptFilterChip("Todos", "Libros", Modifier.weight(1f),
                                 !showWishList && !vm.onlyFavorites && vm.statusFilter == null) {
-                                showWishList = false; vm.onlyFavorites = false; vm.statusFilter = null
+                                showWishList = false
+                                vm.onlyFavorites = false
+                                vm.statusFilter = null
+                                vm.selectedSection = null
+                                vm.qualityFilter = "Ninguno"
+                                smartCollection = null
                             }
                             ConceptFilterChip("Favoritos", "Favoritos", Modifier.weight(1f),
                                 !showWishList && vm.onlyFavorites) {
