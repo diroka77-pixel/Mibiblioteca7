@@ -58,28 +58,6 @@ internal class PersistentCatalogSearchIndex(context: Context) {
         }
     }
 
-internal class PersistentCatalogSearchIndex(context: Context) {
-    private val preferences = context.getSharedPreferences("catalog_search_index", Context.MODE_PRIVATE)
-    private val documents = LinkedHashMap<String, CatalogSearchDocument>()
-    private var loaded = false
-
-    @Synchronized
-    private fun loadIfNeeded() {
-        if (loaded) return
-        loaded = true
-        val root = runCatching {
-            JSONObject(preferences.getString("documents", "{}") ?: "{}")
-        }.getOrElse { JSONObject() }
-        root.keys().forEach { key ->
-            root.optJSONObject(key)?.let { value ->
-                documents[key] = CatalogSearchDocument(
-                    fingerprint = value.optInt("fingerprint"),
-                    normalizedText = value.optString("text")
-                )
-            }
-        }
-    }
-
     @Synchronized
     fun matchingBookUris(books: List<Book>, query: String): Set<String> {
         loadIfNeeded()
