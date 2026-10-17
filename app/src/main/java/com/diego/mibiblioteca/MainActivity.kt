@@ -2211,11 +2211,27 @@ private fun queryDriveChildren(
         DocumentsContract.Document.COLUMN_SIZE,
         DocumentsContract.Document.COLUMN_LAST_MODIFIED
     )
+    fun fallbackChildren(): List<DriveDocumentEntry> {
+        val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId)
+        return DocumentFile.fromSingleUri(context, parentUri)?.listFiles()?.mapNotNull { child ->
+            val id = try { DocumentsContract.getDocumentId(child.uri) } catch (_: Exception) { null }
+            id?.let {
+                DriveDocumentEntry(
+                    documentId = it, uri = child.uri, name = child.name.orEmpty(),
+                    mimeType = child.type.orEmpty(), size = child.length(),
+                    modified = child.lastModified()
+                )
+            }
+        }.orEmpty()
+    }
     val accumulated = linkedMapOf<String, DriveDocumentEntry>()
     var latest = emptyList<DriveDocumentEntry>()
     repeat(6) { attempt ->
-        val cursor = resolver.query(childrenUri, projection, null, null, null)
-            ?: throw IllegalStateException("Drive no devolvió el contenido de una carpeta.")
+        val cursor = try {
+            resolver.query(childrenUri, projection, null, null, null)
+        } catch (_: Exception) {
+            return fallbackChildren()
+        } ?: return fallbackChildren()
         val loading = try {
             val idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
             require(idColumn >= 0) { "Drive no devolvió identificadores de documentos." }

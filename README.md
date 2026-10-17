@@ -1,3 +1,7 @@
+## Versión 1.0.33
+- Si la consulta rápida de Google Drive falla, el escaneo cambia automáticamente al listado estándar de DocumentFile, el mismo acceso que puede leer el respaldo.
+- El catálogo restaurado se conserva mientras se buscan incorporaciones nuevas.
+
 ## Versión 1.0.32
 - La lectura de Drive ya no se bloquea por un falso `canRead=false` del proveedor de documentos.
 
