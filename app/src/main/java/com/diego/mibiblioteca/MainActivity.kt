@@ -1607,6 +1607,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     syncReport = message.orEmpty()
                     return@launch
                 }
+                // Algunos proveedores de documentos (especialmente Drive al
+                // volver de ACTION_VIEW) entregan temporalmente solo el archivo
+                // abierto aunque la carpeta contenga muchos más. Nunca usamos
+                // esa respuesta parcial para borrar el catálogo persistente.
+                val catalogBeforeScan = books.toList()
+                val partialDriveScan = result.size < catalogBeforeScan.size
                 if (changedFolder) prefs.edit().putString(folderKey, uri.toString()).commit()
                 else if (prefs.getString(folderKey, null) != uri.toString()) return@launch
                 val latest = if (changedFolder) emptyMap() else books.associateBy { it.uri }
@@ -1635,6 +1641,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 books = (books + localBooks.filter { it.uri.scheme == "file" &&
                     books.none { current -> current.uri == it.uri } })
+                    .let { merged ->
+                        if (partialDriveScan) {
+                            merged + catalogBeforeScan.filter { old ->
+                                merged.none { current -> current.uri == old.uri }
+                            }
+                        } else merged
+                    }
                     .sortedBy { it.title.lowercase() }
                 val previousUris = cached.keys
                 val currentUris = result.map { it.uri }.toSet()
