@@ -2285,7 +2285,7 @@ private fun isSupportedBookFile(name: String, mimeType: String): Boolean {
 
 private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, onProgress: (Int) -> Unit): List<Book> {
     val root = DocumentFile.fromTreeUri(context, treeUri) ?: throw IllegalStateException("Carpeta no disponible")
-    require(root.canRead()) { "No se puede leer la carpeta. Se conserva el catálogo anterior." }
+    // Google Drive puede informar canRead=false durante la carga aunque el permiso SAF sea válido.
     val out = mutableListOf<Book>()
     val visited = mutableSetOf<String>()
     val rootDocumentId = DocumentsContract.getTreeDocumentId(treeUri)

@@ -1,3 +1,6 @@
+## Versión 1.0.32
+- La lectura de Drive ya no se bloquea por un falso `canRead=false` del proveedor de documentos.
+
 ## Versión 1.0.31
 - Detecta permisos caducados de Drive y elimina la ruta inválida para pedir una nueva selección.
 
