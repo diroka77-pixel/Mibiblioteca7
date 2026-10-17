@@ -44,8 +44,14 @@ internal object CatalogQuality {
             val titleHits = queryTokens.count { it in tokens(title) }
             val authorHits = queryTokens.count { it in tokens(author) }
             val sagaHits = queryTokens.count { it in tokens(saga) }
-            score += titleHits * 85 + authorHits * 45 + sagaHits * 35
-            if (titleHits == queryTokens.size) score += 180
+            // Una palabra común como "el" no debe convertir una búsqueda
+            // de dos términos en decenas de resultados irrelevantes.
+            val completeTitle = queryTokens.isNotEmpty() && titleHits == queryTokens.size
+            val completeAuthor = queryTokens.isNotEmpty() && authorHits == queryTokens.size
+            val completeSaga = queryTokens.isNotEmpty() && sagaHits == queryTokens.size
+            if (completeTitle) score += titleHits * 85 + 180
+            else if (completeAuthor) score += authorHits * 45
+            else if (completeSaga) score += sagaHits * 35
         }
         if (score == 0 && query.length >= 4) {
             val distance = levenshtein(query, title.take(max(query.length, min(title.length, query.length + 4))))

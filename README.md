@@ -1,3 +1,6 @@
+## Versión 1.0.28
+- La búsqueda ya no devuelve resultados por palabras comunes aisladas; exige que los términos coincidan completos en el título, autor o saga.
+
 ## Versión 1.0.27
 - La consulta de Drive acumula páginas sucesivas en vez de quedarse con la última página devuelta por el proveedor.
 - La biblioteca vuelve a sincronizarse automáticamente al abrirse si ya existe una carpeta guardada.
