@@ -1,9 +1,11 @@
-# MiBiblioteca v1.0.20
+# MiBiblioteca v1.0.21
 
-## Cambios de la versión 1.0.20
+## Cambios de la versión 1.0.21
 
-- Recuperación del catálogo desde el respaldo anterior cuando una lectura externa deja solo una ficha guardada.
-- Reintento y conservación de la colección si Drive entrega un listado incompleto.
+- La búsqueda evita ordenar dos veces el catálogo completo y recurre a tolerancia de errores solo cuando no hay coincidencias directas.
+- El índice de búsqueda normaliza una ficha solo cuando cambia y calcula los términos una sola vez por consulta.
+- La sincronización consulta el listado de documentos de Drive y vuelve a consultarlo mientras el proveedor indica que está cargando.
+- Se corrige el bucle de reintento para terminar tras una lectura completa y se evita volver a descargar EPUB si Drive no proporciona datos de tamaño o fecha.
 
 ## Cambios de la versión 0.96
 

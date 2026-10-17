@@ -22,6 +22,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import android.graphics.BitmapFactory
 import android.graphics.Bitmap
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
@@ -1627,13 +1628,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 // la biblioteca.
                 val result = withContext(Dispatchers.IO) {
                     val collected = linkedMapOf<Uri, Book>()
-                    repeat(3) { attempt ->
+                    for (attempt in 0 until 3) {
                         val pass = scanFolder(getApplication(), uri, cached) { count ->
                             viewModelScope.launch(Dispatchers.Main) { syncCount = collected.size + count }
                         }
                         pass.forEach { collected[it.uri] = it }
-                        if (collected.size > 1 || attempt == 2) return@repeat
-                        Thread.sleep(900L)
+                        if (collected.size > 1) break
+                        if (attempt < 2) Thread.sleep(900L)
                     }
                     collected.values.sortedBy { it.title.lowercase() }
                 }
@@ -2175,34 +2176,100 @@ private fun inferFilenameIdentity(filename: String): FilenameIdentity {
     )
 }
 
+private data class DriveDocumentEntry(
+    val documentId: String,
+    val uri: Uri,
+    val name: String,
+    val mimeType: String,
+    val size: Long,
+    val modified: Long
+) {
+    val isDirectory: Boolean get() = mimeType == DocumentsContract.Document.MIME_TYPE_DIR
+}
+
+private fun queryDriveChildren(
+    context: Context,
+    treeUri: Uri,
+    parentDocumentId: String
+): List<DriveDocumentEntry> {
+    val resolver = context.contentResolver
+    val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
+    val projection = arrayOf(
+        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+        DocumentsContract.Document.COLUMN_MIME_TYPE,
+        DocumentsContract.Document.COLUMN_SIZE,
+        DocumentsContract.Document.COLUMN_LAST_MODIFIED
+    )
+    var latest = emptyList<DriveDocumentEntry>()
+    repeat(6) { attempt ->
+        val cursor = resolver.query(childrenUri, projection, null, null, null)
+            ?: throw IllegalStateException("Drive no devolvió el contenido de una carpeta.")
+        val loading = try {
+            val idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            require(idColumn >= 0) { "Drive no devolvió identificadores de documentos." }
+            val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            val sizeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+            val modifiedColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            val rows = ArrayList<DriveDocumentEntry>(cursor.count)
+            while (cursor.moveToNext()) {
+                val id = cursor.getString(idColumn)?.takeIf(String::isNotBlank) ?: continue
+                val childUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, id)
+                rows += DriveDocumentEntry(
+                    documentId = id,
+                    uri = childUri,
+                    name = if (nameColumn >= 0) cursor.getString(nameColumn).orEmpty() else id.substringAfterLast('/'),
+                    mimeType = if (mimeColumn >= 0) cursor.getString(mimeColumn).orEmpty() else "application/octet-stream",
+                    size = if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) cursor.getLong(sizeColumn) else -1L,
+                    modified = if (modifiedColumn >= 0 && !cursor.isNull(modifiedColumn)) cursor.getLong(modifiedColumn) else -1L
+                )
+            }
+            latest = rows
+            cursor.extras?.getBoolean(DocumentsContract.EXTRA_LOADING, false) == true
+        } finally {
+            cursor.close()
+        }
+        if (!loading) return latest
+        if (attempt < 5) Thread.sleep(400L)
+    }
+    return latest
+}
+
 private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, onProgress: (Int) -> Unit): List<Book> {
     val root = DocumentFile.fromTreeUri(context, treeUri) ?: throw IllegalStateException("Carpeta no disponible")
+    require(root.canRead()) { "No se puede leer la carpeta. Se conserva el catálogo anterior." }
     val out = mutableListOf<Book>()
-    val visited = mutableSetOf<Uri>()
-    fun walk(dir: DocumentFile, depth: Int = 0) {
-        require(depth <= 32 && visited.add(dir.uri)) { "La carpeta es demasiado profunda o contiene un ciclo." }
+    val visited = mutableSetOf<String>()
+    val rootDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
+    fun walk(parentDocumentId: String, depth: Int = 0) {
+        require(depth <= 32 && visited.add(parentDocumentId)) { "La carpeta es demasiado profunda o contiene un ciclo." }
         require(visited.size <= 10000) { "La carpeta contiene demasiados subdirectorios." }
-        require(dir.canRead()) { "No se puede leer una subcarpeta. Se conserva el catálogo anterior." }
-        dir.listFiles().forEach { f ->
-            if (f.isDirectory) walk(f, depth + 1)
-            else if (f.name.orEmpty().substringAfterLast('.', "").lowercase() in
+        queryDriveChildren(context, treeUri, parentDocumentId).forEach { f ->
+            if (f.isDirectory) walk(f.documentId, depth + 1)
+            else if (f.name.substringAfterLast('.', "").lowercase() in
                 setOf("epub", "pdf", "mobi", "azw", "azw3", "fb2", "txt", "html", "htm", "rtf", "docx", "md")) {
                 require(out.size < 10000) { "La carpeta supera el límite de 10000 libros." }
-                val size = f.length()
-                val modified = f.lastModified()
+                val size = f.size
+                val modified = f.modified
                 val file = coverFile(context, f.uri)
                 val prior = cached[f.uri]
                 val removalMarker = File(context.filesDir, "removed-" + file.name)
                 val removed = removalMarker.exists()
-                val unchanged = prior != null && size > 0 && prior.sourceSize == size &&
-                    (modified <= 0L || prior.sourceModified == modified) &&
+                val metadataMatches = prior != null && when {
+                    size > 0L -> prior.sourceSize == size &&
+                        (modified <= 0L || prior.sourceModified == modified)
+                    modified > 0L -> prior.sourceModified == modified
+                    else -> true
+                }
+                val unchanged = prior != null && metadataMatches &&
                     prior.metadataRevision >= 50 && (prior.cover != null || prior.metadataRevision >= 54) &&
                     prior.sourceCoverChecked &&
                     (!prior.hadEmbeddedCover || file.exists() || removed)
                 val epub = if (unchanged) prior!! else {
-                    val parsed = if (f.name?.endsWith(".epub", true) == true)
-                        readEpub(context, f.uri, f.name ?: "Libro", size, modified)
-                    else inferFilenameIdentity(f.name.orEmpty()).let { inferred ->
+                    val parsed = if (f.name.endsWith(".epub", true))
+                        readEpub(context, f.uri, f.name.ifBlank { "Libro" }, size, modified)
+                    else inferFilenameIdentity(f.name).let { inferred ->
                         Book(f.uri, inferred.title,
                             author = prior?.author?.takeUnless(::unknownAuthor) ?: inferred.author,
                             saga = prior?.saga.orEmpty().ifBlank { inferred.saga },
@@ -2225,10 +2292,9 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
             }
         }
     }
-    walk(root)
+    walk(rootDocumentId)
     return out.sortedBy { it.title.lowercase() }
 }
-
 private fun readEpub(context: Context, uri: Uri, fallbackName: String,
     sourceSize: Long = -1L, sourceModified: Long = -1L): Book {
     val inferred = inferFilenameIdentity(fallbackName)
@@ -3688,15 +3754,26 @@ private fun openCasaDelLibro(context: Context) {
         sectionSnapshot, qualitySnapshot, reviewSnapshot
     ) {
         value = if (!hasCatalogFilters) booksSnapshot else withContext(Dispatchers.Default) {
-            val indexedMatches = if (querySnapshot.isBlank()) null else {
-                val exactAndPrefix = catalogSearchIndex.matchingBookUris(booksSnapshot, querySnapshot)
-                val tolerant = CatalogQuality.rank(booksSnapshot, querySnapshot)
-                    .asSequence().map { it.uri.toString() }.toSet()
-                exactAndPrefix + tolerant
+            val exactMatches = if (querySnapshot.isBlank()) emptySet()
+                else catalogSearchIndex.matchingBookUris(booksSnapshot, querySnapshot)
+            val fuzzyCandidates = if (shouldUseFuzzyCatalogFallback(exactMatches, querySnapshot))
+                CatalogQuality.rank(booksSnapshot, querySnapshot) else null
+            val searchMatches = when {
+                querySnapshot.isBlank() -> null
+                fuzzyCandidates != null -> fuzzyCandidates.mapTo(hashSetOf()) { it.uri.toString() }
+                else -> exactMatches
             }
             val filtered = filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
-                sectionSnapshot, qualitySnapshot, reviewSnapshot, indexedMatches)
-            if (querySnapshot.isBlank()) filtered else CatalogQuality.rank(filtered, querySnapshot)
+                sectionSnapshot, qualitySnapshot, reviewSnapshot, searchMatches)
+            when {
+                querySnapshot.isBlank() -> filtered
+                fuzzyCandidates != null -> {
+                    val allowed = filtered.mapTo(hashSetOf()) { it.uri.toString() }
+                    fuzzyCandidates.filter { it.uri.toString() in allowed }
+                }
+                shouldRankCatalogSearch(querySnapshot) -> CatalogQuality.rank(filtered, querySnapshot)
+                else -> filtered
+            }
         }
     }
     val filteredBooks = remember(baseFilteredBooks, smartCollection) {

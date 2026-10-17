@@ -15,6 +15,12 @@ internal fun normalizeSearchText(value: String): String = Normalizer
     .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
     .trim()
 
+internal fun shouldUseFuzzyCatalogFallback(exactMatches: Set<String>, query: String): Boolean =
+    exactMatches.isEmpty() && normalizeSearchText(query).count { it.isLetterOrDigit() } >= 4
+
+internal fun shouldRankCatalogSearch(query: String): Boolean =
+    normalizeSearchText(query).split(" ").any { it.length >= 2 }
+
 internal fun searchableBookFields(book: Book): List<String> = listOf(
     book.title,
     displayTitle(book),

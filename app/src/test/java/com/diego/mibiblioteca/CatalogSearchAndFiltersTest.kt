@@ -12,6 +12,14 @@ class CatalogSearchAndFiltersTest {
         assertFalse(matchesSearchDocument(text, "cancion almela"))
     }
 
+    @Test fun fuzzySearchRunsOnlyAfterExactSearchMisses() {
+        assertTrue(shouldUseFuzzyCatalogFallback(emptySet(), "Blackwatr"))
+        assertFalse(shouldUseFuzzyCatalogFallback(setOf("book://1"), "Blackwatr"))
+        assertFalse(shouldUseFuzzyCatalogFallback(emptySet(), "abc"))
+        assertTrue(shouldRankCatalogSearch("La riada"))
+        assertFalse(shouldRankCatalogSearch("a"))
+    }
+
     @Test fun emptyQueryRestoresEveryDocument() {
         assertTrue(matchesSearchDocument("cualquier libro", ""))
         assertTrue(matchesSearchDocument("cualquier libro", "   "))

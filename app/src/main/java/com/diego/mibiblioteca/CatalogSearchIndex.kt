@@ -8,12 +8,11 @@ internal data class CatalogSearchDocument(
     val normalizedText: String
 )
 
-internal fun normalizedSearchDocument(book: Book): CatalogSearchDocument {
-    val source = searchableBookFields(book).joinToString("\u0000")
+private fun searchDocument(fields: List<String>): CatalogSearchDocument {
+    val source = fields.joinToString("\u0000")
     return CatalogSearchDocument(
         fingerprint = source.hashCode(),
-        normalizedText = searchableBookFields(book)
-            .asSequence()
+        normalizedText = fields.asSequence()
             .map(::normalizeSearchText)
             .filter(String::isNotBlank)
             .distinct()
@@ -21,10 +20,17 @@ internal fun normalizedSearchDocument(book: Book): CatalogSearchDocument {
     )
 }
 
-internal fun matchesSearchDocument(normalizedText: String, query: String): Boolean {
-    val terms = normalizeSearchText(query).split(" ").filter { it.length >= 2 }
-    return terms.isEmpty() || terms.all(normalizedText::contains)
-}
+internal fun normalizedSearchDocument(book: Book): CatalogSearchDocument =
+    searchDocument(searchableBookFields(book))
+
+private fun searchTerms(query: String): List<String> =
+    normalizeSearchText(query).split(" ").filter { it.length >= 2 }
+
+private fun matchesSearchTerms(normalizedText: String, terms: List<String>): Boolean =
+    terms.isEmpty() || terms.all(normalizedText::contains)
+
+internal fun matchesSearchDocument(normalizedText: String, query: String): Boolean =
+    matchesSearchTerms(normalizedText, searchTerms(query))
 
 /**
  * Índice pequeño y persistente. Solo se reconstruye la entrada cuyo título,
@@ -52,10 +58,33 @@ internal class PersistentCatalogSearchIndex(context: Context) {
         }
     }
 
+internal class PersistentCatalogSearchIndex(context: Context) {
+    private val preferences = context.getSharedPreferences("catalog_search_index", Context.MODE_PRIVATE)
+    private val documents = LinkedHashMap<String, CatalogSearchDocument>()
+    private var loaded = false
+
+    @Synchronized
+    private fun loadIfNeeded() {
+        if (loaded) return
+        loaded = true
+        val root = runCatching {
+            JSONObject(preferences.getString("documents", "{}") ?: "{}")
+        }.getOrElse { JSONObject() }
+        root.keys().forEach { key ->
+            root.optJSONObject(key)?.let { value ->
+                documents[key] = CatalogSearchDocument(
+                    fingerprint = value.optInt("fingerprint"),
+                    normalizedText = value.optString("text")
+                )
+            }
+        }
+    }
+
     @Synchronized
     fun matchingBookUris(books: List<Book>, query: String): Set<String> {
         loadIfNeeded()
-        if (normalizeSearchText(query).isBlank()) return books.mapTo(linkedSetOf()) { it.uri.toString() }
+        val terms = searchTerms(query)
+        if (terms.isEmpty()) return books.mapTo(linkedSetOf()) { it.uri.toString() }
 
         var changed = false
         val validKeys = HashSet<String>(books.size)
@@ -63,14 +92,15 @@ internal class PersistentCatalogSearchIndex(context: Context) {
         books.forEach { book ->
             val key = book.uri.toString()
             validKeys += key
-            val current = normalizedSearchDocument(book)
+            val fields = searchableBookFields(book)
+            val fingerprint = fields.joinToString("\u0000").hashCode()
             val cached = documents[key]
-            val document = if (cached?.fingerprint == current.fingerprint &&
-                cached.normalizedText.isNotBlank()) cached else current.also {
+            val document = if (cached?.fingerprint == fingerprint &&
+                cached.normalizedText.isNotBlank()) cached else searchDocument(fields).also {
                 documents[key] = it
                 changed = true
             }
-            if (matchesSearchDocument(document.normalizedText, query)) matches += key
+            if (matchesSearchTerms(document.normalizedText, terms)) matches += key
         }
         if (documents.keys.removeAll { it !in validKeys }) changed = true
         if (changed) persist()
