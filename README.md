@@ -1,3 +1,6 @@
+## Versión 1.0.34
+- El escaneo usa primero el listado estándar del selector de Android y evita esperar a la consulta de Drive que se queda bloqueada en cero.
+
 ## Versión 1.0.33
 - Si la consulta rápida de Google Drive falla, el escaneo cambia automáticamente al listado estándar de DocumentFile, el mismo acceso que puede leer el respaldo.
 - El catálogo restaurado se conserva mientras se buscan incorporaciones nuevas.

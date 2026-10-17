@@ -2211,6 +2211,24 @@ private fun queryDriveChildren(
         DocumentsContract.Document.COLUMN_SIZE,
         DocumentsContract.Document.COLUMN_LAST_MODIFIED
     )
+    // La API de documentos de Drive puede quedarse cargando indefinidamente.
+    // Probamos primero el mismo acceso estándar que usa el selector de Android.
+    val directParentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId)
+    val directChildren = try {
+        DocumentFile.fromSingleUri(context, directParentUri)?.listFiles().orEmpty()
+    } catch (_: Exception) { emptyArray() }
+    if (directChildren.isNotEmpty()) {
+        return directChildren.mapNotNull { child ->
+            val id = try { DocumentsContract.getDocumentId(child.uri) } catch (_: Exception) { null }
+            id?.let {
+                DriveDocumentEntry(
+                    documentId = it, uri = child.uri, name = child.name.orEmpty(),
+                    mimeType = child.type.orEmpty(), size = child.length(),
+                    modified = child.lastModified()
+                )
+            }
+        }
+    }
     fun fallbackChildren(): List<DriveDocumentEntry> {
         val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId)
         return DocumentFile.fromSingleUri(context, parentUri)?.listFiles()?.mapNotNull { child ->
