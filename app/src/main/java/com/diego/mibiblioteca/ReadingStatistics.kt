@@ -58,7 +58,7 @@ internal fun calculateReadingStats(
     today: LocalDate = LocalDate.now(),
     annualGoal: Int = 24
 ): ReadingStatsSummary {
-    val safeGoal = annualGoal.coerceIn(1, 999)
+    val safeGoal = annualGoal.coerceIn(1, 365)
     val readBooks = books.filter { it.status == ReadingStatus.READ }
     val datedReads = readBooks.mapNotNull { book -> parseReadingDate(book.finishedDate)?.let { it to book } }
     val currentYear = datedReads.filter { it.first.year == today.year }
