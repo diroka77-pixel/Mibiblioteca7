@@ -44,6 +44,12 @@ class ReadingStatisticsTest {
         assertEquals(1, summary.rereads)
         assertEquals(2, summary.monthStreak)
         assertTrue(summary.projectedYearTotal >= summary.currentYearRead)
+        assertEquals(0, summary.previousYearRead)
+        assertEquals(2, summary.yearOverYearDelta)
+        assertEquals(10, summary.bestMonth)
+        assertEquals(1, summary.bestMonthCount)
+        assertEquals(67, summary.catalogReadPercent)
+        assertTrue(summary.requiredMonthlyPace > 0)
     }
 
     @Test fun reportsReadBooksWithoutUsableFinishDate() {
@@ -54,5 +60,20 @@ class ReadingStatisticsTest {
         assertEquals(2, summary.totalRead)
         assertEquals(2, summary.readWithoutFinishDate)
         assertEquals(0, summary.currentYearRead)
+    }
+
+    @Test fun comparesYearsAndReportsGoalPace() {
+        val summary = calculateReadingStats(listOf(
+            ReadingStatsInput(ReadingStatus.READ, finishedDate = "18/10/2026"),
+            ReadingStatsInput(ReadingStatus.READ, finishedDate = "02/10/2026"),
+            ReadingStatsInput(ReadingStatus.READ, finishedDate = "10/06/2025")
+        ), today, 12)
+        assertEquals(1, summary.previousYearRead)
+        assertEquals(1, summary.yearOverYearDelta)
+        assertEquals(10, summary.bestMonth)
+        assertEquals(2, summary.bestMonthCount)
+        assertEquals(67, summary.catalogReadPercent)
+        assertEquals(10.0 / 3.0, summary.requiredMonthlyPace, 0.01)
+        assertTrue(!summary.onTrackForGoal)
     }
 }
