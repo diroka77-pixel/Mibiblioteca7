@@ -479,6 +479,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var syncing by mutableStateOf(false); private set
     var syncCount by mutableIntStateOf(0); private set
     var syncReport by mutableStateOf(""); private set
+    fun driveDiagnosticText(): String = prefs.getString(
+        "drive_diagnostic", "Todavía no hay un diagnóstico disponible."
+    ).orEmpty()
     var syncSummary by mutableStateOf(""); private set
     var newBooksNotice by mutableStateOf<String?>(null); private set
     fun clearNewBooksNotice() { newBooksNotice = null }
@@ -1626,7 +1629,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 if (books.isEmpty()) restoreCachedBooks(onlyIfEmpty = true)
                 // La carpeta es la fuente de verdad. El respaldo se aplica después
                 // de obtener el listado real y nunca sustituye el escaneo.
-                val cached = if (changedFolder) emptyMap() else books.associateBy { it.uri }
+                // Reutilizar metadatos por URI también después de volver a seleccionar
+                // la misma carpeta. En otra carpeta las URI no coinciden y no se mezclan.
+                val cached = books.associateBy { it.uri }
                 // Google Drive puede devolver una lista antigua aun sin marcarla
                 // como "loading". Hacemos dos lecturas separadas incluso cuando la
                 // primera parece completa y combinamos sus resultados por URI. Los
@@ -1669,7 +1674,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 val partialDriveScan = result.size < catalogBeforeScan.size
                 if (changedFolder) prefs.edit().putString(folderKey, uri.toString()).commit()
                 else if (prefs.getString(folderKey, null) != uri.toString()) return@launch
-                val latest = if (changedFolder) emptyMap() else books.associateBy { it.uri }
+                val latest = books.associateBy { it.uri }
                 val localBooks = books.filter { it.uri.scheme == "file" }
                 books = mergeLibraryScan(result, cached, latest, { it.uri }) { b, prior ->
                     val saved = prefs.getString("info_" + b.uri, null)?.let { JSONObject(it) }
@@ -4240,9 +4245,20 @@ private fun openCasaDelLibro(context: Context) {
         text = { Column {
             Text(vm.syncReport)
             Spacer(Modifier.height(14.dp))
+            Text("Diagnóstico", fontWeight = FontWeight.Bold)
+            Text(vm.driveDiagnosticText(), fontSize = 12.sp)
+            Spacer(Modifier.height(14.dp))
             Text("Fluidez de esta sesión", fontWeight = FontWeight.Bold)
             Text((context as? MainActivity)?.performanceReport().orEmpty(), fontSize = 12.sp)
         } },
+        dismissButton = {
+            LibraryTextButton(onClick = {
+                val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                clipboard?.setPrimaryClip(android.content.ClipData.newPlainText(
+                    "Diagnóstico de MiBiblioteca", vm.driveDiagnosticText()))
+                android.widget.Toast.makeText(context, "Diagnóstico copiado", android.widget.Toast.LENGTH_SHORT).show()
+            }) { Text("Copiar diagnóstico") }
+        },
         confirmButton = { LibraryTextButton(onClick = { showSyncReport = false }) { Text("Cerrar") } })
     if (libraryHealthOpen) AlertDialog(onDismissRequest = { libraryHealthOpen = false },
         title = { Text("Estado de la biblioteca") },
