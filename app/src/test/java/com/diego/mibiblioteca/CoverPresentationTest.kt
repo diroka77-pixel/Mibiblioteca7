@@ -23,4 +23,9 @@ class CoverPresentationTest {
     @Test fun smallCoversAreNotUpscaled() {
         assertEquals(Pair(50, 75), CoverPresentation.fittedSize(50, 75, 120, 180))
     }
+    @Test fun ceremonialCoverShrinksWideWordsBeforeTheySplit() {
+        assertEquals(13, animatedCoverTitleSizeSp("BLACKWATER II. El dique"))
+        assertEquals(10, animatedCoverTitleSizeSp("Extraordinariamente largo"))
+        assertEquals(18, animatedCoverTitleSizeSp("La riada"))
+    }
 }
