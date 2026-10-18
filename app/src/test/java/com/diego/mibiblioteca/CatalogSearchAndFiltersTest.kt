@@ -40,6 +40,23 @@ class CatalogSearchAndFiltersTest {
         ))
     }
 
+    @Test fun fileProblemFilterComposesWithOtherFilters() {
+        assertTrue(matchesCatalogFlags(
+            ReadingStatus.READING, true, listOf("Clásicos"),
+            hasCover = true, hasPlot = true, hasBiography = true,
+            hasKnownAuthor = true, needsReview = false,
+            status = ReadingStatus.READING, favoritesOnly = true,
+            section = "Clásicos", quality = "Archivo", hasFileProblem = true
+        ))
+        assertFalse(matchesCatalogFlags(
+            ReadingStatus.READING, true, listOf("Clásicos"),
+            hasCover = true, hasPlot = true, hasBiography = true,
+            hasKnownAuthor = true, needsReview = false,
+            status = ReadingStatus.READING, favoritesOnly = true,
+            section = "Clásicos", quality = "Archivo", hasFileProblem = false
+        ))
+    }
+
     @Test fun sagaAndOrderAreRecoveredFromTechnicalTitles() {
         assertEquals("La Torre Oscura" to "2",
             extractSagaFromText("La Torre Oscura - Libro 02 - La llegada de los tres"))
