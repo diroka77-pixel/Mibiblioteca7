@@ -387,6 +387,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var wallpaperMode by mutableStateOf("Automático"); private set
     var animationMode by mutableStateOf("Equilibrada"); private set
     var interfaceTextScale by mutableFloatStateOf(1f); private set
+    var showFirstRunGuide by mutableStateOf(false); private set
     var lastOpenedUri by mutableStateOf<Uri?>(null); private set
     var selectedSection by mutableStateOf<String?>(null)
     var sections by mutableStateOf<List<String>>(emptyList()); private set
@@ -521,6 +522,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         initialRestoreJob = viewModelScope.launch {
             restoreCachedBooks(onlyIfEmpty = true)
             normalizeCachedIdentities()
+            showFirstRunGuide = !prefs.getBoolean("first_run_guide_seen", false) &&
+                books.isEmpty() && prefs.getString(folderKey, null).isNullOrBlank()
             // Las portadas se buscan manualmente desde Ajustes. Así abrir la app
             // no vuelve a recorrer toda la biblioteca ni consume red.
         }
@@ -1501,6 +1504,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putFloat("interface_text_scale", interfaceTextScale).apply()
     }
 
+    fun dismissFirstRunGuide() {
+        showFirstRunGuide = false
+        prefs.edit().putBoolean("first_run_guide_seen", true).apply()
+    }
+
     fun readingBooks(): List<Book> = books.filter { it.status == ReadingStatus.READING }
         .sortedWith(compareByDescending<Book> { it.uri == lastOpenedUri }
             .thenByDescending { prefs.getLong("opened_" + it.uri.toString().hashCode(), 0L) })
@@ -1562,6 +1570,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun selectFolder(uri: Uri) {
         if (syncing) { message = "Espera a que termine la sincronización antes de cambiar de carpeta."; return }
+        dismissFirstRunGuide()
         val app = getApplication<Application>()
         val resolver = app.contentResolver
         val persisted = try {
@@ -3630,6 +3639,38 @@ private fun openCasaDelLibro(context: Context) {
         dismissButton = { LibraryTextButton(onClick = { sagaRenameSource = null }) { Text("Cancelar") } }
     ) }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
+    if (vm.showFirstRunGuide) AlertDialog(
+        onDismissRequest = vm::dismissFirstRunGuide,
+        title = { Text("Bienvenido a Mi Biblioteca", fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Conecta la carpeta donde guardas tus libros. La aplicación creará el catálogo y conservará tus datos en el teléfono.")
+                listOf(
+                    "1" to "Elige la carpeta Libros de Google Drive.",
+                    "2" to "Pulsa Usar esta carpeta en la pantalla de Android.",
+                    "3" to "Espera al primer análisis; después solo se revisarán los cambios."
+                ).forEach { (number, instruction) ->
+                    Row(verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Surface(shape = androidx.compose.foundation.shape.CircleShape,
+                            color = Teal, modifier = Modifier.size(28.dp)) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(number, color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Text(instruction, color = Ink, modifier = Modifier.weight(1f))
+                    }
+                }
+                Text("Mi Biblioteca no mueve ni elimina tus archivos durante la sincronización.",
+                    color = Mahogany.copy(alpha = .78f), fontSize = 12.sp)
+            }
+        },
+        confirmButton = { LibraryTextButton(onClick = {
+            vm.dismissFirstRunGuide(); folderPicker.launch(null)
+        }) { Text("Elegir carpeta") } },
+        dismissButton = { TextButton(onClick = vm::dismissFirstRunGuide) { Text("Explorar primero") } }
+    )
     LaunchedEffect(vm.importedBookUri, vm.books) {
         vm.importedBookUri?.let { uri ->
             vm.books.firstOrNull { it.uri == uri }?.let {
@@ -5278,8 +5319,20 @@ private fun openCasaDelLibro(context: Context) {
                 }
                 }
                 if (vm.books.isEmpty() && !vm.syncing) item(key = "empty-home") {
-                    Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
-                        Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta de libros") }
+                    Surface(Modifier.fillMaxWidth().padding(16.dp), color = Paper,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)) {
+                        Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            AppIcon("Libros", tint = Teal, size = 46.dp)
+                            Text("Crea tu biblioteca", color = Ink, fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
+                            Text("Selecciona tu carpeta de Google Drive para encontrar tus EPUB y PDF.",
+                                color = Mahogany, textAlign = TextAlign.Center)
+                            Button(onClick = { folderPicker.launch(null) },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+                                Text("Elegir carpeta de libros")
+                            }
+                        }
                     }
                 }
             } else if (tab == "Estadísticas") {
@@ -5306,6 +5359,8 @@ private fun openCasaDelLibro(context: Context) {
                             AppIcon("Libros", tint = Color.White, size = 48.dp)
                             WallpaperLabel("Elige tu carpeta de libros en Drive", fontSize = 16.sp,
                                 fontWeight = FontWeight.SemiBold)
+                            WallpaperLabel("La primera lectura crea el catálogo. Las siguientes sincronizaciones solo incorporan cambios.",
+                                modifier = Modifier.padding(horizontal = 24.dp), fontSize = 12.sp)
                             Spacer(Modifier.height(12.dp))
                             Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta") }
                         }
@@ -5313,8 +5368,16 @@ private fun openCasaDelLibro(context: Context) {
                 }
             } else if (filteredBooks.isEmpty()) {
                 item(key = "no-results") {
-                    WallpaperLabel(if (vm.onlyFavorites) "Todavía no hay libros favoritos."
-                        else "No hay libros con estos filtros.", modifier = Modifier.padding(20.dp))
+                    Column(Modifier.fillMaxWidth().padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        WallpaperLabel(if (vm.onlyFavorites) "Todavía no hay libros favoritos."
+                            else "No hay libros con estos filtros.")
+                        if (!vm.onlyFavorites) OutlinedButton(onClick = {
+                            vm.query = ""; vm.statusFilter = null; vm.qualityFilter = "Ninguno"
+                            vm.selectedSection = null; smartCollection = null
+                        }) { Text("Limpiar búsqueda y filtros") }
+                    }
                 }
             } else if (tab == "Géneros" && !genreAllSelected && selectedGenres.isEmpty()) {
                 item(key = "no-genres-selected") {
