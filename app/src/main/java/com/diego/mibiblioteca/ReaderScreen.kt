@@ -951,6 +951,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         audioCursor = safePosition
         prefs.edit().putInt("char_$key", safePosition).apply()
     }
+    fun saveReadingCursor(position: Int) {
+        prefs.edit().putInt("reading_char_$key", position.coerceAtLeast(0)).apply()
+    }
     fun currentSpeechPosition(): Int {
         return activeSpeechCursor.get()
     }
@@ -1202,7 +1205,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 Text("CAPÍTULOS Y MARCAS", color = Color(0xFF785940),
                     style = MaterialTheme.typography.labelMedium)
                 val chapters = if (document is ReadingDocument.TextDocument)
-                    document.paragraphs.withIndex().filter { it.value.heading }
+                    readerChapters(document.paragraphs)
                 else emptyList()
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 300.dp)) {
                     if (document is ReadingDocument.TextDocument && searchText.isNotBlank()) {
@@ -1225,8 +1228,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             items(chapters.size) { number ->
                                 val chapter = chapters[number]
                                 TextButton(onClick = {
-                                    jumpToItem = chapter.index; scope.launch { drawer.close() }
-                                }) { Text(chapter.value.text.take(70), maxLines = 2) }
+                                    jumpToItem = chapter.paragraphIndex; scope.launch { drawer.close() }
+                                }) { Text(chapter.title, maxLines = 2) }
                             }
                         }
                         is ReadingDocument.PdfDocument -> items(document.pages) { number ->
@@ -1423,6 +1426,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 var totalTextPages by remember(book.uri) { mutableIntStateOf(0) }
                 var ready by remember(book.uri) { mutableStateOf(false) }
                 var percent by remember(book.uri) { mutableIntStateOf(prefs.getInt("percent_$key", 0)) }
+                var currentChapterTitle by remember(book.uri) { mutableStateOf("") }
+                val chapterNavigation = remember(document) { readerChapters(paragraphs) }
                 Column(Modifier.padding(padding).fillMaxSize()) {
                     BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                         val density = LocalDensity.current
@@ -1450,23 +1455,32 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         LaunchedEffect(pages) {
                             totalTextPages = pages.size
                             val legacyItem = prefs.getInt("item_$key", 0).coerceIn(0, paragraphs.lastIndex)
-                            val savedChar = prefs.getInt("char_$key", positions[legacyItem])
-                            audioCursor = savedChar
-                            textPage = pages.indexOfLast { it.startChar <= savedChar }.coerceAtLeast(0)
+                            val savedChar = prefs.getInt("reading_char_$key",
+                                prefs.getInt("char_$key", positions[legacyItem])).coerceIn(0, total - 1)
+                            audioCursor = prefs.getInt("char_$key", savedChar).coerceIn(0, total - 1)
+                            textPage = readerPageForChar(pages.map { it.startChar }, savedChar)
+                                .coerceIn(pages.indices)
                             ready = true
                         }
                         LaunchedEffect(jumpToItem, pages) {
                             if (jumpToItem >= 0) {
                                 val target = positions[jumpToItem.coerceIn(0, paragraphs.lastIndex)]
-                                textPage = pages.indexOfLast { it.startChar <= target }.coerceAtLeast(0)
+                                textPage = readerPageForChar(pages.map { it.startChar }, target)
+                                    .coerceIn(pages.indices)
+                                saveReadingCursor(target)
+                                saveSpeechCursor(target)
                                 jumpToItem = -1
                             }
                         }
                         LaunchedEffect(textPage, pages, ready) {
                             if (ready) {
                                 val current = pages[textPage.coerceIn(pages.indices)]
+                                saveReadingCursor(current.startChar)
                                 percent = if (textPage >= pages.lastIndex) 100
-                                    else (current.startChar * 100 / total).coerceIn(0, 100)
+                                    else readerProgressPercent(current.startChar, total)
+                                currentChapterTitle = chapterNavigation.getOrNull(
+                                    readerChapterIndexAt(chapterNavigation, current.startChar)
+                                )?.title.orEmpty()
                                 prefs.edit().putInt("percent_$key", percent).apply()
                                 onProgress(percent)
                             }
@@ -1480,6 +1494,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             }
                         }
                         val currentPage = textPage.coerceIn(pages.indices)
+                        val currentChapterIndex = readerChapterIndexAt(
+                            chapterNavigation, pages[currentPage].startChar)
+                        val currentChapter = chapterNavigation.getOrNull(currentChapterIndex)
                         LaunchedEffect(audioAdvance, pages) {
                             if (audioAdvance > 0 && audioActive) {
                                 if (textPage < pages.lastIndex) {
@@ -1714,6 +1731,40 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                             saveSpeechCursor(pages[target].startChar)
                                             showReaderTools = false
                                         })
+                                    if (chapterNavigation.isNotEmpty()) {
+                                        Text(currentChapter?.title ?: "Inicio",
+                                            fontFamily = FontFamily.Serif,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                            maxLines = 2)
+                                        Row(Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically) {
+                                            OutlinedButton(
+                                                enabled = currentChapterIndex > 0,
+                                                onClick = {
+                                                    val target = chapterNavigation[currentChapterIndex - 1]
+                                                    textPage = readerPageForChar(
+                                                        pages.map { it.startChar }, target.startChar)
+                                                        .coerceIn(pages.indices)
+                                                    saveReadingCursor(target.startChar)
+                                                    saveSpeechCursor(target.startChar)
+                                                    showReaderTools = false
+                                                }) { Text("← Capítulo") }
+                                            OutlinedButton(
+                                                enabled = currentChapterIndex < chapterNavigation.lastIndex,
+                                                onClick = {
+                                                    val target = chapterNavigation[currentChapterIndex + 1]
+                                                    textPage = readerPageForChar(
+                                                        pages.map { it.startChar }, target.startChar)
+                                                        .coerceIn(pages.indices)
+                                                    saveReadingCursor(target.startChar)
+                                                    saveSpeechCursor(target.startChar)
+                                                    showReaderTools = false
+                                                }) { Text("Capítulo →") }
+                                        }
+                                    }
                                     Row(verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         OutlinedTextField(directPage, { directPage = it.filter(Char::isDigit) },
@@ -1845,6 +1896,14 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             contentColor = foreground
                         ) {
                             Column(Modifier.fillMaxWidth()) {
+                                if (currentChapterTitle.isNotBlank()) {
+                                    Text(currentChapterTitle,
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        fontFamily = FontFamily.Serif,
+                                        fontSize = 11.sp,
+                                        maxLines = 1)
+                                }
                                 LinearProgressIndicator(
                                     progress = { (percent / 100f).coerceIn(0f, 1f) },
                                     modifier = Modifier.fillMaxWidth().height(2.dp),
