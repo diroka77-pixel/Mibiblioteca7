@@ -1727,7 +1727,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     .apply()
                 folderName = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(getApplication(), uri)?.name }
                 prefs.edit().putString("folder_name", folderName).apply()
-                // Una sincronización correcta no deja una advertencia permanente en el catálogo.\n                // El detalle sigue disponible en Centro de tareas y en el diagnóstico.\n                message = null
+                // Una sincronización correcta no deja una advertencia permanente en el catálogo.
+                // El detalle sigue disponible en Centro de tareas y en el diagnóstico.
+                message = null
                 completed = true
                 } catch (e: Exception) {
                 val detail = e.localizedMessage.orEmpty()
