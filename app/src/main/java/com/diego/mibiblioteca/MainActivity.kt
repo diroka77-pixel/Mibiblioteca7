@@ -5573,7 +5573,9 @@ private fun ReadingStatisticsPage(
             rereadCount = book.rereadCount
         )
     }, today, annualGoal)
-    val months = listOf("E", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")\n    val monthNames = listOf("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",\n        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
+    val months = listOf("E", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")
+    val monthNames = listOf("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
     val maxMonth = stats.completedByMonth.maxOrNull()?.coerceAtLeast(1) ?: 1
     Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
