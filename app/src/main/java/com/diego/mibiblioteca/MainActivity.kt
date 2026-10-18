@@ -5545,73 +5545,132 @@ private fun ReadingStatisticsPage(
     annualGoal: Int, onGoalChanged: (Int) -> Unit,
     onOpenDetailed: () -> Unit
 ) {
-    val read = books.count { it.status == ReadingStatus.READ }
-    val reading = books.count { it.status == ReadingStatus.READING }
-    val pending = books.count { it.status == ReadingStatus.PENDING }
-    val started = books.map { progress(it.uri) }.filter { it > 0 }
-    val average = started.average().takeIf { !it.isNaN() }?.toInt() ?: 0
-    val rated = books.filter { it.rating > 0 }
-    val averageRating = rated.map { it.rating }.average().takeIf { !it.isNaN() }
-    val genres = books.flatMap { normalizeBookGenres(it.genre) }
-        .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(5)
+    val today = java.time.LocalDate.now()
+    val stats = calculateReadingStats(books.map { book ->
+        ReadingStatsInput(
+            status = book.status,
+            progress = progress(book.uri),
+            finishedDate = book.finishedDate,
+            rating = book.rating,
+            genres = normalizeBookGenres(book.genre),
+            author = displayAuthor(book),
+            rereadCount = book.rereadCount
+        )
+    }, today, annualGoal)
+    val months = listOf("E", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")
+    val maxMonth = stats.completedByMonth.maxOrNull()?.coerceAtLeast(1) ?: 1
     Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Estadísticas de lectura", fontFamily = FontFamily.Serif,
             fontWeight = FontWeight.Bold, fontSize = 27.sp, color = Color.White,
             style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
-        Text("Tu biblioteca y tu ritmo de lectura", color = Color.White.copy(alpha = .78f))
+        Text("Datos reales de tu actividad registrada", color = Color.White.copy(alpha = .86f))
         var goalDraft by remember(annualGoal) { mutableStateOf(annualGoal.toString()) }
-        val currentYearRead = books.count { it.status == ReadingStatus.READ &&
-            it.finishedDate.startsWith(java.time.Year.now().toString()) }
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Paper),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Reto anual", color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("${currentYearRead} de $annualGoal libros terminados este año", color = Mahogany)
-                LinearProgressIndicator(progress = { (currentYearRead.toFloat() / annualGoal).coerceIn(0f, 1f) },
-                    Modifier.fillMaxWidth(), color = Brass, trackColor = Brass.copy(alpha = .16f))
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Reto ${today.year}", color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text("${(stats.goalPercent * 100).toInt()} %", color = Teal, fontWeight = FontWeight.Bold)
+                }
+                Text("${stats.currentYearRead} de ${stats.goal} libros terminados", color = Mahogany)
+                LinearProgressIndicator(progress = { stats.goalPercent }, Modifier.fillMaxWidth(),
+                    color = Brass, trackColor = Brass.copy(alpha = .16f))
+                Text(if (stats.remainingForGoal == 0) "Objetivo alcanzado"
+                    else "Faltan ${stats.remainingForGoal} · proyección actual: ${stats.projectedYearTotal}",
+                    fontSize = 12.sp, color = Mahogany.copy(alpha = .76f))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(goalDraft, { goalDraft = it.filter(Char::isDigit) },
-                        label = { Text("Objetivo") }, singleLine = true,
+                    OutlinedTextField(goalDraft, { goalDraft = it.filter(Char::isDigit).take(3) },
+                        label = { Text("Objetivo anual") }, singleLine = true,
                         modifier = Modifier.weight(1f))
                     Spacer(Modifier.width(8.dp))
-                    Button(onClick = { goalDraft.toIntOrNull()?.let(onGoalChanged) }) { Text("Guardar") }
-                }
-            }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HomeMetricCard("Leídos", read.toString(), Teal, Modifier.weight(1f))
-            HomeMetricCard("Leyendo", reading.toString(), Brass, Modifier.weight(1f))
-            HomeMetricCard("Pendientes", pending.toString(), Color(0xFFD6A0C8), Modifier.weight(1f))
-        }
-        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Paper),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Progreso", color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("Media de los libros empezados: $average %", color = Mahogany)
-                LinearProgressIndicator(progress = { average / 100f }, Modifier.fillMaxWidth(),
-                    color = Teal, trackColor = Teal.copy(alpha = .16f))
-                Text("Valoración media: " +
-                    (averageRating?.let { String.format(java.util.Locale.getDefault(), "%.1f / 5", it) }
-                        ?: "sin valorar"), fontSize = 12.sp, color = Mahogany.copy(alpha = .72f))
-            }
-        }
-        if (genres.isNotEmpty()) Card(Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Paper),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Géneros más presentes", color = Ink, fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp)
-                genres.forEach { (genre, count) ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(genre, color = Mahogany)
-                        Text(count.toString(), color = Teal, fontWeight = FontWeight.Bold)
+                    Button(onClick = { goalDraft.toIntOrNull()?.coerceIn(1, 999)?.let(onGoalChanged) }) {
+                        Text("Guardar")
                     }
                 }
             }
         }
-        OutlinedButton(onClick = onOpenDetailed, modifier = Modifier.fillMaxWidth()) {
-            Text("Ver todos los detalles")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            HomeMetricCard("Este mes", stats.currentMonthRead.toString(), Teal, Modifier.weight(1f))
+            HomeMetricCard("Racha mensual", stats.monthStreak.toString(), Brass, Modifier.weight(1f))
+            HomeMetricCard("Relecturas", stats.rereads.toString(), Color(0xFFD6A0C8), Modifier.weight(1f))
+        }
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Paper),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Libros terminados por mes", color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Row(Modifier.fillMaxWidth().height(112.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.Bottom) {
+                    stats.completedByMonth.forEachIndexed { index, count ->
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Bottom) {
+                            if (count > 0) Text(count.toString(), fontSize = 9.sp, color = Mahogany)
+                            Box(Modifier.fillMaxWidth().height((72f * count / maxMonth).coerceAtLeast(3f).dp)
+                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                .background(if (index + 1 == today.monthValue) Teal else Brass))
+                            Text(months[index], fontSize = 9.sp, color = Ink,
+                                modifier = Modifier.padding(top = 3.dp))
+                        }
+                    }
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            HomeMetricCard("Leídos", stats.totalRead.toString(), Teal, Modifier.weight(1f))
+            HomeMetricCard("Leyendo", stats.reading.toString(), Brass, Modifier.weight(1f))
+            HomeMetricCard("Pendientes", stats.pending.toString(), Color(0xFFD6A0C8), Modifier.weight(1f))
+        }
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Paper),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Lecturas activas", color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Progreso medio: ${stats.averageActiveProgress} %", color = Mahogany)
+                LinearProgressIndicator(progress = { stats.averageActiveProgress / 100f },
+                    Modifier.fillMaxWidth(), color = Teal, trackColor = Teal.copy(alpha = .16f))
+                Text("Valoración media de libros terminados: " +
+                    (stats.averageRating?.let { String.format(java.util.Locale.getDefault(), "%.1f / 5", it) }
+                        ?: "sin valorar"), fontSize = 12.sp, color = Mahogany.copy(alpha = .76f))
+            }
+        }
+        if (stats.topGenres.isNotEmpty() || stats.topAuthors.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top) {
+                StatsRankingCard("Géneros leídos", stats.topGenres, Modifier.weight(1f))
+                StatsRankingCard("Autores leídos", stats.topAuthors, Modifier.weight(1f))
+            }
+        }
+        if (stats.readWithoutFinishDate > 0) {
+            Surface(Modifier.fillMaxWidth(), color = Ink.copy(alpha = .82f),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
+                Text("${stats.readWithoutFinishDate} libros marcados como leídos no tienen una fecha final válida y no cuentan en el reto anual.",
+                    Modifier.padding(14.dp), color = Color.White, fontSize = 12.sp)
+            }
+        }
+        OutlinedButton(onClick = onOpenDetailed, modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .55f))) {
+            Text("Ver resumen completo")
+        }
+    }
+}
+
+@Composable
+private fun StatsRankingCard(title: String, values: List<Pair<String, Int>>, modifier: Modifier) {
+    Card(modifier, colors = CardDefaults.cardColors(containerColor = Paper),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(title, color = Ink, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            if (values.isEmpty()) Text("Sin datos", color = Mahogany.copy(alpha = .68f), fontSize = 11.sp)
+            values.forEach { (label, count) ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(label, color = Mahogany, fontSize = 11.sp, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text(count.toString(), color = Teal, fontWeight = FontWeight.Bold, fontSize = 11.sp,
+                        modifier = Modifier.padding(start = 4.dp))
+                }
+            }
         }
     }
 }
