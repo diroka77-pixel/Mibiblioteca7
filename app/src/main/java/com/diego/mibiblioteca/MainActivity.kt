@@ -1619,13 +1619,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val switchingFolder = prefs.getString(folderKey, null) != uri.toString()
         viewModelScope.launch {
             syncing = true; syncCount = 0; message = null
+            val syncStartedAt = System.currentTimeMillis()
             var completed = false
             try {
                 initialRestoreJob?.join()
                 if (books.isEmpty()) restoreCachedBooks(onlyIfEmpty = true)
-                try { restoreCloud(uri, force = changedFolder) } catch (e: Exception) {
-                    detailMessage = "No se pudo recuperar el respaldo de Drive: ${e.localizedMessage}"
-                }
+                // La carpeta es la fuente de verdad. El respaldo se aplica después
+                // de obtener el listado real y nunca sustituye el escaneo.
                 val cached = if (changedFolder) emptyMap() else books.associateBy { it.uri }
                 // Google Drive puede devolver una lista antigua aun sin marcarla
                 // como "loading". Hacemos dos lecturas separadas incluso cuando la
@@ -1643,8 +1643,22 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     collected.values.sortedBy { it.title.lowercase() }
                 }
                 if (result.isEmpty()) {
-                    message = "Drive no devolvió libros. Se conserva la biblioteca y el respaldo anteriores."
+                    val kind = if (books.isNotEmpty()) DriveFailureKind.PROVIDER_BUSY
+                        else DriveFailureKind.UNKNOWN
+                    message = driveFailureMessage(kind, books.isNotEmpty(), folderName)
                     syncReport = message.orEmpty()
+                    val diagnostic = DriveSyncDiagnostic(
+                        folderUri = uri.toString(),
+                        folderName = folderName.orEmpty(),
+                        startedAt = syncStartedAt,
+                        finishedAt = System.currentTimeMillis(),
+                        detected = 0, added = 0, modified = 0,
+                        unconfirmed = books.size,
+                        failureKind = kind,
+                        failureDetail = "La enumeración devolvió cero archivos."
+                    ).toDisplayText()
+                    prefs.edit().putString("drive_diagnostic", diagnostic)
+                        .putString("sync_report", syncReport).apply()
                     return@launch
                 }
                 // Algunos proveedores de documentos (especialmente Drive al
@@ -1706,6 +1720,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 syncSummary = "$added nuevos · $changed modificados · $missing fuera de la carpeta · $coversMissing sin portada"
                 if (added + changed + missing > 0) addActivity("Drive · $syncSummary")
                 saveBooks()
+                // Recuperar favoritos, progreso, secciones y ediciones solo
+                // después de que la carpeta haya confirmado sus archivos.
+                try { restoreCloud(uri, force = false) } catch (e: Exception) {
+                    detailMessage = "La biblioteca se sincronizó; no se pudo aplicar el respaldo: ${e.localizedMessage}"
+                }
                 syncCount = result.size
                 prefs.getString("pending_backup", null)?.let { pending ->
                     try {
@@ -1718,8 +1737,19 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale("es", "ES"))
                         .format(java.util.Date()) +
                     "\n${result.size} archivos detectados · ${books.size} libros en la biblioteca · $added nuevos · $changed modificados · $missing no confirmados; se conservan sus fichas."
+                val diagnostic = DriveSyncDiagnostic(
+                    folderUri = uri.toString(),
+                    folderName = folderName.orEmpty(),
+                    startedAt = syncStartedAt,
+                    finishedAt = System.currentTimeMillis(),
+                    detected = result.size,
+                    added = added,
+                    modified = changed,
+                    unconfirmed = missing
+                ).toDisplayText()
                 prefs.edit()
                     .putString("sync_report", syncReport)
+                    .putString("drive_diagnostic", diagnostic)
                     .putString("sync_manifest", LibrarySyncManifest.from(books).toJson())
                     .apply()
                 folderName = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(getApplication(), uri)?.name }
@@ -1730,16 +1760,23 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 completed = true
                 } catch (e: Exception) {
                 val detail = e.localizedMessage.orEmpty()
-                val accessError = e is SecurityException ||
-                    detail.contains("access", true) || detail.contains("permission", true) ||
-                    detail.contains("acceso", true)
-                if (accessError) {
-                    prefs.edit().remove(folderKey).remove("folder_name").apply()
-                    message = "El permiso de Drive ha caducado. Vuelve a seleccionar la carpeta de libros."
-                } else {
-                    message = "No se pudo leer la carpeta de Drive: ${e.localizedMessage ?: "error de acceso"}"
-                }
+                val kind = classifyDriveFailure(e::class.java.name, detail)
+                // Nunca se elimina automáticamente la carpeta elegida. Los fallos
+                // de Drive suelen ser temporales y el catálogo local debe seguir útil.
+                message = driveFailureMessage(kind, books.isNotEmpty(), folderName)
                 syncReport = message.orEmpty()
+                val diagnostic = DriveSyncDiagnostic(
+                    folderUri = uri.toString(),
+                    folderName = folderName.orEmpty(),
+                    startedAt = syncStartedAt,
+                    finishedAt = System.currentTimeMillis(),
+                    detected = syncCount,
+                    added = 0, modified = 0, unconfirmed = books.size,
+                    failureKind = kind,
+                    failureDetail = detail.ifBlank { e::class.java.simpleName }
+                ).toDisplayText()
+                prefs.edit().putString("drive_diagnostic", diagnostic)
+                    .putString("sync_report", syncReport).apply()
             } finally {
                 syncing = false
                 if (completed) saveCloud()
