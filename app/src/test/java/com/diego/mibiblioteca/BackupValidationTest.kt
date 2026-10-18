@@ -25,6 +25,20 @@ class BackupValidationTest {
     @Test fun rejectsDuplicateUrisBeforeRestoration() {
         assertThrows(IllegalArgumentException::class.java) { validateBackup(backup(book(), book())) }
     }
+    @Test fun removesDuplicateUrisBeforeCreatingBackup() {
+        val unique = book("content://provider/document/2").put("title", "Otro")
+        val clean = deduplicateBackupBooks(JSONArray().put(book()).put(book()).put(unique))
+        assertEquals(2, clean.length())
+        assertEquals("Mi libro", clean.getJSONObject(0).getString("title"))
+        assertEquals("Otro", clean.getJSONObject(1).getString("title"))
+    }
+    @Test fun keepsInvalidUrisForStrictValidation() {
+        val clean = deduplicateBackupBooks(JSONArray().put(book("")).put(book("")))
+        assertEquals(2, clean.length())
+        assertThrows(IllegalArgumentException::class.java) {
+            validateBackup(backup(*Array(clean.length()) { clean.getJSONObject(it) }))
+        }
+    }
     @Test fun rejectsFileReferencesAndInvalidPositions() {
         assertThrows(IllegalArgumentException::class.java) { validateBackup(backup(book("file:///etc/passwd"))) }
         assertThrows(IllegalArgumentException::class.java) { validateBackup(backup(book().put("readerPercent", 101))) }
