@@ -1598,20 +1598,33 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun selectFolder(uri: Uri) {
         if (syncing) { message = "Espera a que termine la sincronización antes de cambiar de carpeta."; return }
-        val resolver = getApplication<Application>().contentResolver
-        try {
+        val app = getApplication<Application>()
+        val resolver = app.contentResolver
+        val persisted = try {
             resolver.takePersistableUriPermission(uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        } catch (_: SecurityException) {
-            resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            message = "Drive ha concedido solo lectura; no se podrán borrar archivos."
+            true
+        } catch (_: Exception) {
+            try {
+                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                message = "Drive ha concedido solo lectura; no se podrán borrar archivos."
+                true
+            } catch (_: Exception) {
+                // El URI sigue siendo válido durante esta sesión. Se conserva para
+                // poder explicar y reparar el permiso sin perder la selección.
+                message = "La carpeta se ha seleccionado, pero Android no confirmó el permiso permanente."
+                false
+            }
         }
         val changedFolder = prefs.getString(folderKey, null) != uri.toString()
         // El permiso y la carpeta se guardan al seleccionarlos, no después del escaneo.
         // Así una respuesta temporalmente vacía de Drive no borra la vinculación.
+        folderName = try { DocumentFile.fromTreeUri(app, uri)?.name } catch (_: Exception) { null }
         prefs.edit()
             .putString(folderKey, uri.toString())
-            .putString("folder_name", DocumentFile.fromTreeUri(getApplication(), uri)?.name.orEmpty())
+            .putString("folder_name", folderName.orEmpty())
+            .putBoolean("folder_permission_persisted", persisted)
+            .putLong("folder_selected_at", System.currentTimeMillis())
             .commit()
         sync(uri, changedFolder)
     }
