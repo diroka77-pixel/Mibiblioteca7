@@ -655,7 +655,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 Book(uri, j.optString("title"), j.optString("author"), j.optString("date"),
                     j.optString("publisher"), j.optString("genre"), j.optString("description"),
                     j.optString("isbn"), j.optString("saga"),
-                    coverFile(getApplication(), uri).takeIf { it.exists() }?.readBytes(),
+                    loadStoredCover(coverFile(getApplication(), uri)),
                     language = j.optString("language"), spanishPlot = saved?.optString("plot").orEmpty(),
                     authorBio = saved?.optString("bio").orEmpty(), section = j.optString("section"),
                     sections = j.optJSONArray("sections")?.let { arr ->
@@ -2510,6 +2510,17 @@ private fun coverFile(context: Context, uri: Uri): File {
     val hash = MessageDigest.getInstance("SHA-256").digest(uri.toString().toByteArray())
         .joinToString("") { "%02x".format(it) }
     return File(context.filesDir, "cover-$hash.jpg")
+}
+
+private fun loadStoredCover(file: File): ByteArray? {
+    if (!file.exists() || file.length() <= 0L) return null
+    return try {
+        val bytes = file.readBytes()
+        if (bytes.size <= 600_000) bytes
+        else compactCover(bytes)?.also { compacted ->
+            if (compacted.size < bytes.size) file.writeSafely(compacted)
+        } ?: bytes
+    } catch (_: Exception) { null }
 }
 
 private fun downloadImage(url: String): ByteArray? {
@@ -5838,7 +5849,7 @@ private fun HomeRecommendations(books: List<Book>, offline: Set<Uri>,
 }
 
 private val coverBitmapCacheBudgetKb =
-    (Runtime.getRuntime().maxMemory() / 1024L / 8L).toInt().coerceIn(20 * 1024, 48 * 1024)
+    (Runtime.getRuntime().maxMemory() / 1024L / 12L).toInt().coerceIn(12 * 1024, 32 * 1024)
 
 private val coverBitmapCache = object : LruCache<String, Bitmap>(coverBitmapCacheBudgetKb) {
     override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
