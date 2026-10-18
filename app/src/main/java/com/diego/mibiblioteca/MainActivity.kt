@@ -2326,9 +2326,18 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
     fun walk(parentDocumentId: String, depth: Int = 0) {
         require(depth <= 32 && visited.add(parentDocumentId)) { "La carpeta es demasiado profunda o contiene un ciclo." }
         require(visited.size <= 10000) { "La carpeta contiene demasiados subdirectorios." }
-        queryDriveChildren(context, treeUri, parentDocumentId).forEach { f ->
-            if (f.isDirectory) walk(f.documentId, depth + 1)
-            else if (isSupportedBookFile(f.name, f.mimeType)) {
+        val children = try {
+            queryDriveChildren(context, treeUri, parentDocumentId)
+        } catch (_: Exception) {
+            // Una subcarpeta o acceso temporal de Drive no debe cancelar el resto.
+            emptyList()
+        }
+        children.forEach { f ->
+            if (f.isDirectory) {
+                try { walk(f.documentId, depth + 1) } catch (_: Exception) {
+                    // Continuar con los demás elementos aunque esta subcarpeta falle.
+                }
+            } else if (isSupportedBookFile(f.name, f.mimeType)) {
                 require(out.size < 10000) { "La carpeta supera el límite de 10000 libros." }
                 val size = f.size
                 val modified = f.modified
@@ -2350,14 +2359,21 @@ private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, o
                     val isEpub = f.name.endsWith(".epub", true) ||
                         !f.name.contains('.') ||
                         f.mimeType.equals("application/epub+zip", ignoreCase = true)
-                    val parsed = if (isEpub)
+                    val identity = inferFilenameIdentity(f.name)
+                    // Drive puede enumerar el archivo antes de tener listo su contenido.
+                    // El libro debe entrar en el catálogo aunque el EPUB aún no se pueda abrir.
+                    val parsed = if (isEpub) try {
                         readEpub(context, f.uri, f.name.ifBlank { "Libro" }, size, modified)
-                    else inferFilenameIdentity(f.name).let { inferred ->
-                        Book(f.uri, inferred.title,
-                            author = prior?.author?.takeUnless(::unknownAuthor) ?: inferred.author,
-                            saga = prior?.saga.orEmpty().ifBlank { inferred.saga },
-                            sagaOrder = prior?.sagaOrder.orEmpty().ifBlank { inferred.order })
-                    }
+                    } catch (_: Exception) {
+                        Book(f.uri, identity.title,
+                            author = prior?.author?.takeUnless(::unknownAuthor) ?: identity.author,
+                            saga = prior?.saga.orEmpty().ifBlank { identity.saga },
+                            sagaOrder = prior?.sagaOrder.orEmpty().ifBlank { identity.order },
+                            sourceSize = size, sourceModified = modified)
+                    } else Book(f.uri, identity.title,
+                        author = prior?.author?.takeUnless(::unknownAuthor) ?: identity.author,
+                        saga = prior?.saga.orEmpty().ifBlank { identity.saga },
+                        sagaOrder = prior?.sagaOrder.orEmpty().ifBlank { identity.order })
                     if (parsed.metadataRevision < 50 && prior != null) prior.copy(
                         sourceSize = size, sourceModified = modified)
                     else parsed.copy(sourceSize = size, sourceModified = modified,
