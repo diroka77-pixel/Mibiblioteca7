@@ -50,9 +50,15 @@ jobs:
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 app/build/outputs/apk/release/app-release.apk
+      - name: Obtener versión de la aplicación
+        id: app_version
+        run: |
+          VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
-          name: MiBiblioteca-v1.0.34-firmada
+          name: MiBiblioteca-v${{ steps.app_version.outputs.version }}-firmada
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
       - name: Dividir APK para descarga directa
@@ -62,7 +68,7 @@ jobs:
           test "$(find "$RUNNER_TEMP" -maxdepth 1 -name 'MiBiblioteca.part-*' | wc -l)" -ge 1
       - uses: actions/upload-artifact@v4
         with:
-          name: MiBiblioteca-partes-v1.0.34
+          name: MiBiblioteca-partes-v${{ steps.app_version.outputs.version }}
           path: |
             ${{ runner.temp }}/MiBiblioteca.part-*
             ${{ runner.temp }}/MiBiblioteca.sha256
@@ -70,12 +76,15 @@ jobs:
       - name: Publicar APK completa para descarga directa
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.app_version.outputs.version }}
         run: |
-          cp app/build/outputs/apk/release/app-release.apk MiBiblioteca-v1.0.34.apk
-          if ! gh release view v1.0.34 >/dev/null 2>&1; then
-            gh release create v1.0.34 --target "${{ github.sha }}" --title "MiBiblioteca v1.0.34" --notes "APK completa, firmada y verificada. Descarga MiBiblioteca-v1.0.34.apk desde Assets."
+          APK="MiBiblioteca-v${VERSION}.apk"
+          TAG="v${VERSION}"
+          cp app/build/outputs/apk/release/app-release.apk "$APK"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --target "${{ github.sha }}" --title "MiBiblioteca $TAG" --notes "APK completa, firmada y verificada. Descarga $APK desde Assets."
           fi
-          gh release upload v1.0.34 MiBiblioteca-v1.0.34.apk --clobber
+          gh release upload "$TAG" "$APK" --clobber
       - name: Eliminar clave temporal del runner
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
