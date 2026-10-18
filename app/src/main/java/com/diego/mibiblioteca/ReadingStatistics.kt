@@ -22,14 +22,21 @@ data class ReadingStatsSummary(
     val pending: Int,
     val currentYearRead: Int,
     val currentMonthRead: Int,
+    val previousYearRead: Int,
+    val yearOverYearDelta: Int,
     val goal: Int,
     val goalPercent: Float,
     val remainingForGoal: Int,
     val projectedYearTotal: Int,
+    val requiredMonthlyPace: Double,
+    val onTrackForGoal: Boolean,
     val averageActiveProgress: Int,
     val averageRating: Double?,
     val rereads: Int,
     val completedByMonth: List<Int>,
+    val bestMonth: Int?,
+    val bestMonthCount: Int,
+    val catalogReadPercent: Int,
     val topGenres: List<Pair<String, Int>>,
     val topAuthors: List<Pair<String, Int>>,
     val monthStreak: Int,
@@ -62,6 +69,7 @@ internal fun calculateReadingStats(
     val readBooks = books.filter { it.status == ReadingStatus.READ }
     val datedReads = readBooks.mapNotNull { book -> parseReadingDate(book.finishedDate)?.let { it to book } }
     val currentYear = datedReads.filter { it.first.year == today.year }
+    val previousYearRead = datedReads.count { it.first.year == today.year - 1 }
     val months = (1..12).map { month -> currentYear.count { it.first.monthValue == month } }
     val activeProgress = books.filter { it.status == ReadingStatus.READING }
         .map { it.progress.coerceIn(0, 100) }.filter { it > 0 }
@@ -74,6 +82,10 @@ internal fun calculateReadingStats(
     val yearRead = currentYear.size
     val projected = if (yearRead == 0) 0 else
         (yearRead * today.lengthOfYear().toDouble() / today.dayOfYear).roundToInt()
+    val remaining = (safeGoal - yearRead).coerceAtLeast(0)
+    val monthsRemaining = (13 - today.monthValue).coerceAtLeast(1)
+    val bestMonthCount = months.maxOrNull() ?: 0
+    val bestMonth = if (bestMonthCount == 0) null else months.indexOf(bestMonthCount) + 1
     fun top(values: List<String>) = values.map(String::trim).filter(String::isNotBlank)
         .groupingBy { it }.eachCount().entries
         .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key.lowercase() })
@@ -84,14 +96,22 @@ internal fun calculateReadingStats(
         pending = books.count { it.status == ReadingStatus.PENDING },
         currentYearRead = yearRead,
         currentMonthRead = currentYear.count { it.first.monthValue == today.monthValue },
+        previousYearRead = previousYearRead,
+        yearOverYearDelta = yearRead - previousYearRead,
         goal = safeGoal,
         goalPercent = (yearRead.toFloat() / safeGoal).coerceIn(0f, 1f),
-        remainingForGoal = (safeGoal - yearRead).coerceAtLeast(0),
+        remainingForGoal = remaining,
         projectedYearTotal = projected,
+        requiredMonthlyPace = remaining.toDouble() / monthsRemaining,
+        onTrackForGoal = remaining == 0 || projected >= safeGoal,
         averageActiveProgress = activeProgress.average().takeIf { !it.isNaN() }?.roundToInt() ?: 0,
         averageRating = ratings.average().takeIf { !it.isNaN() },
         rereads = readBooks.sumOf { it.rereadCount.coerceAtLeast(0) },
         completedByMonth = months,
+        bestMonth = bestMonth,
+        bestMonthCount = bestMonthCount,
+        catalogReadPercent = if (books.isEmpty()) 0 else
+            (readBooks.size * 100.0 / books.size).roundToInt(),
         topGenres = top(readBooks.flatMap { it.genres }),
         topAuthors = top(readBooks.map { it.author }),
         monthStreak = streak,
