@@ -492,6 +492,58 @@ private fun paragraphsFromHtml(html: String, imageResolver: ((String) -> String?
     return result.ifEmpty { listOfNotNull(body.text().trim().takeIf(String::isNotBlank)?.let(::ReadingParagraph)) }
 }
 
+private fun epubNavigationTitleIsFrontMatter(title: String): Boolean {
+    val normalized = java.text.Normalizer.normalize(title.lowercase(java.util.Locale.ROOT),
+        java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")
+        .replace(Regex("[^a-z0-9]+"), " ").trim()
+    return normalized.matches(Regex(
+        "^(portada|cubierta|cover|titulo|title page|creditos|credits|copyright|" +
+            "datos editoriales|legal|indice|indices|table of contents|contents|" +
+            "dedicatoria|dedication|colofon|imprint|epublibre)( .*)?$"))
+}
+
+private fun epubNavigationLabels(
+    zip: ZipFile,
+    opf: String,
+    packageXml: org.jsoup.nodes.Document
+): Map<String, String> {
+    val labels = linkedMapOf<String, String>()
+    fun decoded(value: String): String = runCatching {
+        java.net.URLDecoder.decode(value.substringBefore('#'), "UTF-8")
+    }.getOrDefault(value.substringBefore('#'))
+    fun record(base: String, href: String, title: String) {
+        val clean = title.trim().replace(Regex("\\s+"), " ")
+        if (clean.isBlank()) return
+        labels.putIfAbsent(resolveZipPath(base, decoded(href)), clean)
+    }
+    val manifestItems = packageXml.select("manifest > item")
+    manifestItems.firstOrNull { it.attr("properties").split(Regex("\\s+")).contains("nav") }
+        ?.let { item ->
+            val navPath = resolveZipPath(opf, decoded(item.attr("href")))
+            zip.readEntryLimited(navPath, FileLimits.INDEX_BYTES)?.toString(Charsets.UTF_8)?.let { html ->
+                val nav = Jsoup.parse(html)
+                nav.select("nav a[href], navmap a[href]").forEach { link ->
+                    record(navPath, link.attr("href"), link.text())
+                }
+            }
+        }
+    manifestItems.firstOrNull {
+        it.attr("media-type").equals("application/x-dtbncx+xml", true) ||
+            it.attr("href").endsWith(".ncx", true)
+    }?.let { item ->
+        val ncxPath = resolveZipPath(opf, decoded(item.attr("href")))
+        zip.readEntryLimited(ncxPath, FileLimits.INDEX_BYTES)?.toString(Charsets.UTF_8)?.let { source ->
+            val ncx = Jsoup.parse(source, "", Parser.xmlParser())
+            ncx.select("navPoint, navpoint").forEach { point ->
+                val href = point.selectFirst("content")?.attr("src").orEmpty()
+                val title = point.selectFirst("navLabel > text, navlabel > text")?.text().orEmpty()
+                if (href.isNotBlank()) record(ncxPath, href, title)
+            }
+        }
+    }
+    return labels
+}
+
 internal fun readEpubText(file: File): ReadingDocument = ZipFile(file).use { zip ->
     val container = zip.readEntryLimited("META-INF/container.xml", FileLimits.INDEX_BYTES)?.toString(Charsets.UTF_8)
         ?: return@use ReadingDocument.Unsupported("El EPUB no contiene su índice principal")
@@ -506,18 +558,23 @@ internal fun readEpubText(file: File): ReadingDocument = ZipFile(file).use { zip
     val manifest = xml.select("manifest > item").associate { it.attr("id") to it.attr("href") }
     val spine = xml.select("spine > itemref").mapNotNull { manifest[it.attr("idref")] }
     val paths = spine.ifEmpty { manifest.values.filter { it.endsWith(".xhtml", true) || it.endsWith(".html", true) } }
+    val navigationLabels = epubNavigationLabels(zip, opf, xml)
     require(paths.size <= FileLimits.CHAPTERS) { "El EPUB contiene demasiados capítulos." }
     var totalBytes = 0L
     val paragraphs = mutableListOf<ReadingParagraph>()
-    if (bookTitle != null) paragraphs += ReadingParagraph(bookTitle.take(120), heading = true, chapterStart = true)
+    if (bookTitle != null) paragraphs += ReadingParagraph(bookTitle.take(120), heading = true)
     for (href in paths) {
-        val path = resolveZipPath(opf, java.net.URLDecoder.decode(href, "UTF-8"))
+        val decodedHref = runCatching { java.net.URLDecoder.decode(href, "UTF-8") }.getOrDefault(href)
+        val path = resolveZipPath(opf, decodedHref)
         val bytes = zip.readEntryLimited(path, minOf(FileLimits.CHAPTER_BYTES, FileLimits.TEXT_BYTES - totalBytes)) ?: continue
         totalBytes += bytes.size
         val html = bytes.toString(Charsets.UTF_8)
         val imageDir = File(file.parentFile, "${file.nameWithoutExtension}-images").apply { mkdirs() }
         fun imageResolver(source: String): String? {
-            val imagePath = resolveZipPath(path, java.net.URLDecoder.decode(source.substringBefore('#'), "UTF-8"))
+            val decodedSource = runCatching {
+                java.net.URLDecoder.decode(source.substringBefore('#'), "UTF-8")
+            }.getOrDefault(source.substringBefore('#'))
+            val imagePath = resolveZipPath(path, decodedSource)
             val entry = zip.getEntry(imagePath) ?: return null
             val target = File(imageDir, MessageDigest.getInstance("SHA-256").digest(imagePath.toByteArray())
                 .joinToString("") { "%02x".format(it.toInt() and 255) } + ".img")
@@ -526,15 +583,27 @@ internal fun readEpubText(file: File): ReadingDocument = ZipFile(file).use { zip
         }
         val section = paragraphsFromHtml(html, ::imageResolver)
         if (section.isEmpty()) continue
-        if (section.none(ReadingParagraph::heading)) {
-            val label = Jsoup.parse(html).title().trim()
-                .takeIf { it.isNotBlank() && !it.equals("untitled", true) }
-                ?: "Capítulo ${paragraphs.count(ReadingParagraph::heading) + 1}"
-            paragraphs += ReadingParagraph(label.take(90), heading = true, chapterStart = true)
-            paragraphs += section
-        } else {
-            paragraphs += section.first().copy(chapterStart = true)
-            paragraphs += section.drop(1)
+        val navigationTitle = navigationLabels[path]?.takeUnless(::epubNavigationTitleIsFrontMatter)
+        val hasRealChapter = section.any(ReadingParagraph::chapterStart)
+        when {
+            hasRealChapter -> paragraphs += section
+            navigationTitle != null -> {
+                paragraphs += ReadingParagraph(navigationTitle.take(90), heading = true, chapterStart = true)
+                paragraphs += section
+            }
+            else -> {
+                val htmlTitle = Jsoup.parse(html).title().trim()
+                    .takeIf { it.isNotBlank() && !it.equals("untitled", true) }
+                    ?.takeUnless(::epubNavigationTitleIsFrontMatter)
+                val pathLooksLikeChapter = path.substringAfterLast('/').contains(
+                    Regex("(?i)(?:chapter|chap|capitulo|cap[ií]tulo|seccion|section|part|parte)[_-]?\\d+"))
+                if (htmlTitle != null && (pathLooksLikeChapter ||
+                        Regex("(?i)^(?:cap[ií]tulo|chapter|parte|part|pr[oó]logo|ep[ií]logo)\\b")
+                            .containsMatchIn(htmlTitle))) {
+                    paragraphs += ReadingParagraph(htmlTitle.take(90), heading = true, chapterStart = true)
+                }
+                paragraphs += section
+            }
         }
     }
     if (paragraphs.isEmpty()) ReadingDocument.Unsupported("No se encontró texto legible en este EPUB")
