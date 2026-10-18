@@ -751,7 +751,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun cloudSnapshot(): String {
-        val booksJson = deduplicateBackupBooks(booksToJsonArray(books))
+        val booksJson = sanitizeBackupBooks(booksToJsonArray(books))
         for (i in 0 until booksJson.length()) {
             val j = booksJson.getJSONObject(i)
             val uri = Uri.parse(j.getString("uri"))
@@ -1016,6 +1016,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                             ?: throw IllegalStateException("Sin permiso para escribir en Drive")
                     }
                 }
+                if (detailMessage?.startsWith("Guardado en el teléfono;") == true) detailMessage = null
             } catch (e: Exception) {
                 detailMessage = "Guardado en el teléfono; no se pudo guardar en Drive: ${e.localizedMessage}"
             }
@@ -6233,16 +6234,30 @@ private fun BookOpeningTransition(
                         }
                         drawPath(diamond, Color(0xFF8E7051).copy(alpha = .72f))
                     }
+                    val animatedTitle = displayTitle(book)
+                    val longestTitleWord = animatedTitle.split(Regex("\\s+")).maxOfOrNull(String::length) ?: 0
+                    val animatedTitleSize = when {
+                        longestTitleWord >= 14 -> 14.sp
+                        longestTitleWord >= 10 || animatedTitle.length > 30 -> 16.sp
+                        animatedTitle.length > 22 -> 18.sp
+                        else -> 20.sp
+                    }
                     Column(Modifier.align(Alignment.Center).fillMaxWidth()
-                        .padding(start = 27.dp, end = 17.dp, top = 24.dp),
+                        .padding(horizontal = 22.dp, vertical = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center) {
-                        Text(displayTitle(book), color = Color(0xFF4A2B1E),
+                        Text(animatedTitle, color = Color(0xFF4A2B1E),
+                            modifier = Modifier.fillMaxWidth(),
                             fontFamily = FontFamily.Serif,
                             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp, lineHeight = 23.sp, letterSpacing = .15.sp,
-                            textAlign = TextAlign.Center, maxLines = 3)
+                            fontSize = animatedTitleSize,
+                            lineHeight = when (animatedTitleSize.value.toInt()) {
+                                14 -> 17.sp; 16 -> 19.sp; 18 -> 21.sp; else -> 23.sp
+                            },
+                            letterSpacing = 0.sp,
+                            textAlign = TextAlign.Center, maxLines = 4,
+                            overflow = TextOverflow.Ellipsis)
                         Spacer(Modifier.height(15.dp))
                         Text(displayAuthor(book).uppercase(), color = Color(0xFF76563D),
                             fontFamily = FontFamily.Serif, fontWeight = FontWeight.Medium,
