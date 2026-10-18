@@ -3,6 +3,9 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
     <queries>
         <package android:name="com.k2fsa.sherpa.onnx.tts.engine"/>
         <package android:name="com.goodreads"/>
@@ -45,6 +48,10 @@
                 <data android:mimeType="application/pdf"/>
             </intent-filter>
         </activity>
+        <service
+            android:name=".ReaderPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback"/>
         <receiver android:name=".LibraryWidget" android:exported="false">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/library_widget_info"/>
