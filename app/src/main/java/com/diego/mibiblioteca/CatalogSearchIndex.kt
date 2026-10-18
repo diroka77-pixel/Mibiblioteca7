@@ -39,6 +39,8 @@ internal fun matchesSearchDocument(normalizedText: String, query: String): Boole
 internal class PersistentCatalogSearchIndex(context: Context) {
     private val preferences = context.getSharedPreferences("catalog_search_index", Context.MODE_PRIVATE)
     private val documents = LinkedHashMap<String, CatalogSearchDocument>()
+    private var indexedBooksReference: List<Book>? = null
+    private var indexedUris: Set<String> = emptySet()
     private var loaded = false
 
     @Synchronized
@@ -61,34 +63,48 @@ internal class PersistentCatalogSearchIndex(context: Context) {
     @Synchronized
     fun matchingBookUris(books: List<Book>, query: String): Set<String> {
         loadIfNeeded()
+        if (indexedBooksReference !== books) rebuildChangedEntries(books)
         val terms = searchTerms(query)
-        if (terms.isEmpty()) return books.mapTo(linkedSetOf()) { it.uri.toString() }
+        if (terms.isEmpty()) return indexedUris.toCollection(linkedSetOf())
+        return documents.asSequence()
+            .filter { (uri, document) ->
+                uri in indexedUris && matchesSearchTerms(document.normalizedText, terms)
+            }
+            .mapTo(linkedSetOf()) { it.key }
+    }
 
+    private fun rebuildChangedEntries(books: List<Book>) {
         var changed = false
         val validKeys = HashSet<String>(books.size)
-        val matches = LinkedHashSet<String>()
         books.forEach { book ->
             val key = book.uri.toString()
             validKeys += key
             val fields = searchableBookFields(book)
             val fingerprint = fields.joinToString("\u0000").hashCode()
             val cached = documents[key]
-            val document = if (cached?.fingerprint == fingerprint &&
-                cached.normalizedText.isNotBlank()) cached else searchDocument(fields).also {
-                documents[key] = it
+            if (cached?.fingerprint != fingerprint || cached.normalizedText.isBlank()) {
+                documents[key] = searchDocument(fields)
                 changed = true
             }
-            if (matchesSearchTerms(document.normalizedText, terms)) matches += key
         }
         if (documents.keys.removeAll { it !in validKeys }) changed = true
+        indexedUris = validKeys
+        indexedBooksReference = books
         if (changed) persist()
-        return matches
     }
 
     @Synchronized
     fun invalidate(uri: String? = null) {
         loadIfNeeded()
-        if (uri == null) documents.clear() else documents.remove(uri)
+        if (uri == null) {
+            documents.clear()
+            indexedUris = emptySet()
+            indexedBooksReference = null
+        } else {
+            documents.remove(uri)
+            indexedUris = indexedUris - uri
+            indexedBooksReference = null
+        }
         persist()
     }
 
