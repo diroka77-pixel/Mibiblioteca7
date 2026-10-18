@@ -10,7 +10,7 @@ internal fun readerChapters(paragraphs: List<ReadingParagraph>): List<ReaderChap
     var cursor = 0
     return buildList {
         paragraphs.forEachIndexed { index, paragraph ->
-            if (paragraph.chapterStart || paragraph.heading) {
+            if (paragraph.chapterStart) {
                 val title = paragraph.text.trim().replace(Regex("\\s+"), " ").take(90)
                 if (title.isNotBlank() && none { it.startChar == cursor })
                     add(ReaderChapterNavigation(index, cursor, title))
@@ -25,7 +25,7 @@ internal fun readerChapters(paragraphs: List<ReadingParagraph>): List<ReaderChap
 internal fun readerChapterIndexAt(
     chapters: List<ReaderChapterNavigation>,
     charPosition: Int
-): Int = chapters.indexOfLast { it.startChar <= charPosition }.coerceAtLeast(0)
+): Int = chapters.indexOfLast { it.startChar <= charPosition }
 
 internal fun readerPageForChar(pageStarts: List<Int>, charPosition: Int): Int =
     pageStarts.indexOfLast { it <= charPosition }.coerceAtLeast(0)
