@@ -85,7 +85,7 @@ internal fun calculateReadingStats(
     val remaining = (safeGoal - yearRead).coerceAtLeast(0)
     val monthsRemaining = (13 - today.monthValue).coerceAtLeast(1)
     val bestMonthCount = months.maxOrNull() ?: 0
-    val bestMonth = if (bestMonthCount == 0) null else months.indexOf(bestMonthCount) + 1
+    val bestMonth = if (bestMonthCount == 0) null else months.indexOfLast { it == bestMonthCount } + 1
     fun top(values: List<String>) = values.map(String::trim).filter(String::isNotBlank)
         .groupingBy { it }.eachCount().entries
         .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key.lowercase() })
