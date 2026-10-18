@@ -1370,7 +1370,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     val filtered: List<Book> get() = filterBooks(books, query, statusFilter,
-        onlyFavorites, selectedSection, qualityFilter, reviewPending)
+        onlyFavorites, selectedSection, qualityFilter, reviewPending,
+        fileProblems = maintenanceProblemUris(books))
 
     /** Normaliza títulos y metadatos locales al arrancar, sin tocar campos editados manualmente. */
     private fun normalizeCachedIdentities() {
@@ -4214,33 +4215,86 @@ private fun openCasaDelLibro(context: Context) {
             }) { Text("Copiar diagnóstico") }
         },
         confirmButton = { LibraryTextButton(onClick = { showSyncReport = false }) { Text("Cerrar") } })
-    if (libraryHealthOpen) AlertDialog(onDismissRequest = { libraryHealthOpen = false },
-        title = { Text("Estado de la biblioteca") },
-        text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-            val noCover = vm.books.count { it.cover == null }
-            val noAuthor = vm.books.count { unknownAuthor(displayAuthor(it)) }
-            val noPlot = vm.books.count { it.spanishPlot.isBlank() }
-            val noBio = vm.books.count { it.authorBio.isBlank() }
-            val noSaga = vm.books.count { it.saga.isBlank() }
-            val duplicates = duplicateGroups.sumOf { (it.size - 1).coerceAtLeast(0) }
-            Text("${vm.books.size} libros analizados", fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(10.dp))
-            Info("Sin portada", noCover.toString())
-            Info("Autor sin identificar", noAuthor.toString())
-            Info("Sin argumento", noPlot.toString())
-            Info("Sin biografía del autor", noBio.toString())
-            Info("Sin saga identificada", noSaga.toString())
-            Info("Copias posiblemente duplicadas", duplicates.toString())
-            Spacer(Modifier.height(8.dp))
-            LibraryActionButton(onClick = {
-                libraryHealthOpen = false
-                vm.qualityFilter = "Revisar"
-                switchTab("Secciones")
-            }, modifier = Modifier.fillMaxWidth()) { Text("Revisar fichas incompletas") }
-        } },
-        confirmButton = { LibraryTextButton(onClick = { libraryHealthOpen = false }) {
-            Text("Cerrar")
-        } })
+    if (libraryHealthOpen) {
+        val health = remember(vm.books) { calculateLibraryMaintenance(vm.books) }
+        val reportText = remember(health) {
+            buildString {
+                appendLine("Estado de MiBiblioteca")
+                appendLine("Salud del catálogo: ${health.healthScore} %")
+                appendLine("Libros analizados: ${health.total}")
+                appendLine("Fichas completas: ${health.healthy}")
+                appendLine("Sin portada: ${health.missingCover}")
+                appendLine("Autor sin identificar: ${health.unknownAuthor}")
+                appendLine("Sin argumento: ${health.missingPlot}")
+                appendLine("Sin biografía: ${health.missingBiography}")
+                appendLine("Archivos vacíos: ${health.emptyFiles}")
+                appendLine("Formatos no compatibles: ${health.unsupportedFiles}")
+                appendLine("Tamaño no confirmado por Drive: ${health.unverifiedSize}")
+                appendLine("Copias posiblemente duplicadas: ${health.duplicateCopies}")
+                appendLine("Sagas con huecos conocidos: ${health.sagasWithGaps}")
+            }
+        }
+        AlertDialog(onDismissRequest = { libraryHealthOpen = false },
+            title = { Text("Estado de la biblioteca") },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text("${health.healthScore} %", fontFamily = FontFamily.Serif,
+                    fontSize = 34.sp, fontWeight = FontWeight.Bold,
+                    color = when {
+                        health.healthScore >= 85 -> Teal
+                        health.healthScore >= 60 -> Brass
+                        else -> Color(0xFF9A4C32)
+                    })
+                Text("Salud del catálogo", fontWeight = FontWeight.SemiBold)
+                LinearProgressIndicator(
+                    progress = { health.healthScore / 100f },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                    color = Teal)
+                Info("Libros analizados", health.total.toString())
+                Info("Fichas completas", health.healthy.toString())
+                Info("Necesitan atención", health.needsAttention.toString())
+                Spacer(Modifier.height(10.dp))
+                Text("Datos de las fichas", fontWeight = FontWeight.Bold)
+                Info("Sin portada", health.missingCover.toString())
+                Info("Autor sin identificar", health.unknownAuthor.toString())
+                Info("Sin argumento", health.missingPlot.toString())
+                Info("Sin biografía del autor", health.missingBiography.toString())
+                Spacer(Modifier.height(10.dp))
+                Text("Archivos y organización", fontWeight = FontWeight.Bold)
+                Info("Archivos vacíos", health.emptyFiles.toString())
+                Info("Formatos no compatibles", health.unsupportedFiles.toString())
+                Info("Tamaño no confirmado por Drive", health.unverifiedSize.toString())
+                Info("Copias posiblemente duplicadas", health.duplicateCopies.toString())
+                Info("Sagas con huecos conocidos", health.sagasWithGaps.toString())
+                Spacer(Modifier.height(10.dp))
+                if (health.fileProblemUris.isNotEmpty()) {
+                    LibraryActionButton(onClick = {
+                        libraryHealthOpen = false
+                        vm.qualityFilter = "Archivo"
+                        switchTab("Libros")
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Ver archivos con problemas")
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+                LibraryActionButton(onClick = {
+                    libraryHealthOpen = false
+                    vm.qualityFilter = "Todos"
+                    switchTab("Libros")
+                }, modifier = Modifier.fillMaxWidth()) { Text("Revisar fichas incompletas") }
+            } },
+            dismissButton = {
+                LibraryTextButton(onClick = {
+                    val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                    clipboard?.setPrimaryClip(android.content.ClipData.newPlainText(
+                        "Estado de MiBiblioteca", reportText))
+                    android.widget.Toast.makeText(context, "Informe copiado",
+                        android.widget.Toast.LENGTH_SHORT).show()
+                }) { Text("Copiar informe") }
+            },
+            confirmButton = { LibraryTextButton(onClick = { libraryHealthOpen = false }) {
+                Text("Cerrar")
+            } })
+    }
     if (readingStatsOpen) {
         val detailedStats = calculateReadingStats(vm.books.map { book ->
             ReadingStatsInput(book.status, vm.readingPercent(book.uri), book.finishedDate,
@@ -4645,7 +4699,7 @@ private fun openCasaDelLibro(context: Context) {
                     }
                     if (tab == "Secciones") {
                         Text("Datos de las fichas", color = Mahogany, fontWeight = FontWeight.SemiBold)
-                        listOf("Todos", "Revisar", "Portada", "Argumento", "Biografía", "Autor").forEach { kind ->
+                        listOf("Todos", "Revisar", "Archivo", "Portada", "Argumento", "Biografía", "Autor").forEach { kind ->
                             NavigationDrawerItem(label = { Text(kind) }, selected = vm.qualityFilter == kind,
                                 onClick = { vm.qualityFilter = if (kind == "Todos" || vm.qualityFilter == kind) "Ninguno" else kind;
                                     scope.launch { drawerState.close() } })
