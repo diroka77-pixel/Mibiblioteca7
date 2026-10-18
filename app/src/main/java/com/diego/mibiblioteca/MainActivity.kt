@@ -2225,83 +2225,51 @@ private fun queryDriveChildren(
         DocumentsContract.Document.COLUMN_SIZE,
         DocumentsContract.Document.COLUMN_LAST_MODIFIED
     )
-    // La API de documentos de Drive puede quedarse cargando indefinidamente.
-    // Probamos primero el mismo acceso estándar que usa el selector de Android.
-    val directParentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId)
-    val directChildren = try {
-        DocumentFile.fromSingleUri(context, directParentUri)?.listFiles().orEmpty()
-    } catch (_: Exception) { emptyArray() }
-    if (directChildren.isNotEmpty()) {
-        return directChildren.mapNotNull { child ->
-            val id = try { DocumentsContract.getDocumentId(child.uri) } catch (_: Exception) { null }
-            id?.let {
-                DriveDocumentEntry(
-                    documentId = it, uri = child.uri, name = child.name.orEmpty(),
-                    mimeType = child.type.orEmpty(), size = child.length(),
-                    modified = child.lastModified()
-                )
-            }
-        }
-    }
-    fun fallbackChildren(): List<DriveDocumentEntry> {
-        val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId)
-        return DocumentFile.fromSingleUri(context, parentUri)?.listFiles()?.mapNotNull { child ->
-            val id = try { DocumentsContract.getDocumentId(child.uri) } catch (_: Exception) { null }
-            id?.let {
-                DriveDocumentEntry(
-                    documentId = it, uri = child.uri, name = child.name.orEmpty(),
-                    mimeType = child.type.orEmpty(), size = child.length(),
-                    modified = child.lastModified()
-                )
-            }
-        }.orEmpty()
-    }
-    val accumulated = linkedMapOf<String, DriveDocumentEntry>()
-    var latest = emptyList<DriveDocumentEntry>()
-    repeat(6) { attempt ->
+
+    // Una consulta devuelve todos los metadatos de la carpeta de una vez.
+    // DocumentFile queda como respaldo para proveedores que no implementen bien
+    // DocumentsContract, evitando cientos de consultas individuales en Drive.
+    repeat(3) { attempt ->
         val cursor = try {
             resolver.query(childrenUri, projection, null, null, null)
-        } catch (_: Exception) {
-            return fallbackChildren()
-        } ?: return fallbackChildren()
-        val loading = try {
-            val idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-            require(idColumn >= 0) { "Drive no devolvió identificadores de documentos." }
-            val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-            val mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
-            val sizeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
-            val modifiedColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
-            val rows = ArrayList<DriveDocumentEntry>(cursor.count)
-            while (cursor.moveToNext()) {
-                val id = cursor.getString(idColumn)?.takeIf(String::isNotBlank) ?: continue
-                val childUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, id)
-                rows += DriveDocumentEntry(
-                    documentId = id,
-                    uri = childUri,
-                    name = if (nameColumn >= 0) cursor.getString(nameColumn).orEmpty() else id.substringAfterLast('/'),
-                    mimeType = if (mimeColumn >= 0) cursor.getString(mimeColumn).orEmpty() else "application/octet-stream",
-                    size = if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) cursor.getLong(sizeColumn) else -1L,
-                    modified = if (modifiedColumn >= 0 && !cursor.isNull(modifiedColumn)) cursor.getLong(modifiedColumn) else -1L
-                )
-            }
-            rows.forEach { accumulated[it.documentId] = it }
-            latest = accumulated.values.toList()
-            cursor.extras?.getBoolean(DocumentsContract.EXTRA_LOADING, false) == true
-        } finally {
-            cursor.close()
+        } catch (_: Exception) { null }
+        if (cursor != null) {
+            val result = ArrayList<DriveDocumentEntry>()
+            val loading = try {
+                val idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                val mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                val sizeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+                val modifiedColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+                if (idColumn >= 0) while (cursor.moveToNext()) {
+                    val id = cursor.getString(idColumn)?.takeIf(String::isNotBlank) ?: continue
+                    result += DriveDocumentEntry(
+                        documentId = id,
+                        uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, id),
+                        name = if (nameColumn >= 0) cursor.getString(nameColumn).orEmpty()
+                            else id.substringAfterLast('/'),
+                        mimeType = if (mimeColumn >= 0) cursor.getString(mimeColumn).orEmpty()
+                            else "application/octet-stream",
+                        size = if (sizeColumn >= 0 && !cursor.isNull(sizeColumn))
+                            cursor.getLong(sizeColumn) else -1L,
+                        modified = if (modifiedColumn >= 0 && !cursor.isNull(modifiedColumn))
+                            cursor.getLong(modifiedColumn) else -1L
+                    )
+                }
+                cursor.extras?.getBoolean(DocumentsContract.EXTRA_LOADING, false) == true
+            } finally { cursor.close() }
+            if (result.isNotEmpty() || !loading) return result
         }
-        if (!loading) {
-            // Algunos proveedores, especialmente Google Drive, actualizan
-            // DocumentContract con retraso. DocumentFile consulta la misma
-            // carpeta por la vía que usa el selector del sistema; unimos ambas
-            // respuestas para no perder archivos recién subidos.
-            val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId)
-            val parent = DocumentFile.fromSingleUri(context, parentUri)
-            parent?.listFiles()?.forEach { child ->
-                val id = try { DocumentsContract.getDocumentId(child.uri) } catch (_: Exception) { "" }
-                if (id.isBlank() || latest.any { it.documentId == id }) return@forEach
-                latest = latest + DriveDocumentEntry(
-                    documentId = id,
+        if (attempt < 2) Thread.sleep(250L)
+    }
+
+    val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocumentId)
+    return try {
+        DocumentFile.fromSingleUri(context, parentUri)?.listFiles()?.mapNotNull { child ->
+            val id = try { DocumentsContract.getDocumentId(child.uri) } catch (_: Exception) { null }
+            id?.let {
+                DriveDocumentEntry(
+                    documentId = it,
                     uri = child.uri,
                     name = child.name.orEmpty(),
                     mimeType = child.type.orEmpty(),
@@ -2309,11 +2277,8 @@ private fun queryDriveChildren(
                     modified = child.lastModified()
                 )
             }
-            return latest
-        }
-        if (attempt < 5) Thread.sleep(400L)
-    }
-    return latest
+        }.orEmpty()
+    } catch (_: Exception) { emptyList() }
 }
 
 private fun isSupportedBookFile(name: String, mimeType: String): Boolean {
@@ -2332,85 +2297,84 @@ private fun isSupportedBookFile(name: String, mimeType: String): Boolean {
 }
 
 private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, onProgress: (Int) -> Unit): List<Book> {
-    val root = DocumentFile.fromTreeUri(context, treeUri)
+    DocumentFile.fromTreeUri(context, treeUri)
         ?: throw IllegalStateException("Carpeta no disponible")
     val out = mutableListOf<Book>()
     val visited = mutableSetOf<String>()
+    val rootDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
 
-    fun walk(dir: DocumentFile, depth: Int = 0) {
-        if (depth > 32 || visited.size >= 10000 || !visited.add(dir.uri.toString())) return
-        val children = try { dir.listFiles().toList() } catch (_: Exception) { emptyList() }
-        children.forEach { f ->
-            if (f.isDirectory) {
-                try { walk(f, depth + 1) } catch (_: Exception) {}
-                return@forEach
-            }
-            val name = try { f.name.orEmpty() } catch (_: Exception) { "" }
-            val mime = try { f.type.orEmpty() } catch (_: Exception) { "" }
-            if (!isSupportedBookFile(name, mime) || out.size >= 10000) return@forEach
+    fun addFile(f: DriveDocumentEntry) {
+        if (!isSupportedBookFile(f.name, f.mimeType) || out.size >= 10000) return
+        val prior = cached[f.uri]
+        val cover = coverFile(context, f.uri)
+        val removed = File(context.filesDir, "removed-" + cover.name).exists()
+        val metadataMatches = prior != null && when {
+            f.size > 0L -> prior.sourceSize == f.size &&
+                (f.modified <= 0L || prior.sourceModified == f.modified)
+            f.modified > 0L -> prior.sourceModified == f.modified
+            else -> true
+        }
+        val unchanged = prior != null && metadataMatches &&
+            prior.metadataRevision >= 50 && prior.sourceCoverChecked &&
+            (!prior.hadEmbeddedCover || cover.exists() || removed)
 
-            val uri = f.uri
-            val size = try { f.length() } catch (_: Exception) { -1L }
-            val modified = try { f.lastModified() } catch (_: Exception) { -1L }
-            val prior = cached[uri]
-            val cover = coverFile(context, uri)
-            val removed = File(context.filesDir, "removed-" + cover.name).exists()
-            val metadataMatches = prior != null && when {
-                size > 0L -> prior.sourceSize == size &&
-                    (modified <= 0L || prior.sourceModified == modified)
-                modified > 0L -> prior.sourceModified == modified
-                else -> true
-            }
-            val unchanged = prior != null && metadataMatches &&
-                prior.metadataRevision >= 50 && prior.sourceCoverChecked &&
-                (!prior.hadEmbeddedCover || cover.exists() || removed)
-
-            val book = if (unchanged) prior!! else {
-                val identity = inferFilenameIdentity(name)
-                val isEpub = name.endsWith(".epub", true) ||
-                    mime.equals("application/epub+zip", true)
-                val parsed = if (isEpub) try {
-                    readEpub(context, uri, name.ifBlank { "Libro" }, size, modified)
-                } catch (_: Exception) {
-                    Book(uri, identity.title,
-                        author = prior?.author?.takeUnless(::unknownAuthor) ?: identity.author,
-                        saga = prior?.saga.orEmpty().ifBlank { identity.saga },
-                        sagaOrder = prior?.sagaOrder.orEmpty().ifBlank { identity.order },
-                        sourceSize = size, sourceModified = modified)
-                } else Book(uri, identity.title,
+        val book = if (unchanged) prior!! else {
+            val identity = inferFilenameIdentity(f.name)
+            val isEpub = f.name.endsWith(".epub", true) ||
+                f.mimeType.equals("application/epub+zip", true)
+            val parsed = if (isEpub) try {
+                readEpub(context, f.uri, f.name.ifBlank { "Libro" }, f.size, f.modified)
+            } catch (_: Exception) {
+                Book(f.uri, identity.title,
                     author = prior?.author?.takeUnless(::unknownAuthor) ?: identity.author,
                     saga = prior?.saga.orEmpty().ifBlank { identity.saga },
                     sagaOrder = prior?.sagaOrder.orEmpty().ifBlank { identity.order },
-                    sourceSize = size, sourceModified = modified)
+                    sourceSize = f.size, sourceModified = f.modified)
+            } else Book(f.uri, identity.title,
+                author = prior?.author?.takeUnless(::unknownAuthor) ?: identity.author,
+                saga = prior?.saga.orEmpty().ifBlank { identity.saga },
+                sagaOrder = prior?.sagaOrder.orEmpty().ifBlank { identity.order },
+                sourceSize = f.size, sourceModified = f.modified)
+            if (parsed.metadataRevision < 50 && prior != null) parsed.copy(
+                sourceSize = f.size, sourceModified = f.modified,
+                favorite = prior.favorite, status = prior.status,
+                sections = prior.sections, section = prior.section,
+                customTitle = prior.customTitle, customAuthor = prior.customAuthor)
+            else parsed.copy(
+                sourceSize = f.size, sourceModified = f.modified,
+                author = parsed.author.takeUnless(::unknownAuthor)
+                    ?: prior?.author?.takeUnless(::unknownAuthor) ?: "Autor desconocido",
+                sourceCoverChecked = true,
+                hadEmbeddedCover = parsed.cover != null,
+                cover = parsed.cover ?: prior?.cover)
+        }
+        try {
+            if (!removed && !cover.exists() && book.cover != null) cover.writeSafely(book.cover)
+        } catch (_: Exception) {}
+        val savedCover = try {
+            if (unchanged && prior?.cover != null) prior.cover
+            else cover.takeIf { it.exists() }?.readBytes()
+        } catch (_: Exception) { book.cover }
+        out += if (removed) book.copy(cover = null)
+            else if (savedCover != null) book.copy(cover = savedCover) else book
+        onProgress(out.size)
+    }
 
-                if (parsed.metadataRevision < 50 && prior != null) {
-                    parsed.copy(
-                        sourceSize = size, sourceModified = modified,
-                        favorite = prior.favorite, status = prior.status,
-                        sections = prior.sections, section = prior.section,
-                        customTitle = prior.customTitle, customAuthor = prior.customAuthor)
-                } else parsed.copy(
-                    sourceSize = size, sourceModified = modified,
-                    author = parsed.author.takeUnless(::unknownAuthor)
-                        ?: prior?.author?.takeUnless(::unknownAuthor) ?: "Autor desconocido",
-                    sourceCoverChecked = true,
-                    hadEmbeddedCover = parsed.cover != null,
-                    cover = parsed.cover ?: prior?.cover)
+    fun walk(parentDocumentId: String, depth: Int = 0) {
+        if (depth > 32 || visited.size >= 10000 || !visited.add(parentDocumentId)) return
+        val children = try {
+            queryDriveChildren(context, treeUri, parentDocumentId)
+        } catch (_: Exception) { emptyList() }
+        children.forEach { entry ->
+            if (entry.isDirectory) {
+                try { walk(entry.documentId, depth + 1) } catch (_: Exception) {}
+            } else {
+                try { addFile(entry) } catch (_: Exception) {}
             }
-            try {
-                if (!removed && !cover.exists() && book.cover != null) cover.writeSafely(book.cover)
-            } catch (_: Exception) {}
-            val savedCover = try {
-                if (unchanged && prior?.cover != null) prior.cover
-                else cover.takeIf { it.exists() }?.readBytes()
-            } catch (_: Exception) { book.cover }
-            out += if (removed) book.copy(cover = null)
-                else if (savedCover != null) book.copy(cover = savedCover) else book
-            onProgress(out.size)
         }
     }
 
-    walk(root)
+    walk(rootDocumentId)
     return out.sortedBy { it.title.lowercase() }
 }
 private fun readEpub(context: Context, uri: Uri, fallbackName: String,
