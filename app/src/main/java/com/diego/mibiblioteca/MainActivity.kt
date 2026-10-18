@@ -4241,39 +4241,55 @@ private fun openCasaDelLibro(context: Context) {
         confirmButton = { LibraryTextButton(onClick = { libraryHealthOpen = false }) {
             Text("Cerrar")
         } })
-    if (readingStatsOpen) AlertDialog(onDismissRequest = { readingStatsOpen = false },
-        title = { Text("Estadísticas de lectura") },
-        text = { Column {
-            val read = vm.books.count { it.status == ReadingStatus.READ }
-            val reading = vm.books.count { it.status == ReadingStatus.READING }
-            val pending = vm.books.count { it.status == ReadingStatus.PENDING }
-            val average = vm.books.map { vm.readingPercent(it.uri) }.filter { it > 0 }
-                .average().takeIf { !it.isNaN() }?.toInt() ?: 0
-            val genres = vm.books.flatMap { normalizeBookGenres(it.genre) }
-                .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(5)
-            Info("Terminados", read.toString())
-            Info("Leyendo ahora", reading.toString())
-            Info("Pendientes", pending.toString())
-            Info("Progreso medio de libros empezados", "$average %")
-            val rated = vm.books.filter { it.rating > 0 }
-            val averageRating = rated.map { it.rating }.average().takeIf { !it.isNaN() }
-            Info("Valoración media", averageRating?.let { String.format(java.util.Locale.getDefault(), "%.1f / 5", it) } ?: "Sin valorar")
-            Info("Libros con citas guardadas", vm.books.count { it.quotes.isNotBlank() }.toString())
-            Info("Sagas completas comprobadas", vm.sagaCatalogs.count { (name, catalog) ->
-                val owned = vm.books.filter { it.saga.equals(name, true) }
-                catalog.isNotEmpty() && catalog.all { volume -> owned.any { b ->
-                    b.sagaOrder == volume.order || displayTitle(b).equals(volume.title, true)
-                } }
-            }.toString())
-            if (genres.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text("Géneros más presentes", fontWeight = FontWeight.Bold)
-                genres.forEach { Text("${it.key}: ${it.value}", fontSize = 12.sp) }
-            }
-        } },
-        confirmButton = { LibraryTextButton(onClick = { readingStatsOpen = false }) {
-            Text("Cerrar")
-        } })
+    if (readingStatsOpen) {
+        val detailedStats = calculateReadingStats(vm.books.map { book ->
+            ReadingStatsInput(book.status, vm.readingPercent(book.uri), book.finishedDate,
+                book.rating, normalizeBookGenres(book.genre), displayAuthor(book), book.rereadCount)
+        }, annualGoal = vm.annualReadingGoal)
+        AlertDialog(onDismissRequest = { readingStatsOpen = false },
+            title = { Text("Resumen completo") },
+            text = { Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Info("Libros terminados", detailedStats.totalRead.toString())
+                Info("Terminados este año", detailedStats.currentYearRead.toString())
+                Info("Terminados este mes", detailedStats.currentMonthRead.toString())
+                Info("Racha de meses con lecturas", detailedStats.monthStreak.toString())
+                Info("Proyección al final de año", detailedStats.projectedYearTotal.toString())
+                Info("Leyendo ahora", detailedStats.reading.toString())
+                Info("Progreso medio activo", "${detailedStats.averageActiveProgress} %")
+                Info("Pendientes", detailedStats.pending.toString())
+                Info("Relecturas registradas", detailedStats.rereads.toString())
+                Info("Valoración media", detailedStats.averageRating?.let {
+                    String.format(java.util.Locale.getDefault(), "%.1f / 5", it)
+                } ?: "Sin valorar")
+                Info("Libros con citas guardadas", vm.books.count { it.quotes.isNotBlank() }.toString())
+                Info("Leídos sin fecha final válida", detailedStats.readWithoutFinishDate.toString())
+                val completedSagas = vm.sagaCatalogs.count { (name, catalog) ->
+                    val owned = vm.books.filter { it.saga.equals(name, true) }
+                    catalog.isNotEmpty() && catalog.all { volume -> owned.any { b ->
+                        b.sagaOrder == volume.order || displayTitle(b).equals(volume.title, true)
+                    } }
+                }
+                Info("Sagas completas comprobadas", completedSagas.toString())
+                if (detailedStats.topGenres.isNotEmpty()) {
+                    Spacer(Modifier.height(7.dp))
+                    Text("Géneros realmente leídos", fontWeight = FontWeight.Bold)
+                    detailedStats.topGenres.forEach { (name, count) ->
+                        Text("$name: $count", fontSize = 12.sp)
+                    }
+                }
+                if (detailedStats.topAuthors.isNotEmpty()) {
+                    Spacer(Modifier.height(7.dp))
+                    Text("Autores más leídos", fontWeight = FontWeight.Bold)
+                    detailedStats.topAuthors.forEach { (name, count) ->
+                        Text("$name: $count", fontSize = 12.sp)
+                    }
+                }
+            } },
+            confirmButton = { LibraryTextButton(onClick = { readingStatsOpen = false }) {
+                Text("Cerrar")
+            } })
+    }
     if (releaseCalendarOpen) AlertDialog(onDismissRequest = { releaseCalendarOpen = false },
         title = { Text("Calendario de publicaciones") },
         text = { Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
