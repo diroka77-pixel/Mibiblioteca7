@@ -82,6 +82,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Brush
@@ -385,6 +386,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var readingFirst by mutableStateOf(true); private set
     var wallpaperMode by mutableStateOf("Automático"); private set
     var animationMode by mutableStateOf("Equilibrada"); private set
+    var interfaceTextScale by mutableFloatStateOf(1f); private set
     var lastOpenedUri by mutableStateOf<Uri?>(null); private set
     var selectedSection by mutableStateOf<String?>(null)
     var sections by mutableStateOf<List<String>>(emptyList()); private set
@@ -562,6 +564,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         } catch (_: Exception) { emptyMap() }
         wallpaperMode = prefs.getString("wallpaper_mode", "Automático") ?: "Automático"
         animationMode = prefs.getString("animation_mode", "Equilibrada") ?: "Equilibrada"
+        interfaceTextScale = prefs.getFloat("interface_text_scale", 1f).coerceIn(1f, 1.3f)
         lastOpenedUri = prefs.getString("last_opened_book", null)?.let(Uri::parse)
         folderName = prefs.getString("folder_name", null)
         restoreLaunchNews()
@@ -1491,6 +1494,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         if (mode !in listOf("Suave", "Equilibrada", "Sin animaciones")) return
         animationMode = mode
         prefs.edit().putString("animation_mode", mode).apply()
+    }
+
+    fun chooseInterfaceTextScale(scale: Float) {
+        interfaceTextScale = scale.coerceIn(1f, 1.3f)
+        prefs.edit().putFloat("interface_text_scale", interfaceTextScale).apply()
     }
 
     fun readingBooks(): List<Book> = books.filter { it.status == ReadingStatus.READING }
@@ -3092,7 +3100,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         libraryVm = ViewModelProvider(this)[LibraryViewModel::class.java]
         handleSharedBook(intent)
-        setContent { MaterialTheme(colorScheme = libraryColors) { LibraryApp(libraryVm) } }
+        setContent {
+            val systemDensity = LocalDensity.current
+            val accessibleDensity = remember(systemDensity, libraryVm.interfaceTextScale) {
+                Density(systemDensity.density, systemDensity.fontScale * libraryVm.interfaceTextScale)
+            }
+            CompositionLocalProvider(LocalDensity provides accessibleDensity) {
+                MaterialTheme(colorScheme = libraryColors) { LibraryApp(libraryVm) }
+            }
+        }
         jankStats = JankStats.createAndTrack(window) { frame ->
             val counts = framesByScreen.getOrPut(metricScreen) { intArrayOf(0, 0) }
             counts[0]++
@@ -3461,6 +3477,7 @@ private fun openCasaDelLibro(context: Context) {
     var selectedPublicResult by remember { mutableStateOf<PublicBookResult?>(null) }
     var wallpaperPickerOpen by remember { mutableStateOf(false) }
     var animationPickerOpen by remember { mutableStateOf(false) }
+    var textSizePickerOpen by remember { mutableStateOf(false) }
     var sagaRenameSource by remember { mutableStateOf<String?>(null) }
     var sagaRenameTarget by remember { mutableStateOf("") }
     if (wallpaperPickerOpen) AlertDialog(
@@ -3500,6 +3517,24 @@ private fun openCasaDelLibro(context: Context) {
             }
         } },
         confirmButton = { LibraryTextButton(onClick = { animationPickerOpen = false }) { Text("Cerrar") } })
+    if (textSizePickerOpen) AlertDialog(
+        onDismissRequest = { textSizePickerOpen = false },
+        title = { Text("Tamaño del texto") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            listOf("Normal" to 1f, "Grande" to 1.15f, "Muy grande" to 1.3f).forEach { (label, scale) ->
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable {
+                    vm.chooseInterfaceTextScale(scale); textSizePickerOpen = false
+                }.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = kotlin.math.abs(vm.interfaceTextScale - scale) < .01f,
+                        onClick = { vm.chooseInterfaceTextScale(scale); textSizePickerOpen = false })
+                    Text(label, fontSize = 16.sp)
+                }
+            }
+            Text("Se suma al tamaño de letra configurado en Android.",
+                color = Mahogany.copy(alpha = .76f), fontSize = 12.sp,
+                modifier = Modifier.padding(top = 8.dp))
+        } },
+        confirmButton = { LibraryTextButton(onClick = { textSizePickerOpen = false }) { Text("Cerrar") } })
     if (addingSection) AlertDialog(
         onDismissRequest = { addingSection = false },
         title = { Text("Nueva sección") },
@@ -4613,6 +4648,12 @@ private fun openCasaDelLibro(context: Context) {
                         NavigationDrawerItem(label = { Text("Animaciones: " + vm.animationMode) },
                             selected = false, icon = { Icon(Icons.Outlined.Animation, null) },
                             onClick = { animationPickerOpen = true })
+                        NavigationDrawerItem(label = { Text("Tamaño del texto: " + when {
+                            vm.interfaceTextScale >= 1.29f -> "Muy grande"
+                            vm.interfaceTextScale >= 1.14f -> "Grande"
+                            else -> "Normal"
+                        }) }, selected = false, icon = { Icon(Icons.Outlined.FormatSize, null) },
+                            onClick = { textSizePickerOpen = true })
                         Text("Automático sigue el género del último libro abierto.",
                             color = Mahogany, fontSize = 12.sp,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
@@ -4856,7 +4897,7 @@ private fun openCasaDelLibro(context: Context) {
                         onClick = { switchTab(targetTab) },
                         icon = { AppIcon(icon, description = label, size = 22.dp) },
                         label = { Text(label, maxLines = 1, softWrap = false,
-                            fontSize = 9.sp, letterSpacing = (-0.15).sp) },
+                            fontSize = 11.sp) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = Mahogany,
                             selectedTextColor = Mahogany,
