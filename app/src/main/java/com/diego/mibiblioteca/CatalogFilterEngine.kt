@@ -45,7 +45,8 @@ internal fun matchesCatalogFlags(
     status: ReadingStatus?,
     favoritesOnly: Boolean,
     section: String?,
-    quality: String
+    quality: String,
+    hasFileProblem: Boolean = false
 ): Boolean =
     (status == null || bookStatus == status) &&
         (!favoritesOnly || isFavorite) &&
@@ -56,7 +57,9 @@ internal fun matchesCatalogFlags(
             "Biografía" -> !hasBiography
             "Autor" -> !hasKnownAuthor
             "Revisar" -> needsReview
-            "Todos" -> !hasCover || !hasPlot || !hasBiography || !hasKnownAuthor || needsReview
+            "Archivo" -> hasFileProblem
+            "Todos" -> !hasCover || !hasPlot || !hasBiography || !hasKnownAuthor ||
+                needsReview || hasFileProblem
             else -> true
         }
 
@@ -68,7 +71,8 @@ internal fun filterBooks(
     section: String?,
     quality: String,
     pending: Set<Uri>,
-    searchMatches: Set<String>? = null
+    searchMatches: Set<String>? = null,
+    fileProblems: Set<Uri> = emptySet()
 ): List<Book> {
     val queryTerms = normalizeSearchText(query)
         .split(" ")
@@ -96,7 +100,8 @@ internal fun filterBooks(
             status = status,
             favoritesOnly = favorites,
             section = section,
-            quality = quality
+            quality = quality,
+            hasFileProblem = book.uri in fileProblems
         )
     }
 }
