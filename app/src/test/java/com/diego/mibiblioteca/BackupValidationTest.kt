@@ -39,6 +39,17 @@ class BackupValidationTest {
             validateBackup(backup(*Array(clean.length()) { clean.getJSONObject(it) }))
         }
     }
+    @Test fun portableSnapshotKeepsOnlyUniqueRestorableReferences() {
+        val clean = sanitizeBackupBooks(JSONArray()
+            .put(book()).put(book())
+            .put(book("file:///storage/emulated/0/Download/book.epub"))
+            .put(book(""))
+            .put(book("content://provider/document/2")))
+        assertEquals(2, clean.length())
+        assertEquals("content://provider/document/1", clean.getJSONObject(0).getString("uri"))
+        assertEquals("content://provider/document/2", clean.getJSONObject(1).getString("uri"))
+        assertNotNull(validateBackup(backup(*Array(clean.length()) { clean.getJSONObject(it) })))
+    }
     @Test fun rejectsFileReferencesAndInvalidPositions() {
         assertThrows(IllegalArgumentException::class.java) { validateBackup(backup(book("file:///etc/passwd"))) }
         assertThrows(IllegalArgumentException::class.java) { validateBackup(backup(book().put("readerPercent", 101))) }
