@@ -1021,13 +1021,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private suspend fun restoreCloud(tree: Uri, force: Boolean = false) {
+    private suspend fun restoreCloud(tree: Uri) {
         val knownLocalCatalogSize = books.size
         val cloud = withContext(Dispatchers.IO) {
             val root = DocumentFile.fromTreeUri(getApplication(), tree) ?: return@withContext null
             fun readSnapshot(name: String): JSONObject? = root.findFile(name)?.let { file ->
                 getApplication<Application>().contentResolver.openInputStream(file.uri)?.use {
-                    parseBackup(it.readLimited(FileLimits.BACKUP_BYTES).toString(Charsets.UTF_8)).also(::validateBackupImages)
+                    parseBackup(it.readLimited(FileLimits.BACKUP_BYTES).toString(Charsets.UTF_8))
+                        .also(::validateBackupImages)
                 }
             }
             var currentFailure: Exception? = null
@@ -1046,65 +1047,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 else -> current
             }
         } ?: return
-        val cloudBookCount = cloud.optJSONArray("books")?.length() ?: return
-        val booksBeforeRecovery = if (force) emptyList() else books.toList()
-        val restoreCompleteCatalog = force || books.isEmpty() ||
-            shouldRecoverDriveCatalog(books.size, cloudBookCount)
-        if (!force && books.isNotEmpty() && !restoreCompleteCatalog &&
-            cloud.optLong("updatedAt") <= prefs.getLong("local_revision", 0L)) return
+
+        // La carpeta ya se ha escaneado antes de llegar aquí. El respaldo nunca
+        // crea ni elimina fichas: solo recupera datos personales de libros que
+        // existen realmente en la carpeta seleccionada.
         withContext(Dispatchers.IO) { validateBackupImages(cloud) }
-        if (!restoreCompleteCatalog) {
-            val result = applyBackup(cloud)
-            if (result.pending != null) prefs.edit().putString("pending_backup", result.pending).apply()
-            return
-        }
-        val booksArray = cloud.optJSONArray("books") ?: return
-        catalogSaveJob?.join()
-        withContext(Dispatchers.IO) { bookStore.applySnapshot(booksArray) }
-        prefs.edit().remove("books_cache")
-            .putBoolean("catalog_v2_ready", true)
-            .putString("sections", cloud.optJSONArray("sections")?.toString() ?: "[]")
-            .putString("wish_list", cloud.optJSONArray("wishList")?.toString() ?: "[]")
-            .putLong("local_revision", cloud.optLong("updatedAt")).apply()
-        for (i in 0 until booksArray.length()) {
-            val j = booksArray.getJSONObject(i)
-            val uri = Uri.parse(j.getString("uri"))
-            val progressKey = readerProgressKey(uri)
-            readerPrefs.edit().putInt("percent_$progressKey", j.optInt("readerPercent"))
-                .putInt("item_$progressKey", j.optInt("readerItem"))
-                .putInt("offset_$progressKey", j.optInt("readerOffset"))
-                .putInt("page_$progressKey", j.optInt("readerPage"))
-                .putString("highlights_$progressKey", j.optString("readerHighlights", "[]")).apply()
-            if (j.has("readerChar")) readerPrefs.edit().putInt("char_$progressKey", j.getInt("readerChar")).apply()
-            else readerPrefs.edit().remove("char_$progressKey").apply()
-            prefs.edit().putString("info_" + uri, JSONObject()
-                .put("plot", j.optString("plot")).put("bio", j.optString("bio")).toString())
-                .putBoolean("manual_info_" + uri, j.optBoolean("manualInfo")).apply()
-            val base64 = j.optString("coverBase64")
-            if (j.optBoolean("coverRemoved")) withContext(Dispatchers.IO) {
-                File(getApplication<Application>().filesDir,
-                    "removed-" + coverFile(getApplication(), uri).name).writeText("1")
-            }
-            if (base64.isNotBlank()) withContext(Dispatchers.IO) {
-                val bytes = decodeBackupCover(base64)
-                coverFile(getApplication(), uri).writeSafely(bytes)
-                File(getApplication<Application>().filesDir,
-                    "manual-" + coverFile(getApplication(), uri).name).writeSafely(bytes)
-            }
-        }
-        sections = safeSavedArray(prefs.getString("sections", "[]")).let { arr ->
-            (0 until arr.length()).map { arr.optString(it) }
-        }
-        loadWishList()
-        prefs.edit().putString("pending_backup", cloud.toString()).apply()
-        restoreCachedBooks()
-        if (restoreCompleteCatalog && booksBeforeRecovery.isNotEmpty()) {
-            val recovered = books.associateBy { it.uri }.toMutableMap()
-            booksBeforeRecovery.forEach { recovered[it.uri] = it }
-            books = recovered.values.sortedBy { it.title.lowercase() }
-            saveBooks()
-            detailMessage = "Catálogo restaurado desde Drive ($cloudBookCount fichas); se conserva el libro abierto."
-        }
+        val result = applyBackup(cloud)
+        prefs.edit()
+            .putString("pending_backup", result.pending)
+            .putLong("last_backup_restore", System.currentTimeMillis())
+            .putInt("last_backup_matches", result.matched)
+            .apply()
     }
 
     fun addSection(name: String) {
@@ -1740,7 +1693,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 saveBooks()
                 // Recuperar favoritos, progreso, secciones y ediciones solo
                 // después de que la carpeta haya confirmado sus archivos.
-                try { restoreCloud(uri, force = false) } catch (e: Exception) {
+                try { restoreCloud(uri) } catch (e: Exception) {
                     detailMessage = "La biblioteca se sincronizó; no se pudo aplicar el respaldo: ${e.localizedMessage}"
                 }
                 syncCount = result.size
