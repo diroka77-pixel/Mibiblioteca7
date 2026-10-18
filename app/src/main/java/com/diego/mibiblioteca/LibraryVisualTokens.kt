@@ -43,3 +43,19 @@ internal object CoverPresentation {
  * cache must still be reusable in that case and must change when the image does.
  */
 internal fun coverContentFingerprint(bytes: ByteArray): Int = bytes.contentHashCode()
+
+/** Font size used by the ceremonial opening cover.
+ * Long words get extra room because serif bold italic glyphs are wider than
+ * ordinary body text and Compose may otherwise split a word by characters. */
+internal fun animatedCoverTitleSizeSp(title: String): Int {
+    val clean = title.trim().replace(Regex("\\s+"), " ")
+    val longest = clean.split(' ').maxOfOrNull(String::length) ?: 0
+    return when {
+        longest >= 18 -> 10
+        longest >= 14 -> 11
+        longest >= 10 -> 13
+        clean.length > 30 -> 14
+        clean.length > 22 -> 16
+        else -> 18
+    }
+}
