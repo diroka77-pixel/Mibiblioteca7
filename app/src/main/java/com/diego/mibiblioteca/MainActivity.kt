@@ -1690,7 +1690,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 val missing = (previousUris - currentUris).size
                 val coversMissing = books.count { it.cover == null }
-                syncSummary = "$added nuevos · $changed modificados · $missing fuera de la carpeta · $coversMissing sin portada"
+                syncSummary = "$added nuevos · $changed modificados · $missing fichas locales conservadas · $coversMissing sin portada"
                 if (added + changed + missing > 0) addActivity("Drive · $syncSummary")
                 saveBooks()
                 // Recuperar favoritos, progreso, secciones y ediciones solo
@@ -1727,9 +1727,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     .apply()
                 folderName = withContext(Dispatchers.IO) { DocumentFile.fromTreeUri(getApplication(), uri)?.name }
                 prefs.edit().putString("folder_name", folderName).apply()
-                message = if (partialDriveScan)
-                    "Drive devolvió ${result.size} archivos; se conservaron ${books.size} libros de la biblioteca."
-                else "${result.size} libros y documentos encontrados"
+                // Una sincronización correcta no deja una advertencia permanente en el catálogo.\n                // El detalle sigue disponible en Centro de tareas y en el diagnóstico.\n                message = null
                 completed = true
                 } catch (e: Exception) {
                 val detail = e.localizedMessage.orEmpty()
@@ -6317,15 +6315,9 @@ private fun BookOpeningTransition(
                         drawPath(diamond, Color(0xFF8E7051).copy(alpha = .72f))
                     }
                     val animatedTitle = displayTitle(book)
-                    val longestTitleWord = animatedTitle.split(Regex("\\s+")).maxOfOrNull(String::length) ?: 0
-                    val animatedTitleSize = when {
-                        longestTitleWord >= 14 -> 14.sp
-                        longestTitleWord >= 10 || animatedTitle.length > 30 -> 16.sp
-                        animatedTitle.length > 22 -> 18.sp
-                        else -> 20.sp
-                    }
+                    val animatedTitleSize = animatedCoverTitleSizeSp(animatedTitle).sp
                     Column(Modifier.align(Alignment.Center).fillMaxWidth()
-                        .padding(horizontal = 22.dp, vertical = 24.dp),
+                        .padding(horizontal = 16.dp, vertical = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center) {
                         Text(animatedTitle, color = Color(0xFF4A2B1E),
@@ -6334,10 +6326,8 @@ private fun BookOpeningTransition(
                             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
                             fontWeight = FontWeight.Bold,
                             fontSize = animatedTitleSize,
-                            lineHeight = when (animatedTitleSize.value.toInt()) {
-                                14 -> 17.sp; 16 -> 19.sp; 18 -> 21.sp; else -> 23.sp
-                            },
-                            letterSpacing = 0.sp,
+                            lineHeight = (animatedTitleSize.value + 3f).sp,
+                            letterSpacing = (-0.1).sp,
                             textAlign = TextAlign.Center, maxLines = 4,
                             overflow = TextOverflow.Ellipsis)
                         Spacer(Modifier.height(15.dp))
