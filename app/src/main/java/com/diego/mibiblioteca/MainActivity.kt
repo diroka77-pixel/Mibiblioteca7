@@ -3819,7 +3819,18 @@ private fun openCasaDelLibro(context: Context) {
         booksSnapshot.asSequence().filter { offlineBookUri(context, it) != null }
             .map { it.uri }.toSet()
     }
-    val querySnapshot = vm.query
+    val typedQuery = vm.query
+    var debouncedQuery by remember { mutableStateOf(typedQuery) }
+    LaunchedEffect(typedQuery) {
+        if (typedQuery.isBlank()) {
+            debouncedQuery = ""
+        } else {
+            // Esperar una pausa breve evita recalcular resultados por cada tecla.
+            delay(180)
+            debouncedQuery = typedQuery
+        }
+    }
+    val querySnapshot = debouncedQuery
     val statusSnapshot = vm.statusFilter
     // El destino Favoritos aplica su estado desde el primer fotograma,
     // sin esperar a que el ViewModel cambie después de la navegación.
