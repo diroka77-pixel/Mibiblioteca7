@@ -5652,6 +5652,13 @@ private fun ReadingStatisticsPage(
                 Text(if (stats.remainingForGoal == 0) "Objetivo alcanzado"
                     else "Faltan ${stats.remainingForGoal} · proyección actual: ${stats.projectedYearTotal}",
                     fontSize = 12.sp, color = Mahogany.copy(alpha = .76f))
+                if (stats.remainingForGoal > 0) {
+                    val pace = String.format(java.util.Locale.getDefault(), "%.1f", stats.requiredMonthlyPace)
+                    Text(if (stats.onTrackForGoal) "Vas al ritmo necesario para cumplir el reto"
+                        else "Ritmo necesario: $pace libros al mes hasta diciembre",
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                        color = if (stats.onTrackForGoal) Teal else Mahogany)
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(goalDraft, { goalDraft = it.filter(Char::isDigit).take(3) },
                         label = { Text("Objetivo anual") }, singleLine = true,
@@ -5667,6 +5674,27 @@ private fun ReadingStatisticsPage(
             HomeMetricCard("Este mes", stats.currentMonthRead.toString(), Teal, Modifier.weight(1f))
             HomeMetricCard("Racha mensual", stats.monthStreak.toString(), Brass, Modifier.weight(1f))
             HomeMetricCard("Relecturas", stats.rereads.toString(), Color(0xFFD6A0C8), Modifier.weight(1f))
+        }
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Paper),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Evolución", color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                val comparison = when {
+                    stats.yearOverYearDelta > 0 -> "+${stats.yearOverYearDelta} frente al año pasado"
+                    stats.yearOverYearDelta < 0 -> "${stats.yearOverYearDelta} frente al año pasado"
+                    else -> "El mismo número que el año pasado"
+                }
+                Text("${stats.currentYearRead} este año · ${stats.previousYearRead} el año pasado",
+                    color = Mahogany)
+                Text(comparison, color = if (stats.yearOverYearDelta >= 0) Teal else Mahogany,
+                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                val bestMonthText = stats.bestMonth?.let { monthNames[it - 1] } ?: "Sin datos"
+                Text("Mejor mes: $bestMonthText" +
+                    if (stats.bestMonthCount > 0) " (${stats.bestMonthCount} libros)" else "",
+                    color = Mahogany, fontSize = 12.sp)
+                Text("Has terminado el ${stats.catalogReadPercent} % de tu biblioteca",
+                    color = Mahogany, fontSize = 12.sp)
+            }
         }
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Paper),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
@@ -5711,13 +5739,10 @@ private fun ReadingStatisticsPage(
                         ?: "sin valorar"), fontSize = 12.sp, color = Mahogany.copy(alpha = .76f))
             }
         }
-        if (stats.topGenres.isNotEmpty() || stats.topAuthors.isNotEmpty()) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.Top) {
-                StatsRankingCard("Géneros leídos", stats.topGenres, Modifier.weight(1f))
-                StatsRankingCard("Autores leídos", stats.topAuthors, Modifier.weight(1f))
-            }
-        }
+        if (stats.topGenres.isNotEmpty())
+            StatsRankingCard("Géneros leídos", stats.topGenres, Modifier.fillMaxWidth())
+        if (stats.topAuthors.isNotEmpty())
+            StatsRankingCard("Autores leídos", stats.topAuthors, Modifier.fillMaxWidth())
         if (stats.readWithoutFinishDate > 0) {
             Surface(Modifier.fillMaxWidth(), color = Ink.copy(alpha = .82f),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
