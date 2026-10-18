@@ -51,6 +51,19 @@ internal fun backupChecksum(backup: JSONObject): String {
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }
 
+/** Removes repeated file references before creating a new local or Drive backup.
+ * Invalid references are deliberately retained so the strict validator still rejects them. */
+internal fun deduplicateBackupBooks(books: JSONArray): JSONArray {
+    val seen = mutableSetOf<String>()
+    val clean = JSONArray()
+    for (i in 0 until books.length()) {
+        val book = books.optJSONObject(i) ?: continue
+        val uri = book.optString("uri").trim()
+        if (uri.isBlank() || seen.add(uri)) clean.put(book)
+    }
+    return clean
+}
+
 /** Validate the complete payload before touching preferences, files or the database. */
 internal fun validateBackup(backup: JSONObject): JSONObject {
     val version = backup.optInt("backupVersion")
