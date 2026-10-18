@@ -8,6 +8,39 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 class ReaderChaptersTest {
+    @Test fun navigationIndexExcludesFrontMatterAndKeepsRealChapters() {
+        val epub = File.createTempFile("reader-navigation", ".epub")
+        try {
+            ZipOutputStream(epub.outputStream()).use { zip ->
+                fun add(path: String, contents: String) {
+                    zip.putNextEntry(ZipEntry(path))
+                    zip.write(contents.toByteArray())
+                    zip.closeEntry()
+                }
+                add("META-INF/container.xml", """<container><rootfiles>
+                    <rootfile full-path="OPS/content.opf"/></rootfiles></container>""")
+                add("OPS/content.opf", """<package><manifest>
+                    <item id="nav" href="nav.xhtml" properties="nav"/>
+                    <item id="cover" href="cover.xhtml"/>
+                    <item id="credits" href="credits.xhtml"/>
+                    <item id="one" href="chapter01.xhtml"/>
+                    </manifest><spine><itemref idref="cover"/><itemref idref="credits"/>
+                    <itemref idref="one"/></spine></package>""")
+                add("OPS/nav.xhtml", """<html><body><nav><ol>
+                    <li><a href="cover.xhtml">Portada</a></li>
+                    <li><a href="credits.xhtml">Créditos</a></li>
+                    <li><a href="chapter01.xhtml">Capítulo 1</a></li>
+                    </ol></nav></body></html>""")
+                add("OPS/cover.xhtml", "<html><body><p>Alicia en el País de las Maravillas</p></body></html>")
+                add("OPS/credits.xhtml", "<html><body><h2>Lewis Carroll</h2><p>Datos editoriales</p></body></html>")
+                add("OPS/chapter01.xhtml", "<html><body><p>Alicia empezaba a cansarse.</p></body></html>")
+            }
+            val document = readEpubText(epub) as ReadingDocument.TextDocument
+            val starts = document.paragraphs.filter { it.chapterStart }.map { it.text }
+            assertEquals(listOf("Capítulo 1"), starts)
+        } finally { epub.delete() }
+    }
+
     @Test fun spineFilesAndHeadingsMarkNewPages() {
         val epub = File.createTempFile("reader-chapters", ".epub")
         try {
