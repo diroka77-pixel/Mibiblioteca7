@@ -1604,6 +1604,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             message = "Drive ha concedido solo lectura; no se podrán borrar archivos."
         }
         val changedFolder = prefs.getString(folderKey, null) != uri.toString()
+        // El permiso y la carpeta se guardan al seleccionarlos, no después del escaneo.
+        // Así una respuesta temporalmente vacía de Drive no borra la vinculación.
+        prefs.edit()
+            .putString(folderKey, uri.toString())
+            .putString("folder_name", DocumentFile.fromTreeUri(getApplication(), uri)?.name.orEmpty())
+            .commit()
         sync(uri, changedFolder)
     }
 
@@ -2318,80 +2324,85 @@ private fun isSupportedBookFile(name: String, mimeType: String): Boolean {
 }
 
 private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, onProgress: (Int) -> Unit): List<Book> {
-    val root = DocumentFile.fromTreeUri(context, treeUri) ?: throw IllegalStateException("Carpeta no disponible")
-    // Google Drive puede informar canRead=false durante la carga aunque el permiso SAF sea válido.
+    val root = DocumentFile.fromTreeUri(context, treeUri)
+        ?: throw IllegalStateException("Carpeta no disponible")
     val out = mutableListOf<Book>()
     val visited = mutableSetOf<String>()
-    val rootDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
-    fun walk(parentDocumentId: String, depth: Int = 0) {
-        require(depth <= 32 && visited.add(parentDocumentId)) { "La carpeta es demasiado profunda o contiene un ciclo." }
-        require(visited.size <= 10000) { "La carpeta contiene demasiados subdirectorios." }
-        val children = try {
-            queryDriveChildren(context, treeUri, parentDocumentId)
-        } catch (_: Exception) {
-            // Una subcarpeta o acceso temporal de Drive no debe cancelar el resto.
-            emptyList()
-        }
+
+    fun walk(dir: DocumentFile, depth: Int = 0) {
+        if (depth > 32 || visited.size >= 10000 || !visited.add(dir.uri.toString())) return
+        val children = try { dir.listFiles().toList() } catch (_: Exception) { emptyList() }
         children.forEach { f ->
             if (f.isDirectory) {
-                try { walk(f.documentId, depth + 1) } catch (_: Exception) {
-                    // Continuar con los demás elementos aunque esta subcarpeta falle.
-                }
-            } else if (isSupportedBookFile(f.name, f.mimeType)) {
-                require(out.size < 10000) { "La carpeta supera el límite de 10000 libros." }
-                val size = f.size
-                val modified = f.modified
-                val file = coverFile(context, f.uri)
-                val prior = cached[f.uri]
-                val removalMarker = File(context.filesDir, "removed-" + file.name)
-                val removed = removalMarker.exists()
-                val metadataMatches = prior != null && when {
-                    size > 0L -> prior.sourceSize == size &&
-                        (modified <= 0L || prior.sourceModified == modified)
-                    modified > 0L -> prior.sourceModified == modified
-                    else -> true
-                }
-                val unchanged = prior != null && metadataMatches &&
-                    prior.metadataRevision >= 50 && (prior.cover != null || prior.metadataRevision >= 54) &&
-                    prior.sourceCoverChecked &&
-                    (!prior.hadEmbeddedCover || file.exists() || removed)
-                val epub = if (unchanged) prior!! else {
-                    val isEpub = f.name.endsWith(".epub", true) ||
-                        !f.name.contains('.') ||
-                        f.mimeType.equals("application/epub+zip", ignoreCase = true)
-                    val identity = inferFilenameIdentity(f.name)
-                    // Drive puede enumerar el archivo antes de tener listo su contenido.
-                    // El libro debe entrar en el catálogo aunque el EPUB aún no se pueda abrir.
-                    val parsed = if (isEpub) try {
-                        readEpub(context, f.uri, f.name.ifBlank { "Libro" }, size, modified)
-                    } catch (_: Exception) {
-                        Book(f.uri, identity.title,
-                            author = prior?.author?.takeUnless(::unknownAuthor) ?: identity.author,
-                            saga = prior?.saga.orEmpty().ifBlank { identity.saga },
-                            sagaOrder = prior?.sagaOrder.orEmpty().ifBlank { identity.order },
-                            sourceSize = size, sourceModified = modified)
-                    } else Book(f.uri, identity.title,
+                try { walk(f, depth + 1) } catch (_: Exception) {}
+                return@forEach
+            }
+            val name = try { f.name.orEmpty() } catch (_: Exception) { "" }
+            val mime = try { f.type.orEmpty() } catch (_: Exception) { "" }
+            if (!isSupportedBookFile(name, mime) || out.size >= 10000) return@forEach
+
+            val uri = f.uri
+            val size = try { f.length() } catch (_: Exception) { -1L }
+            val modified = try { f.lastModified() } catch (_: Exception) { -1L }
+            val prior = cached[uri]
+            val cover = coverFile(context, uri)
+            val removed = File(context.filesDir, "removed-" + cover.name).exists()
+            val metadataMatches = prior != null && when {
+                size > 0L -> prior.sourceSize == size &&
+                    (modified <= 0L || prior.sourceModified == modified)
+                modified > 0L -> prior.sourceModified == modified
+                else -> true
+            }
+            val unchanged = prior != null && metadataMatches &&
+                prior.metadataRevision >= 50 && prior.sourceCoverChecked &&
+                (!prior.hadEmbeddedCover || cover.exists() || removed)
+
+            val book = if (unchanged) prior!! else {
+                val identity = inferFilenameIdentity(name)
+                val isEpub = name.endsWith(".epub", true) ||
+                    mime.equals("application/epub+zip", true)
+                val parsed = if (isEpub) try {
+                    readEpub(context, uri, name.ifBlank { "Libro" }, size, modified)
+                } catch (_: Exception) {
+                    Book(uri, identity.title,
                         author = prior?.author?.takeUnless(::unknownAuthor) ?: identity.author,
                         saga = prior?.saga.orEmpty().ifBlank { identity.saga },
-                        sagaOrder = prior?.sagaOrder.orEmpty().ifBlank { identity.order })
-                    if (parsed.metadataRevision < 50 && prior != null) prior.copy(
+                        sagaOrder = prior?.sagaOrder.orEmpty().ifBlank { identity.order },
                         sourceSize = size, sourceModified = modified)
-                    else parsed.copy(sourceSize = size, sourceModified = modified,
-                        author = parsed.author.takeUnless(::unknownAuthor)
-                            ?: prior?.author?.takeUnless(::unknownAuthor) ?: "Autor desconocido",
-                        sourceCoverChecked = true, hadEmbeddedCover = parsed.cover != null,
-                        cover = parsed.cover ?: prior?.cover)
-                }
-                if (!removed && !file.exists() && epub.cover != null) file.writeSafely(epub.cover)
-                val saved = if (unchanged && prior?.cover != null) prior.cover
-                    else file.takeIf { it.exists() }?.readBytes()
-                out += if (removed) epub.copy(cover = null)
-                    else if (saved != null) epub.copy(cover = saved) else epub
-                onProgress(out.size)
+                } else Book(uri, identity.title,
+                    author = prior?.author?.takeUnless(::unknownAuthor) ?: identity.author,
+                    saga = prior?.saga.orEmpty().ifBlank { identity.saga },
+                    sagaOrder = prior?.sagaOrder.orEmpty().ifBlank { identity.order },
+                    sourceSize = size, sourceModified = modified)
+
+                if (parsed.metadataRevision < 50 && prior != null) {
+                    parsed.copy(
+                        sourceSize = size, sourceModified = modified,
+                        favorite = prior.favorite, status = prior.status,
+                        sections = prior.sections, section = prior.section,
+                        customTitle = prior.customTitle, customAuthor = prior.customAuthor)
+                } else parsed.copy(
+                    sourceSize = size, sourceModified = modified,
+                    author = parsed.author.takeUnless(::unknownAuthor)
+                        ?: prior?.author?.takeUnless(::unknownAuthor) ?: "Autor desconocido",
+                    sourceCoverChecked = true,
+                    hadEmbeddedCover = parsed.cover != null,
+                    cover = parsed.cover ?: prior?.cover)
             }
+            try {
+                if (!removed && !cover.exists() && book.cover != null) cover.writeSafely(book.cover)
+            } catch (_: Exception) {}
+            val savedCover = try {
+                if (unchanged && prior?.cover != null) prior.cover
+                else cover.takeIf { it.exists() }?.readBytes()
+            } catch (_: Exception) { book.cover }
+            out += if (removed) book.copy(cover = null)
+                else if (savedCover != null) book.copy(cover = savedCover) else book
+            onProgress(out.size)
         }
     }
-    walk(rootDocumentId)
+
+    walk(root)
     return out.sortedBy { it.title.lowercase() }
 }
 private fun readEpub(context: Context, uri: Uri, fallbackName: String,
