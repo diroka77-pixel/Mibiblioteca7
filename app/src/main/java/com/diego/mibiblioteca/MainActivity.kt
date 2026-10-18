@@ -5573,7 +5573,7 @@ private fun ReadingStatisticsPage(
             rereadCount = book.rereadCount
         )
     }, today, annualGoal)
-    val months = listOf("E", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")
+    val months = listOf("E", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")\n    val monthNames = listOf("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",\n        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
     val maxMonth = stats.completedByMonth.maxOrNull()?.coerceAtLeast(1) ?: 1
     Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -5601,7 +5601,7 @@ private fun ReadingStatisticsPage(
                         label = { Text("Objetivo anual") }, singleLine = true,
                         modifier = Modifier.weight(1f))
                     Spacer(Modifier.width(8.dp))
-                    Button(onClick = { goalDraft.toIntOrNull()?.coerceIn(1, 999)?.let(onGoalChanged) }) {
+                    Button(onClick = { goalDraft.toIntOrNull()?.coerceIn(1, 365)?.let(onGoalChanged) }) {
                         Text("Guardar")
                     }
                 }
@@ -5624,8 +5624,13 @@ private fun ReadingStatisticsPage(
                             verticalArrangement = Arrangement.Bottom) {
                             if (count > 0) Text(count.toString(), fontSize = 9.sp, color = Mahogany)
                             Box(Modifier.fillMaxWidth().height((72f * count / maxMonth).coerceAtLeast(3f).dp)
+                                .semantics { contentDescription = "${monthNames[index]}: $count libros terminados" }
                                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                                .background(if (index + 1 == today.monthValue) Teal else Brass))
+                                .background(when {
+                                    count == 0 -> Brass.copy(alpha = .14f)
+                                    index + 1 == today.monthValue -> Teal
+                                    else -> Brass
+                                }))
                             Text(months[index], fontSize = 9.sp, color = Ink,
                                 modifier = Modifier.padding(top = 3.dp))
                         }
