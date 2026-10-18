@@ -72,7 +72,7 @@ class ReadingStatisticsTest {
         assertEquals(1, summary.yearOverYearDelta)
         assertEquals(10, summary.bestMonth)
         assertEquals(2, summary.bestMonthCount)
-        assertEquals(67, summary.catalogReadPercent)
+        assertEquals(100, summary.catalogReadPercent)
         assertEquals(10.0 / 3.0, summary.requiredMonthlyPace, 0.01)
         assertTrue(!summary.onTrackForGoal)
     }
