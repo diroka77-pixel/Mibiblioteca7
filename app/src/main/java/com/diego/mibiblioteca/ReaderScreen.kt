@@ -1,12 +1,13 @@
 package com.diego.mibiblioteca
 
+import android.Manifest
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.ClipData
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
 import android.content.pm.ActivityInfo
-import android.support.v4.media.session.MediaSessionCompat
-import android.support.v4.media.session.PlaybackStateCompat
 import android.app.Activity
 import android.graphics.Typeface
 import android.text.SpannableString
@@ -30,6 +31,8 @@ import android.speech.tts.UtteranceProgressListener
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.os.Build
+import android.content.pm.PackageManager
 import java.util.concurrent.atomic.AtomicInteger
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -85,6 +88,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
+import androidx.core.content.ContextCompat
+import androidx.core.app.ActivityCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.FlowPreview
@@ -1007,6 +1012,14 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var audioCursor by remember(book.uri) {
         mutableIntStateOf(prefs.getInt("char_$key", 0))
     }
+    fun ensurePlaybackNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) keepAwakeActivity?.let {
+            ActivityCompat.requestPermissions(it, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2401)
+        }
+    }
     var speechRate by remember(book.uri) {
         mutableStateOf(prefs.getFloat("speech_rate", 1f).coerceIn(0.5f, 2f))
     }
@@ -1049,25 +1062,45 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         audioSeekDelta = delta
         audioSeekRequest++
     }
-    val mediaSession = remember(book.uri) { MediaSessionCompat(context, "MiBiblioteca") }
-    DisposableEffect(mediaSession) {
-        mediaSession.setCallback(object : MediaSessionCompat.Callback() {
-            override fun onPlay() { audioActive = true; audioControlsVisible = true }
-            override fun onPause() { pauseSpeech() }
-            override fun onStop() { pauseSpeech() }
-            override fun onSkipToNext() { requestAudioSeek(270) }
-            override fun onSkipToPrevious() { requestAudioSeek(-270) }
-        })
-        mediaSession.isActive = true
-        onDispose { mediaSession.isActive = false; mediaSession.release() }
+    DisposableEffect(context, book.uri) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(receiverContext: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    ReaderPlaybackService.ACTION_PLAY -> {
+                        audioControlsVisible = true
+                        audioActive = true
+                    }
+                    ReaderPlaybackService.ACTION_PAUSE -> pauseSpeech()
+                    ReaderPlaybackService.ACTION_STOP -> pauseSpeech()
+                    ReaderPlaybackService.ACTION_FORWARD -> requestAudioSeek(270)
+                    ReaderPlaybackService.ACTION_REWIND -> requestAudioSeek(-270)
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(ReaderPlaybackService.ACTION_PLAY)
+            addAction(ReaderPlaybackService.ACTION_PAUSE)
+            addAction(ReaderPlaybackService.ACTION_STOP)
+            addAction(ReaderPlaybackService.ACTION_FORWARD)
+            addAction(ReaderPlaybackService.ACTION_REWIND)
+        }
+        ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        onDispose {
+            context.unregisterReceiver(receiver)
+            context.stopService(Intent(context, ReaderPlaybackService::class.java))
+        }
     }
-    LaunchedEffect(audioActive, audioCursor) {
-        val state = if (audioActive) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
-        mediaSession.setPlaybackState(PlaybackStateCompat.Builder().setActions(
-            PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or
-                PlaybackStateCompat.ACTION_STOP or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
-                PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS)
-            .setState(state, audioCursor.toLong(), speechRate).build())
+    LaunchedEffect(audioActive, audioControlsVisible, speechRate, book.uri) {
+        if (audioActive || audioControlsVisible) {
+            val update = Intent(context, ReaderPlaybackService::class.java)
+                .setAction(ReaderPlaybackService.ACTION_UPDATE)
+                .putExtra(ReaderPlaybackService.EXTRA_TITLE, book.title)
+                .putExtra(ReaderPlaybackService.EXTRA_AUTHOR, book.author)
+                .putExtra(ReaderPlaybackService.EXTRA_POSITION, audioCursor.toLong())
+                .putExtra(ReaderPlaybackService.EXTRA_SPEED, speechRate)
+                .putExtra(ReaderPlaybackService.EXTRA_PLAYING, audioActive)
+            ContextCompat.startForegroundService(context, update)
+        }
     }
     var showVoicePicker by remember { mutableStateOf(false) }
     var davefxDownloading by remember { mutableStateOf(false) }
@@ -1177,6 +1210,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         icon = { AppIcon(if (audioActive) "Pausar" else "Reproducir") },
                         onClick = {
                             if (speechReady) {
+                                ensurePlaybackNotificationPermission()
                                 audioControlsVisible = true
                                 if (audioActive) pauseSpeech() else audioActive = true
                             }
@@ -2034,6 +2068,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     modifier = Modifier.weight(1f).height(54.dp),
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = {
+                                        ensurePlaybackNotificationPermission()
                                         audioControlsVisible = true
                                         if (audioActive) pauseSpeech() else audioActive = true
                                     }
