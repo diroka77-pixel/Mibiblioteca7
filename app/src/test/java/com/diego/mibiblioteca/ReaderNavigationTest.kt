@@ -18,6 +18,19 @@ class ReaderNavigationTest {
         assertEquals("Prólogo".length + "Texto inicial".length, chapters[1].startChar)
     }
 
+    @Test fun ordinaryHeadingsBeforeFirstChapterAreNotCounted() {
+        val content = listOf(
+            ReadingParagraph("Alicia en el País de las Maravillas", heading = true),
+            ReadingParagraph("Créditos de la edición", heading = true),
+            ReadingParagraph("Capítulo 1", heading = true, chapterStart = true),
+            ReadingParagraph("Contenido")
+        )
+        val chapters = readerChapters(content)
+        assertEquals(listOf("Capítulo 1"), chapters.map { it.title })
+        assertEquals(-1, readerChapterIndexAt(chapters, 0))
+        assertEquals(0, readerChapterIndexAt(chapters, chapters.first().startChar))
+    }
+
     @Test fun resolvesChapterPageAndProgressAtBoundaries() {
         val chapters = readerChapters(paragraphs)
         assertEquals(0, readerChapterIndexAt(chapters, 2))
