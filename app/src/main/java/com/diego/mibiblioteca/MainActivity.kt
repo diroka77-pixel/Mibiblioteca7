@@ -750,7 +750,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun cloudSnapshot(): String {
-        val booksJson = booksToJsonArray(books)
+        val booksJson = deduplicateBackupBooks(booksToJsonArray(books))
         for (i in 0 until booksJson.length()) {
             val j = booksJson.getJSONObject(i)
             val uri = Uri.parse(j.getString("uri"))
@@ -5695,7 +5695,7 @@ private fun HomeRecommendations(books: List<Book>, offline: Set<Uri>,
                         FlatCover(book, coverWidth, coverWidth * 1.50f)
                         if (isOffline(book)) OfflineBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
                     }
-                    Column(Modifier.fillMaxWidth().height(105.dp)
+                    Column(Modifier.fillMaxWidth().heightIn(min = 105.dp)
                         .padding(horizontal = 10.dp, vertical = 8.dp)) {
                         Text(displayTitle(book), fontSize = 13.sp, lineHeight = 17.sp,
                             minLines = 2, maxLines = 2, fontFamily = FontFamily.Serif,
@@ -5722,8 +5722,9 @@ private fun HomeRecommendations(books: List<Book>, offline: Set<Uri>,
     onLongPress: () -> Unit, onClick: () -> Unit) {
     val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
-    Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp).combinedClickable(
-        onClick = onClick, onLongClick = onLongPress),
+    Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+        .semantics { contentDescription = "$title, $author. ${book.status.label}"; role = Role.Button }
+        .combinedClickable(onClick = onClick, onLongClickLabel = "Más opciones", onLongClick = onLongPress),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
@@ -5750,8 +5751,9 @@ private fun HomeRecommendations(books: List<Book>, offline: Set<Uri>,
     onLongPress: () -> Unit, onClick: () -> Unit) {
     val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
-    Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp).combinedClickable(
-        onClick = onClick, onLongClick = onLongPress),
+    Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+        .semantics { contentDescription = "$title, $author. ${book.status.label}"; role = Role.Button }
+        .combinedClickable(onClick = onClick, onLongClickLabel = "Más opciones", onLongClick = onLongPress),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -5782,7 +5784,9 @@ private fun HomeRecommendations(books: List<Book>, offline: Set<Uri>,
     }
     BoxWithConstraints(modifier.padding(bottom = 8.dp)) {
         val coverWidth = maxWidth
-        Card(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongPress),
+        Card(Modifier.fillMaxWidth()
+            .semantics { contentDescription = "$title, $author. ${book.status.label}"; role = Role.Button }
+            .combinedClickable(onClick = onClick, onLongClickLabel = "Más opciones", onLongClick = onLongPress),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -5794,12 +5798,12 @@ private fun HomeRecommendations(books: List<Book>, offline: Set<Uri>,
                     color = Ink.copy(alpha = 0.70f)) {
                     Row {
                         if (onToggleFavorite != null) IconButton(onClick = onToggleFavorite,
-                            modifier = Modifier.size(36.dp)) {
+                            modifier = Modifier.size(48.dp)) {
                             AppIcon(if (book.favorite) "Favorito" else "Favoritos",
                                 if (book.favorite) "Quitar de favoritos" else "Añadir a favoritos",
                                 tint = Color.White, size = 22.dp)
                         }
-                        IconButton(onClick = onLongPress, modifier = Modifier.size(36.dp)) {
+                        IconButton(onClick = onLongPress, modifier = Modifier.size(48.dp)) {
                             AppIcon("Opciones", "Opciones del libro", tint = Color.White, size = 22.dp)
                         }
                     }
@@ -6757,7 +6761,21 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
         LazyColumn(Modifier.padding(p).fillMaxSize().padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 14.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             (detailMessage ?: message)?.let { notice -> item {
-                WallpaperLabel(notice, fontSize = 12.sp)
+                Surface(
+                    modifier = Modifier.fillMaxWidth().semantics {
+                        contentDescription = "Aviso: $notice"
+                    },
+                    color = Ink.copy(alpha = 0.82f),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = 0.55f))
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AppIcon("Estado", "Aviso", tint = Color.White, size = 22.dp)
+                        WallpaperLabel(notice, Modifier.weight(1f), fontSize = 13.sp)
+                    }
+                }
             } }
             if (needsReview) item(key = "review-details") {
                 Card(colors = CardDefaults.cardColors(containerColor = Paper)) {
