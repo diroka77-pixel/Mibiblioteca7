@@ -18,6 +18,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -49,7 +51,8 @@ internal fun UnifiedLibraryModeBar(
             actions.forEach { (mode, icon, action) ->
                 val selected = current == mode
                 Surface(
-                    modifier = Modifier.weight(1f).height(42.dp)
+                    modifier = Modifier.weight(1f).height(48.dp)
+                        .semantics { stateDescription = if (selected) "Seleccionado" else "No seleccionado" }
                         .selectable(selected = selected, onClick = action, role = Role.Tab),
                     color = if (selected) Color(0xFF9A6843) else Color.Transparent,
                     shape = RoundedCornerShape(13.dp)
@@ -64,7 +67,7 @@ internal fun UnifiedLibraryModeBar(
                             modifier = Modifier.padding(start = 5.dp),
                             color = Color.White,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             maxLines = 1
                         )
                     }
