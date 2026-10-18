@@ -2258,7 +2258,7 @@ private fun queryDriveChildren(
                 }
                 cursor.extras?.getBoolean(DocumentsContract.EXTRA_LOADING, false) == true
             } finally { cursor.close() }
-            if (result.isNotEmpty() || !loading) return result
+            if (result.isNotEmpty()) return result
         }
         if (attempt < 2) Thread.sleep(250L)
     }
