@@ -64,6 +64,21 @@ internal fun deduplicateBackupBooks(books: JSONArray): JSONArray {
     return clean
 }
 
+/** Builds the subset that a Drive backup can actually restore.
+ * Books opened from temporary/file URIs remain in the local catalogue but are not
+ * written to the portable backup because Android cannot restore those permissions. */
+internal fun sanitizeBackupBooks(books: JSONArray): JSONArray {
+    val unique = deduplicateBackupBooks(books)
+    val restorable = JSONArray()
+    for (i in 0 until unique.length()) {
+        val book = unique.optJSONObject(i) ?: continue
+        val uri = book.optString("uri").trim()
+        val valid = runCatching { URI(uri).scheme == "content" }.getOrDefault(false)
+        if (valid) restorable.put(book)
+    }
+    return restorable
+}
+
 /** Validate the complete payload before touching preferences, files or the database. */
 internal fun validateBackup(backup: JSONObject): JSONObject {
     val version = backup.optInt("backupVersion")
