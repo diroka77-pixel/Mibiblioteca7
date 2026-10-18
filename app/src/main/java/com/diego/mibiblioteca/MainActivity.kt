@@ -13,6 +13,7 @@ import android.util.LruCache
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.res.painterResource
 import android.content.Context
 import android.content.Intent
