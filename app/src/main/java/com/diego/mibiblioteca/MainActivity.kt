@@ -5643,8 +5643,13 @@ private fun HomeRecommendations(books: List<Book>, offline: Set<Uri>,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(horizontal = 12.dp)) {
             items(books, key = { "recommendation:" + it.uri }) { book ->
-                Column(Modifier.width(112.dp).combinedClickable(
-                    onClick = { onOpen(book) }, onLongClick = { onLongPress(book) })) {
+                Column(Modifier.width(112.dp)
+                    .semantics {
+                        contentDescription = "${displayTitle(book)}, ${displayAuthor(book)}. ${book.status.label}"
+                        role = Role.Button
+                    }
+                    .combinedClickable(onClick = { onOpen(book) },
+                        onLongClickLabel = "Más opciones", onLongClick = { onLongPress(book) })) {
                     Box {
                         FlatCover(book, 112.dp, 164.dp)
                         if (book.uri in offline) OfflineBadge(
@@ -5686,8 +5691,13 @@ private fun HomeRecommendations(books: List<Book>, offline: Set<Uri>,
         }, horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(horizontal = 12.dp)) {
             items(books, key = { "reading:" + it.uri }) { book ->
-                Card(Modifier.width(coverWidth).combinedClickable(
-                    onClick = { onOpen(book) }, onLongClick = { onLongPress(book) }),
+                Card(Modifier.width(coverWidth)
+                    .semantics {
+                        contentDescription = "${displayTitle(book)}, ${displayAuthor(book)}. ${book.status.label}"
+                        role = Role.Button
+                    }
+                    .combinedClickable(onClick = { onOpen(book) },
+                        onLongClickLabel = "Más opciones", onLongClick = { onLongPress(book) }),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
