@@ -1,0 +1,21 @@
+Mi Biblioteca reúne tus libros digitales en un catálogo personal, claro y fácil de consultar.
+
+Puedes vincular una carpeta mediante el selector de documentos de Android, importar libros individuales y mantener el catálogo disponible en el dispositivo. La sincronización conserva el progreso, las notas y las correcciones realizadas manualmente.
+
+Funciones principales:
+
+• Catálogo con portadas, autores, sagas, géneros, secciones y favoritos.
+• Búsqueda por título, autor, saga, ISBN y contenido disponible.
+• Lectura de EPUB, PDF, MOBI clásico, AZW y FB2.
+• Lectura en voz alta con las voces instaladas en Android.
+• Marcadores, subrayados, notas y reanudación del progreso.
+• Estadísticas de lectura, objetivo anual y recomendaciones locales.
+• Copias sin conexión y respaldo exportable.
+• Mantenimiento seguro para detectar archivos o portadas con problemas.
+• Widget y accesos rápidos para continuar leyendo.
+
+Privacidad:
+
+Mi Biblioteca no incluye anuncios, rastreadores ni analítica de uso. No exige crear una cuenta propia. La cámara y el micrófono solo se solicitan al usar el escáner ISBN o la búsqueda por voz. La aplicación no elimina libros automáticamente durante sus tareas de mantenimiento.
+
+Algunas funciones consultan fuentes externas para obtener portadas, metadatos, noticias, definiciones o traducciones. El usuario puede revisar dentro de la aplicación la información de privacidad, los permisos, las atribuciones y un diagnóstico técnico antes de compartirlo.

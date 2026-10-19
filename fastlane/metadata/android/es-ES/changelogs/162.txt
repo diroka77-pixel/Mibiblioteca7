@@ -1,0 +1,4 @@
+• Información legal y atribuciones accesibles desde el menú.
+• Pantalla de novedades mostrada una vez por versión.
+• Centro de ayuda, privacidad y diagnóstico técnico mejorados.
+• Preparación final para distribución pública.
