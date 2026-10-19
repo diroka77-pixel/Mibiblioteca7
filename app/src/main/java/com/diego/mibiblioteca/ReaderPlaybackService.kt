@@ -29,11 +29,25 @@ class ReaderPlaybackService : Service() {
     private lateinit var mediaSession: MediaSessionCompat
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
+    private var hasAudioFocus = false
     private var title = "Mi Biblioteca"
     private var author = "Lectura en voz alta"
     private var position = 0L
     private var speed = 1f
     private var playing = false
+
+    private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        when (change) {
+            AudioManager.AUDIOFOCUS_GAIN -> hasAudioFocus = true
+            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                val focusWasHeld = hasAudioFocus
+                hasAudioFocus = false
+                if (playing && focusWasHeld) sendReaderCommand(ACTION_PAUSE)
+            }
+        }
+    }
 
     private val becomingNoisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -71,7 +85,7 @@ class ReaderPlaybackService : Service() {
                 position = intent.getLongExtra(EXTRA_POSITION, position)
                 speed = intent.getFloatExtra(EXTRA_SPEED, speed)
                 playing = intent.getBooleanExtra(EXTRA_PLAYING, playing)
-                if (playing) requestAudioFocus()
+                if (playing) requestAudioFocus() else abandonAudioFocus()
                 updateSession()
                 startForeground(NOTIFICATION_ID, buildNotification())
             }
@@ -87,25 +101,37 @@ class ReaderPlaybackService : Service() {
     }
 
     private fun requestAudioFocus() {
-        val listener = AudioManager.OnAudioFocusChangeListener { change ->
-            if (change == AudioManager.AUDIOFOCUS_LOSS ||
-                change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT ||
-                change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
-            ) sendReaderCommand(ACTION_PAUSE)
-        }
+        // Re-requesting focus while it is already held makes Android notify the previous
+        // listener of a loss. That used to pause our own reader after resume, seek or speed.
+        if (hasAudioFocus) return
+        val result: Int
         if (Build.VERSION.SDK_INT >= 26) {
-            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build())
-                .setOnAudioFocusChangeListener(listener)
-                .build()
-            audioFocusRequest = request
-            audioManager.requestAudioFocus(request)
+            val request = audioFocusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build())
+                    .setOnAudioFocusChangeListener(audioFocusListener)
+                    .build()
+                    .also { audioFocusRequest = it }
+            result = audioManager.requestAudioFocus(request)
         } else {
             @Suppress("DEPRECATION")
-            audioManager.requestAudioFocus(listener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+            result = audioManager.requestAudioFocus(
+                audioFocusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+        }
+        hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    }
+
+    private fun abandonAudioFocus() {
+        if (!hasAudioFocus) return
+        // Clear first: some engines deliver the loss callback synchronously from abandon().
+        hasAudioFocus = false
+        if (Build.VERSION.SDK_INT >= 26) {
+            audioFocusRequest?.let(audioManager::abandonAudioFocusRequest)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(audioFocusListener)
         }
     }
 
@@ -153,6 +179,7 @@ class ReaderPlaybackService : Service() {
         sendBroadcast(Intent(action).setPackage(packageName))
         if (action == ACTION_PAUSE || action == ACTION_STOP) {
             playing = false
+            abandonAudioFocus()
             updateSession()
             startForeground(NOTIFICATION_ID, buildNotification())
         }
@@ -168,7 +195,7 @@ class ReaderPlaybackService : Service() {
 
     override fun onDestroy() {
         unregisterReceiver(becomingNoisyReceiver)
-        audioFocusRequest?.let { if (Build.VERSION.SDK_INT >= 26) audioManager.abandonAudioFocusRequest(it) }
+        abandonAudioFocus()
         mediaSession.isActive = false
         mediaSession.release()
         super.onDestroy()
