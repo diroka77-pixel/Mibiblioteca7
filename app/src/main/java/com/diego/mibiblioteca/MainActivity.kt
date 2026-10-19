@@ -4015,6 +4015,24 @@ private fun openCasaDelLibro(context: Context) {
         else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
     val readingBooks = remember(vm.books) { vm.readingBooks() }
+    val homeRecommendations = remember(vm.books) {
+        val byId = vm.books.associateBy { it.uri.toString() }
+        localBookRecommendations(vm.books.map { book ->
+            RecommendationInput(
+                id = book.uri.toString(),
+                title = displayTitle(book),
+                author = displayAuthor(book),
+                genres = normalizeBookGenres(book.genre),
+                saga = book.saga,
+                status = book.status,
+                favorite = book.favorite,
+                wantToRead = book.wantToRead,
+                rating = book.rating
+            )
+        }).mapNotNull { recommendation ->
+            byId[recommendation.id]?.let { recommendation to it }
+        }
+    }
     // Secciones mantiene su propia vista, separada de Biblioteca.
     val activeViewScope: String? = if (tab == "Secciones") "__secciones__" else vm.selectedSection
     val activeViewMode = vm.viewModeFor(activeViewScope)
@@ -5169,6 +5187,13 @@ private fun openCasaDelLibro(context: Context) {
                     onLongPress = { bookMenu = it }, onCarouselTouch = { startedOnCarousel = true }) { book ->
                     startReader(book)
                 } }
+            if (tab == "Inicio" && homeRecommendations.isNotEmpty())
+                item(key = "local-recommendations") {
+                    HomeRecommendations(homeRecommendations, offlineBookUris,
+                        onLongPress = { bookMenu = it },
+                        onViewAll = { switchTab("Biblioteca") },
+                        onOpen = ::openBookFromList)
+                }
             if (tab == "Estadísticas") item(key = "reading-statistics-page") {
                 ReadingStatisticsPage(vm.books, vm::readingPercent,
                     vm.annualReadingGoal,
@@ -6058,8 +6083,8 @@ private fun HomeMetricCard(label: String, value: String, accent: Color, modifier
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HomeRecommendations(books: List<Book>, offline: Set<Uri>,
-    onLongPress: (Book) -> Unit, onOpen: (Book) -> Unit) {
+private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, offline: Set<Uri>,
+    onLongPress: (Book) -> Unit, onViewAll: () -> Unit, onOpen: (Book) -> Unit) {
     if (books.isEmpty()) return
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -6068,12 +6093,15 @@ private fun HomeRecommendations(books: List<Book>, offline: Set<Uri>,
                 fontWeight = FontWeight.Bold, fontSize = 21.sp, color = Color.White,
                 modifier = Modifier.weight(1f),
                 style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
-            Text("Ver todos", color = Color.White.copy(alpha = .78f), fontSize = 12.sp)
+            TextButton(onClick = onViewAll) { Text("Ver biblioteca", color = Color.White) }
         }
+        Text("Elegidos en el teléfono según tus lecturas, sin enviar tu historial.",
+            color = Color.White.copy(alpha = .76f), fontSize = 11.sp,
+            modifier = Modifier.padding(horizontal = 12.dp))
         LazyRow(Modifier.fillMaxWidth().padding(top = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(horizontal = 12.dp)) {
-            items(books, key = { "recommendation:" + it.uri }) { book ->
+            items(books, key = { "recommendation:" + it.second.uri }) { (recommendation, book) ->
                 Column(Modifier.width(112.dp)
                     .semantics {
                         contentDescription = "${displayTitle(book)}, ${displayAuthor(book)}. ${book.status.label}"
@@ -6093,6 +6121,10 @@ private fun HomeRecommendations(books: List<Book>, offline: Set<Uri>,
                     Text(displayAuthor(book), color = Color.White.copy(alpha = .72f),
                         fontSize = 10.sp, maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    Text(recommendation.reason, color = Color(0xFFF3D49A),
+                        fontSize = 9.sp, maxLines = 2,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp))
                 }
             }
         }
