@@ -3,13 +3,19 @@
     <shortcut android:shortcutId="continue_reading" android:enabled="true"
         android:icon="@mipmap/ic_launcher" android:shortcutShortLabel="@string/shortcut_continue_short"
         android:shortcutLongLabel="@string/shortcut_continue_long">
-        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.diego.mibiblioteca"
+        <intent android:action="com.diego.mibiblioteca.action.CONTINUE_READING" android:targetPackage="com.diego.mibiblioteca"
             android:targetClass="com.diego.mibiblioteca.MainActivity" />
     </shortcut>
     <shortcut android:shortcutId="open_library" android:enabled="true"
         android:icon="@mipmap/ic_launcher" android:shortcutShortLabel="@string/shortcut_library_short"
         android:shortcutLongLabel="@string/shortcut_library_long">
-        <intent android:action="android.intent.action.MAIN" android:targetPackage="com.diego.mibiblioteca"
+        <intent android:action="com.diego.mibiblioteca.action.OPEN_LIBRARY" android:targetPackage="com.diego.mibiblioteca"
+            android:targetClass="com.diego.mibiblioteca.MainActivity" />
+    </shortcut>
+    <shortcut android:shortcutId="import_book" android:enabled="true"
+        android:icon="@mipmap/ic_launcher" android:shortcutShortLabel="@string/shortcut_import_short"
+        android:shortcutLongLabel="@string/shortcut_import_long">
+        <intent android:action="com.diego.mibiblioteca.action.IMPORT_BOOK" android:targetPackage="com.diego.mibiblioteca"
             android:targetClass="com.diego.mibiblioteca.MainActivity" />
     </shortcut>
 </shortcuts>

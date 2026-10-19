@@ -12,6 +12,8 @@ import androidx.activity.compose.BackHandler
 import android.util.LruCache
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.res.painterResource
@@ -134,6 +136,35 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipFile
 
 private data class BackupRestoreResult(val matched: Int, val pending: String?)
+
+private const val ACTION_CONTINUE_READING = "com.diego.mibiblioteca.action.CONTINUE_READING"
+private const val ACTION_OPEN_LIBRARY = "com.diego.mibiblioteca.action.OPEN_LIBRARY"
+private const val ACTION_IMPORT_BOOK = "com.diego.mibiblioteca.action.IMPORT_BOOK"
+
+internal data class ImportedBookFormat(
+    val extension: String,
+    val label: String,
+    val description: String
+)
+
+internal fun detectImportedBookFormat(name: String, mime: String): ImportedBookFormat? {
+    val extension = name.substringAfterLast('.', "").lowercase()
+    val normalizedMime = mime.substringBefore(';').lowercase()
+    return when {
+        extension == "epub" || normalizedMime == "application/epub+zip" ->
+            ImportedBookFormat("epub", "EPUB", "Libro EPUB")
+        extension == "pdf" || normalizedMime == "application/pdf" ->
+            ImportedBookFormat("pdf", "PDF", "Documento PDF")
+        extension == "mobi" || normalizedMime == "application/x-mobipocket-ebook" ->
+            ImportedBookFormat("mobi", "MOBI", "Libro MOBI")
+        extension == "azw" || extension == "azw3" ||
+            normalizedMime == "application/vnd.amazon.ebook" ->
+            ImportedBookFormat(extension.takeIf { it == "azw3" } ?: "azw", "AZW", "Libro Kindle")
+        extension == "fb2" || normalizedMime == "application/x-fictionbook+xml" ->
+            ImportedBookFormat("fb2", "FB2", "Libro FB2")
+        else -> null
+    }
+}
 
 private fun safeSavedArray(raw: String?): org.json.JSONArray = try {
     org.json.JSONArray(raw ?: "[]")
@@ -417,6 +448,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var books by mutableStateOf<List<Book>>(emptyList()); private set
     var importedBookUri by mutableStateOf<Uri?>(null); private set
     fun clearImportedBook() { importedBookUri = null }
+    var shortcutRequest by mutableStateOf<String?>(null); private set
+    fun requestShortcut(action: String) { shortcutRequest = action }
+    fun consumeShortcut() { shortcutRequest = null }
     private val readerPrefs = app.getSharedPreferences("reader", Context.MODE_PRIVATE)
     var readingPercents by mutableStateOf<Map<Uri, Int>>(emptyMap()); private set
     private var readerCloudJob: Job? = null
@@ -1505,6 +1539,16 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putFloat("interface_text_scale", interfaceTextScale).apply()
     }
 
+    fun toggleAccessibleInterface() {
+        val enabled = interfaceTextScale >= 1.29f && animationMode == "Sin animaciones"
+        interfaceTextScale = if (enabled) 1f else 1.3f
+        animationMode = if (enabled) "Equilibrada" else "Sin animaciones"
+        prefs.edit().putFloat("interface_text_scale", interfaceTextScale)
+            .putString("animation_mode", animationMode).apply()
+        message = if (enabled) "Interfaz estándar activada"
+            else "Modo accesible activado: texto muy grande y sin animaciones"
+    }
+
     fun dismissFirstRunGuide() {
         showFirstRunGuide = false
         prefs.edit().putBoolean("first_run_guide_seen", true).apply()
@@ -1514,7 +1558,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         .sortedWith(compareByDescending<Book> { it.uri == lastOpenedUri }
             .thenByDescending { prefs.getLong("opened_" + it.uri.toString().hashCode(), 0L) })
 
-    fun importLocalEpub(source: Uri) {
+    fun importLocalBook(source: Uri) {
         viewModelScope.launch {
             try {
                 // Abrir un archivo desde Drive lanza la actividad con ACTION_VIEW.
@@ -1527,12 +1571,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     val name = DocumentFile.fromSingleUri(context, source)?.name
                         ?: source.lastPathSegment.orEmpty().substringAfterLast('/')
                     val mime = context.contentResolver.getType(source).orEmpty().substringBefore(';')
-                    val extension = when {
-                        name.endsWith(".epub", ignoreCase = true) || mime == "application/epub+zip" -> "epub"
-                        name.endsWith(".pdf", ignoreCase = true) || mime == "application/pdf" -> "pdf"
-                        name.endsWith(".mobi", true) || name.endsWith(".azw", true) || name.endsWith(".fb2", true) -> name.substringAfterLast('.').lowercase()
-                        else -> error("Mi Biblioteca puede abrir aquí archivos EPUB, MOBI, FB2 y PDF.")
-                    }
+                    val format = detectImportedBookFormat(name, mime)
+                        ?: error("Mi Biblioteca puede abrir archivos EPUB, PDF, MOBI, AZW y FB2.")
+                    val extension = format.extension
                     val safeName = name.ifBlank { "Libro.$extension" }
                     val folder = File(context.filesDir, "imported").apply { mkdirs() }
                     val target = File(folder, "book-" + MessageDigest.getInstance("SHA-256")
@@ -1554,15 +1595,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     if (extension == "epub") readEpub(context, localUri, safeName,
                         target.length(), target.lastModified())
                     else Book(localUri, cleanCatalogText(safeName),
-                        description = "Documento PDF", sourceSize = target.length(),
+                        description = format.description, sourceSize = target.length(),
                         sourceModified = target.lastModified())
                 }
                 books = (books.filterNot { it.uri == imported.uri } + imported)
                     .sortedBy { it.title.lowercase() }
                 saveBooks()
                 importedBookUri = imported.uri
-                message = if (imported.uri.lastPathSegment?.endsWith(".pdf", true) == true)
-                    "PDF añadido a Mi Biblioteca" else "EPUB añadido a Mi Biblioteca"
+                val format = detectImportedBookFormat(imported.uri.lastPathSegment.orEmpty(), "")
+                message = "${format?.label ?: "Libro"} añadido a Mi Biblioteca"
             } catch (e: Exception) {
                 message = "No se pudo abrir el archivo: ${e.localizedMessage ?: "archivo no válido"}"
             }
@@ -2150,7 +2191,8 @@ private fun LibraryStatusBanner(
     val container = if (isError) Color(0xFF442E27).copy(alpha = 0.94f)
         else Color(0xFF24554F).copy(alpha = 0.94f)
     Card(
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite },
         colors = CardDefaults.cardColors(containerColor = container, contentColor = Color.White),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
     ) {
@@ -3180,13 +3222,19 @@ class MainActivity : ComponentActivity() {
         handleSharedBook(intent)
     }
     private fun handleSharedBook(intent: Intent?) {
+        when (intent?.action) {
+            ACTION_CONTINUE_READING, ACTION_OPEN_LIBRARY, ACTION_IMPORT_BOOK -> {
+                libraryVm.requestShortcut(intent.action!!)
+                return
+            }
+        }
         if (intent?.action == Intent.ACTION_VIEW && intent.data != null) {
-            libraryVm.importLocalEpub(intent.data!!)
+            libraryVm.importLocalBook(intent.data!!)
             return
         }
         if (intent?.action == Intent.ACTION_SEND && intent.type != "text/plain") {
             intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.let {
-                libraryVm.importLocalEpub(it)
+                libraryVm.importLocalBook(it)
                 return
             }
         }
@@ -3688,6 +3736,9 @@ private fun openCasaDelLibro(context: Context) {
         dismissButton = { LibraryTextButton(onClick = { sagaRenameSource = null }) { Text("Cancelar") } }
     ) }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
+    val bookPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(vm::importLocalBook)
+    }
     if (vm.showFirstRunGuide) AlertDialog(
         onDismissRequest = vm::dismissFirstRunGuide,
         title = { Text("Bienvenido a Mi Biblioteca", fontFamily = FontFamily.Serif,
@@ -3794,6 +3845,40 @@ private fun openCasaDelLibro(context: Context) {
         savedListOffset = listState.firstVisibleItemScrollOffset
         restoreListPosition = true
         selected = book
+    }
+    LaunchedEffect(vm.shortcutRequest, vm.books, vm.lastOpenedUri) {
+        when (vm.shortcutRequest) {
+            ACTION_OPEN_LIBRARY -> {
+                switchTab("Biblioteca")
+                vm.consumeShortcut()
+            }
+            ACTION_IMPORT_BOOK -> {
+                vm.consumeShortcut()
+                bookPicker.launch(arrayOf(
+                    "application/epub+zip", "application/pdf",
+                    "application/x-mobipocket-ebook", "application/vnd.amazon.ebook",
+                    "application/x-fictionbook+xml", "application/octet-stream"
+                ))
+            }
+            ACTION_CONTINUE_READING -> {
+                val lastUri = vm.lastOpenedUri
+                val book = vm.books.firstOrNull { it.uri == lastUri }
+                when {
+                    book != null -> {
+                        vm.consumeShortcut()
+                        startReader(book)
+                    }
+                    lastUri == null -> {
+                        vm.consumeShortcut()
+                        switchTab("Biblioteca")
+                    }
+                    vm.books.isNotEmpty() -> {
+                        vm.consumeShortcut()
+                        switchTab("Biblioteca")
+                    }
+                }
+            }
+        }
     }
     LaunchedEffect(selected, restoreListPosition, tab) {
         if (selected == null && restoreListPosition) {
@@ -4699,6 +4784,15 @@ private fun openCasaDelLibro(context: Context) {
                             icon = { AppIcon("Carpeta") }, onClick = {
                                 scope.launch { drawerState.close() }; folderPicker.launch(null)
                             })
+                        NavigationDrawerItem(label = { Text("Importar un libro") }, selected = false,
+                            icon = { Icon(Icons.Outlined.FileOpen, null) }, onClick = {
+                                scope.launch { drawerState.close() }
+                                bookPicker.launch(arrayOf(
+                                    "application/epub+zip", "application/pdf",
+                                    "application/x-mobipocket-ebook", "application/vnd.amazon.ebook",
+                                    "application/x-fictionbook+xml", "application/octet-stream"
+                                ))
+                            })
                         NavigationDrawerItem(label = { Text(if (vm.syncing) "Sincronizando…" else "Sincronizar biblioteca") },
                             selected = false, icon = { AppIcon("Sincronizar") },
                             onClick = { if (!vm.syncing) vm.sync() })
@@ -4746,6 +4840,13 @@ private fun openCasaDelLibro(context: Context) {
                             else -> "Normal"
                         }) }, selected = false, icon = { Icon(Icons.Outlined.FormatSize, null) },
                             onClick = { textSizePickerOpen = true })
+                        val accessibleMode = vm.interfaceTextScale >= 1.29f &&
+                            vm.animationMode == "Sin animaciones"
+                        NavigationDrawerItem(
+                            label = { Text(if (accessibleMode) "Restablecer interfaz" else "Activar modo accesible") },
+                            selected = accessibleMode,
+                            icon = { Icon(Icons.Outlined.AccessibilityNew, null) },
+                            onClick = vm::toggleAccessibleInterface)
                         Text("Automático sigue el género del último libro abierto.",
                             color = Mahogany, fontSize = 12.sp,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
