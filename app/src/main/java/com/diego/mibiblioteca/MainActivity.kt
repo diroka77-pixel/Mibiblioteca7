@@ -441,6 +441,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var coverUpdateDone by mutableIntStateOf(0); private set
     var coverUpdateTotal by mutableIntStateOf(0); private set
     var reviewPending by mutableStateOf<Set<Uri>>(emptySet()); private set
+    internal var maintenanceProbes by mutableStateOf<Map<String, MaintenanceProbe>>(emptyMap()); private set
+    var maintenanceRunning by mutableStateOf(false); private set
+    var maintenanceDone by mutableIntStateOf(0); private set
+    var maintenanceTotal by mutableIntStateOf(0); private set
     var books by mutableStateOf<List<Book>>(emptyList()); private set
     var importedBookUri by mutableStateOf<Uri?>(null); private set
     fun clearImportedBook() { importedBookUri = null }
@@ -533,6 +537,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var activityLog by mutableStateOf<List<String>>(emptyList()); private set
 
     private val prefs = app.getSharedPreferences("library", Context.MODE_PRIVATE)
+    var maintenanceIgnored by mutableStateOf<Set<String>>(
+        safeSavedArray(prefs.getString("maintenance_ignored", "[]")).let { arr ->
+            (0 until arr.length()).map { arr.optString(it) }.filter(String::isNotBlank).toSet()
+        }
+    ); private set
     private val scopedViewModes = mutableStateMapOf<String, String>()
     var annualReadingGoal by mutableIntStateOf(prefs.getInt("annual_reading_goal", 12))
         private set
@@ -1451,6 +1460,57 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         reviewPending = reviewPending - uri
         prefs.edit().putString("review_pending",
             org.json.JSONArray(reviewPending.map(Uri::toString)).toString()).apply()
+    }
+
+    /** Comprueba de forma incremental las referencias y portadas sin modificar ni borrar libros. */
+    fun runMaintenanceScan(force: Boolean = false) {
+        if (maintenanceRunning) return
+        val snapshot = books.toList()
+        if (!force && maintenanceProbes.keys.containsAll(snapshot.map { it.uri.toString() })) return
+        viewModelScope.launch {
+            maintenanceRunning = true
+            maintenanceDone = 0
+            maintenanceTotal = snapshot.size
+            val results = maintenanceProbes.toMutableMap()
+            try {
+                snapshot.forEachIndexed { index, book ->
+                    val id = book.uri.toString()
+                    results[id] = withContext(Dispatchers.IO) {
+                        val accessible = try {
+                            when (book.uri.scheme) {
+                                "file" -> File(book.uri.path.orEmpty()).let { it.exists() && it.canRead() && it.length() > 0L }
+                                else -> getApplication<Application>().contentResolver
+                                    .openAssetFileDescriptor(book.uri, "r")?.use { true } ?: false
+                            }
+                        } catch (_: Exception) { false }
+                        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        val decodable = if (book.cover == null) null else try {
+                            BitmapFactory.decodeByteArray(book.cover, 0, book.cover.size, options)
+                            options.outWidth > 0 && options.outHeight > 0
+                        } catch (_: Exception) { false }
+                        MaintenanceProbe(accessible, options.outWidth, options.outHeight, decodable)
+                    }
+                    maintenanceDone = index + 1
+                    if ((index + 1) % 12 == 0 || index == snapshot.lastIndex)
+                        maintenanceProbes = results.toMap()
+                }
+                addActivity("Mantenimiento · ${snapshot.size} libros comprobados")
+            } finally {
+                maintenanceProbes = results.toMap()
+                maintenanceRunning = false
+            }
+        }
+    }
+
+    fun ignoreMaintenanceProblems(keys: Set<String>) {
+        maintenanceIgnored = maintenanceIgnored + keys
+        prefs.edit().putString("maintenance_ignored",
+            org.json.JSONArray(maintenanceIgnored.toList()).toString()).apply()
+    }
+
+    fun restoreMaintenanceWarnings() {
+        maintenanceIgnored = emptySet()
+        prefs.edit().remove("maintenance_ignored").apply()
     }
 
     fun refreshIncomplete() {
@@ -4443,8 +4503,13 @@ private fun openCasaDelLibro(context: Context) {
             }) { Text("Copiar diagnóstico") }
         },
         confirmButton = { LibraryTextButton(onClick = { showSyncReport = false }) { Text("Cerrar") } })
+    LaunchedEffect(libraryHealthOpen) {
+        if (libraryHealthOpen) vm.runMaintenanceScan()
+    }
     if (libraryHealthOpen) {
-        val health = remember(vm.books) { calculateLibraryMaintenance(vm.books) }
+        val health = remember(vm.books, vm.maintenanceProbes, vm.maintenanceIgnored) {
+            calculateLibraryMaintenance(vm.books, vm.maintenanceProbes, vm.maintenanceIgnored)
+        }
         val reportText = remember(health) {
             buildString {
                 appendLine("Estado de MiBiblioteca")
@@ -4458,7 +4523,11 @@ private fun openCasaDelLibro(context: Context) {
                 appendLine("Archivos vacíos: ${health.emptyFiles}")
                 appendLine("Formatos no compatibles: ${health.unsupportedFiles}")
                 appendLine("Tamaño no confirmado por Drive: ${health.unverifiedSize}")
+                appendLine("Archivos inaccesibles: ${health.inaccessibleFiles}")
+                appendLine("Referencias duplicadas: ${health.duplicateReferences}")
                 appendLine("Copias posiblemente duplicadas: ${health.duplicateCopies}")
+                appendLine("Portadas dañadas: ${health.damagedCovers}")
+                appendLine("Portadas demasiado pequeñas: ${health.smallCovers}")
                 appendLine("Sagas con huecos conocidos: ${health.sagasWithGaps}")
             }
         }
@@ -4477,9 +4546,19 @@ private fun openCasaDelLibro(context: Context) {
                     progress = { health.healthScore / 100f },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
                     color = Teal)
+                if (vm.maintenanceRunning) {
+                    Text("Comprobando archivos ${vm.maintenanceDone}/${vm.maintenanceTotal}…",
+                        fontSize = 12.sp, color = Mahogany)
+                    LinearProgressIndicator(
+                        progress = { if (vm.maintenanceTotal == 0) 0f else
+                            vm.maintenanceDone.toFloat() / vm.maintenanceTotal },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), color = Brass)
+                } else Text("Revisión incremental completada", fontSize = 12.sp, color = Teal)
                 Info("Libros analizados", health.total.toString())
                 Info("Fichas completas", health.healthy.toString())
                 Info("Necesitan atención", health.needsAttention.toString())
+                if (health.ignoredProblems > 0)
+                    Info("Avisos conservados o ignorados", health.ignoredProblems.toString())
                 Spacer(Modifier.height(10.dp))
                 Text("Datos de las fichas", fontWeight = FontWeight.Bold)
                 Info("Sin portada", health.missingCover.toString())
@@ -4491,7 +4570,11 @@ private fun openCasaDelLibro(context: Context) {
                 Info("Archivos vacíos", health.emptyFiles.toString())
                 Info("Formatos no compatibles", health.unsupportedFiles.toString())
                 Info("Tamaño no confirmado por Drive", health.unverifiedSize.toString())
+                Info("Archivos inaccesibles", health.inaccessibleFiles.toString())
+                Info("Referencias duplicadas", health.duplicateReferences.toString())
                 Info("Copias posiblemente duplicadas", health.duplicateCopies.toString())
+                Info("Portadas dañadas", health.damagedCovers.toString())
+                Info("Portadas demasiado pequeñas", health.smallCovers.toString())
                 Info("Sagas con huecos conocidos", health.sagasWithGaps.toString())
                 Spacer(Modifier.height(10.dp))
                 if (health.fileProblemUris.isNotEmpty()) {
@@ -4509,6 +4592,44 @@ private fun openCasaDelLibro(context: Context) {
                     vm.qualityFilter = "Todos"
                     switchTab("Libros")
                 }, modifier = Modifier.fillMaxWidth()) { Text("Revisar fichas incompletas") }
+                Spacer(Modifier.height(8.dp))
+                LibraryActionButton(onClick = { vm.runMaintenanceScan(force = true) },
+                    enabled = !vm.maintenanceRunning, modifier = Modifier.fillMaxWidth()) {
+                    Text("Volver a comprobar")
+                }
+                if (health.coverProblemUris.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    LibraryActionButton(onClick = {
+                        libraryHealthOpen = false
+                        vm.forceMissingCovers()
+                    }, enabled = !vm.coverUpdateRunning, modifier = Modifier.fillMaxWidth()) {
+                        Text("Reparar portadas pendientes")
+                    }
+                }
+                if (health.duplicateCopies + health.duplicateReferences > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    LibraryActionButton(onClick = {
+                        libraryHealthOpen = false
+                        duplicateDialog = true
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Revisar duplicados") }
+                }
+                Spacer(Modifier.height(8.dp))
+                LibraryActionButton(onClick = {
+                    libraryHealthOpen = false
+                    vm.sync()
+                }, enabled = !vm.syncing, modifier = Modifier.fillMaxWidth()) {
+                    Text("Buscar cambios en Drive")
+                }
+                if (health.problemKeys.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    LibraryTextButton(onClick = {
+                        vm.ignoreMaintenanceProblems(health.problemKeys)
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Conservar e ignorar estos avisos") }
+                }
+                if (vm.maintenanceIgnored.isNotEmpty()) {
+                    LibraryTextButton(onClick = vm::restoreMaintenanceWarnings,
+                        modifier = Modifier.fillMaxWidth()) { Text("Restablecer avisos ignorados") }
+                }
             } },
             dismissButton = {
                 LibraryTextButton(onClick = {

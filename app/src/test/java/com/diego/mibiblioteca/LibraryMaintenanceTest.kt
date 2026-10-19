@@ -62,4 +62,40 @@ class LibraryMaintenanceTest {
         assertEquals(1, report.duplicateCopies)
         assertEquals(1, report.sagasWithGaps)
     }
+
+    @Test fun incrementalProbeDetectsUnreadableFilesAndBadCovers() {
+        val target = book("damaged", "Portada rota")
+        val report = calculateLibraryMaintenanceInputs(
+            listOf(target),
+            probes = mapOf(target.id to MaintenanceProbe(
+                accessible = false,
+                coverWidth = 120,
+                coverHeight = 180,
+                coverDecodable = false
+            ))
+        )
+        assertEquals(1, report.inaccessibleFiles)
+        assertEquals(1, report.damagedCovers)
+        assertEquals(1, report.smallCovers)
+        assertTrue(target.id in report.fileProblemUris)
+        assertTrue(target.id in report.coverProblemUris)
+        assertTrue(report.needsAttention > 0)
+    }
+
+    @Test fun separatesRepeatedReferencesFromPossibleDuplicateBooks() {
+        val repeated = book("same", "Una historia")
+        val report = calculateLibraryMaintenanceInputs(listOf(repeated, repeated))
+        assertEquals(1, report.duplicateReferences)
+        assertEquals(1, report.duplicateCopies)
+    }
+
+    @Test fun ignoredWarningsRemainCountedButDoNotRequireAttention() {
+        val incomplete = book("keep", "Conservar", cover = false)
+        val warning = "cover:${incomplete.id}"
+        val report = calculateLibraryMaintenanceInputs(listOf(incomplete), ignored = setOf(warning))
+        assertEquals(1, report.missingCover)
+        assertEquals(1, report.ignoredProblems)
+        assertEquals(0, report.needsAttention)
+        assertEquals(100, report.healthScore)
+    }
 }

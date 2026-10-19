@@ -1,3 +1,9 @@
+## Versión 1.0.58
+- Estado de la biblioteca realiza una revisión incremental y no destructiva de cada referencia del catálogo.
+- Detecta archivos inaccesibles, referencias repetidas, copias posibles, archivos vacíos o incompatibles y tamaños aún no confirmados por Drive.
+- Comprueba portadas ausentes, dañadas o con resolución demasiado pequeña.
+- Permite volver a comprobar, revisar archivos o duplicados, reparar portadas, completar fichas y buscar cambios en Drive. Nunca elimina libros automáticamente.
+
 ## Versión 1.0.34
 - El escaneo usa primero el listado estándar del selector de Android y evita esperar a la consulta de Drive que se queda bloqueada en cero.
 
