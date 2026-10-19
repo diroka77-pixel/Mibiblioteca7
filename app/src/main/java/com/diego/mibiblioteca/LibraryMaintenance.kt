@@ -142,8 +142,8 @@ internal fun calculateLibraryMaintenanceInputs(
     val healthy = books.count { book ->
         activeProblems.none { key -> key.endsWith(":${book.id}") }
     }
-    val weightedProblems = activeProblems.sumOf { key ->
-        if (key.startsWith("file:") || key.startsWith("damaged-cover:")) 2 else 1
+    val weightedProblems = activeProblems.fold(0) { total, key ->
+        total + if (key.startsWith("file:") || key.startsWith("damaged-cover:")) 2 else 1
     }
     val checks = books.size * 8
     val score = (100 - weightedProblems * 100 / checks.coerceAtLeast(1)).coerceIn(0, 100)
