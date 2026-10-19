@@ -137,10 +137,6 @@ import java.util.zip.ZipFile
 
 private data class BackupRestoreResult(val matched: Int, val pending: String?)
 
-private const val ACTION_CONTINUE_READING = "com.diego.mibiblioteca.action.CONTINUE_READING"
-private const val ACTION_OPEN_LIBRARY = "com.diego.mibiblioteca.action.OPEN_LIBRARY"
-private const val ACTION_IMPORT_BOOK = "com.diego.mibiblioteca.action.IMPORT_BOOK"
-
 internal data class ImportedBookFormat(
     val extension: String,
     val label: String,
@@ -470,8 +466,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
     fun updateReadingPercent(uri: Uri, percent: Int) {
-        if (readingPercents[uri] == percent) return
-        readingPercents = readingPercents + (uri to percent.coerceIn(0, 100))
+        val safePercent = percent.coerceIn(0, 100)
+        if (readingPercents[uri] == safePercent) return
+        readingPercents = readingPercents + (uri to safePercent)
+        readerPrefs.edit().putInt("percent_" + readerProgressKey(uri), safePercent).apply()
+        LibraryWidget.refresh(getApplication<Application>())
         readerCloudJob?.cancel()
         readerCloudJob = viewModelScope.launch {
             delay(15_000)
@@ -1520,6 +1519,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val title = books.firstOrNull { it.uri == uri }?.let(::displayTitle).orEmpty()
         prefs.edit().putLong("opened_" + uri.toString().hashCode(), System.currentTimeMillis())
             .putString("last_opened_book", uri.toString()).putString("last_opened_title", title).apply()
+        LibraryWidget.refresh(getApplication<Application>())
     }
 
     fun chooseWallpaper(mode: String) {
