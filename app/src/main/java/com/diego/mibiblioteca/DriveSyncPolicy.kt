@@ -48,6 +48,15 @@ internal fun driveFailureMessage(
     }
 }
 
+internal fun libraryNoticeIsPersistent(message: String?, failure: DriveFailureKind?): Boolean {
+    if (failure != null) return true
+    val normalized = message.orEmpty().lowercase()
+    return listOf(
+        "no se pudo", "no permitió", "no confirmó", "selecciona primero",
+        "solo lectura", "sin permiso", "error"
+    ).any(normalized::contains)
+}
+
 internal data class DriveSyncDiagnostic(
     val folderUri: String,
     val folderName: String,
