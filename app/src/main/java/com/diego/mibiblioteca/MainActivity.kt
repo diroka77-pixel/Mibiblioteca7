@@ -496,7 +496,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var newsLastChecked by mutableStateOf(0L); private set
     var folderName by mutableStateOf<String?>(null); private set
     var message by mutableStateOf<String?>(null); private set
-    var lastDriveFailure by mutableStateOf<DriveFailureKind?>(null); private set
+    internal var lastDriveFailure by mutableStateOf<DriveFailureKind?>(null); private set
     var activityLog by mutableStateOf<List<String>>(emptyList()); private set
 
     private val prefs = app.getSharedPreferences("library", Context.MODE_PRIVATE)
