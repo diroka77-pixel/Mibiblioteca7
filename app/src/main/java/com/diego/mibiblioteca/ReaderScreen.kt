@@ -1049,6 +1049,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         AtomicInteger(prefs.getInt("char_$key", 0))
     }
     val speechGeneration = remember(book.uri) { AtomicInteger(0) }
+    var speechRestartRequest by remember(book.uri) { mutableIntStateOf(0) }
     fun saveSpeechCursor(position: Int) {
         val safePosition = position.coerceAtLeast(0)
         activeSpeechCursor.set(safePosition)
@@ -1074,14 +1075,23 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         speech?.stop()
         audioActive = false
     }
+    fun startSpeech() {
+        ensurePlaybackNotificationPermission()
+        audioControlsVisible = true
+        audioActive = true
+        // A dedicated restart signal avoids relying on incidental state changes. Android's
+        // TTS engine may remain initialized after stop(), but it needs a fresh speak() call.
+        speechRestartRequest++
+    }
     fun changeSpeechRate(delta: Float) {
         if (audioActive) {
             speechGeneration.incrementAndGet()
-            saveSpeechCursor(currentSpeechPosition())
+            persistSpeechCursorNow()
             speech?.stop()
         }
         speechRate = ((((speechRate + delta) * 10f).toInt()) / 10f).coerceIn(0.5f, 2f)
         prefs.edit().putFloat("speech_rate", speechRate).apply()
+        if (audioActive) speechRestartRequest++
     }
     var audioSeekRequest by remember(book.uri) { mutableIntStateOf(0) }
     var audioSeekDelta by remember(book.uri) { mutableIntStateOf(0) }
@@ -1095,8 +1105,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             override fun onReceive(receiverContext: Context?, intent: Intent?) {
                 when (intent?.action) {
                     ReaderPlaybackService.ACTION_PLAY -> {
-                        audioControlsVisible = true
-                        audioActive = true
+                        startSpeech()
                     }
                     ReaderPlaybackService.ACTION_PAUSE -> pauseSpeech()
                     ReaderPlaybackService.ACTION_STOP -> pauseSpeech()
@@ -1140,36 +1149,40 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var selectedVoiceName by remember { mutableStateOf(prefs.getString("voice_name", "").orEmpty()) }
     DisposableEffect(context, book.uri, selectedVoiceName) {
         var engine: TextToSpeech? = null
+        var disposed = false
         speechReady = false
         speechInitError = null
         engine = TextToSpeech(context, { status ->
-            speechReady = status == TextToSpeech.SUCCESS
-            if (status == TextToSpeech.SUCCESS) {
-                engine?.setAudioAttributes(AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build())
-            } else {
-                if (selectedVoiceName == "davefx") {
-                    // An installation can remain registered even when Android can no longer
-                    // start it. Fall back immediately instead of leaving the play button mute.
-                    prefs.edit().remove("voice_name").apply()
-                    selectedVoiceName = ""
-                    speechInitError = "Davefx no respondió. Se ha activado la voz de Android."
+            Handler(Looper.getMainLooper()).post {
+                if (disposed) return@post
+                speechReady = status == TextToSpeech.SUCCESS
+                if (status == TextToSpeech.SUCCESS) {
+                    engine?.setAudioAttributes(AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build())
+                    if (audioActive) speechRestartRequest++
                 } else {
-                    speechInitError = "No se pudo iniciar la voz de Android. Revisa el motor de texto a voz."
+                    if (selectedVoiceName == "davefx") {
+                        // An installation can remain registered even when Android can no longer
+                        // start it. Fall back immediately instead of leaving the play button mute.
+                        prefs.edit().remove("voice_name").apply()
+                        selectedVoiceName = ""
+                        speechInitError = "Davefx no respondió. Se ha activado la voz de Android."
+                    } else {
+                        speechInitError = "No se pudo iniciar la voz de Android. Revisa el motor de texto a voz."
+                    }
                 }
             }
         }, if (selectedVoiceName == "davefx") DAVEFX_ENGINE else null)
         speech = engine
         onDispose {
+            disposed = true
             // Persist the last word reported by Android before shutting the engine down.
             prefs.edit().putInt("char_$key", activeSpeechCursor.get()).apply()
-            audioActive = false
-            audioControlsVisible = false
             engine?.stop()
             engine?.shutdown()
-            speech = null
+            if (speech === engine) speech = null
         }
     }
     var brightness by remember { mutableFloatStateOf(prefs.getFloat("brightness", -1f)) }
@@ -1254,9 +1267,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         icon = { AppIcon(if (audioActive) "Pausar" else "Reproducir") },
                         onClick = {
                             if (speechReady) {
-                                ensurePlaybackNotificationPermission()
-                                audioControlsVisible = true
-                                if (audioActive) pauseSpeech() else audioActive = true
+                                if (audioActive) pauseSpeech() else startSpeech()
                             } else {
                                 android.widget.Toast.makeText(context,
                                     speechInitError ?: "Preparando la voz. Vuelve a pulsar en unos segundos.",
@@ -1674,7 +1685,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 } else audioActive = false
                             }
                         }
-                        LaunchedEffect(audioActive, currentPage, pages, speechReady, selectedVoiceName, audioSeekRequest, speechRate) {
+                        LaunchedEffect(audioActive, currentPage, pages, speechReady, selectedVoiceName,
+                            audioSeekRequest, speechRate, speechRestartRequest) {
                             val engine = speech
                             if (!audioActive || !speechReady || engine == null) {
                                 engine?.stop()
@@ -1694,16 +1706,23 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         android.widget.Toast.LENGTH_LONG).show()
                                 } else {
                                     val pageData = pages[currentPage]
-                                    val startCursor = speechCursorForVisiblePage(
+                                    var startCursor = speechCursorForVisiblePage(
                                         audioCursor,
                                         pageData.startChar,
                                         pages.getOrNull(currentPage + 1)?.startChar ?: total,
                                         total
                                     )
-                                    if (startCursor != audioCursor) saveSpeechCursor(startCursor)
                                     val spokenPage = speechPage(pageData, paragraphs, positions)
-                                    val offsetInPage = speechOffsetForChar(spokenPage, startCursor)
+                                    var offsetInPage = speechOffsetForChar(spokenPage, startCursor)
                                         .coerceIn(0, spokenPage.text.length)
+                                    // Some EPUBs leave a small gap between the last readable
+                                    // character and the next page. Never treat that gap as silence.
+                                    if (offsetInPage >= spokenPage.text.length ||
+                                        spokenPage.text.substring(offsetInPage).isBlank()) {
+                                        startCursor = pageData.startChar
+                                        offsetInPage = 0
+                                    }
+                                    if (startCursor != audioCursor) saveSpeechCursor(startCursor)
                                     val spoken = spokenPage.text.substring(offsetInPage)
                                     val spokenBaseOffset = offsetInPage
                                     val utteranceGeneration = speechGeneration.incrementAndGet()
@@ -2168,9 +2187,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     modifier = Modifier.weight(1f).height(46.dp),
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = {
-                                        ensurePlaybackNotificationPermission()
-                                        audioControlsVisible = true
-                                        if (audioActive) pauseSpeech() else audioActive = true
+                                        if (audioActive) pauseSpeech() else startSpeech()
                                     }
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -2265,6 +2282,11 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     RadioVoiceOption("Davefx · español de España",
                         selectedVoiceName == "davefx") {
                         if (hasDavefxEngine(context)) {
+                            if (audioActive) {
+                                persistSpeechCursorNow()
+                                speechGeneration.incrementAndGet()
+                                speech?.stop()
+                            }
                             selectedVoiceName = "davefx"
                             prefs.edit().putString("voice_name", "davefx").apply()
                             showVoicePicker = false
@@ -2291,12 +2313,22 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         "Al elegir Davefx se descargará el motor oficial (87 MB) y podrás instalarlo.",
                         style = MaterialTheme.typography.bodySmall)
                     RadioVoiceOption("Predeterminada", selectedVoiceName.isBlank()) {
+                        if (audioActive) {
+                            persistSpeechCursorNow()
+                            speechGeneration.incrementAndGet()
+                            speech?.stop()
+                        }
                         selectedVoiceName = ""; prefs.edit().remove("voice_name").apply()
                         showVoicePicker = false
                     }
                     choices.forEach { voice ->
                         RadioVoiceOption(voice.name + " · " + voice.locale.toLanguageTag(),
                             selectedVoiceName == voice.name) {
+                            if (audioActive) {
+                                persistSpeechCursorNow()
+                                speechGeneration.incrementAndGet()
+                                speech?.stop()
+                            }
                             selectedVoiceName = voice.name
                             prefs.edit().putString("voice_name", voice.name).apply()
                             showVoicePicker = false
