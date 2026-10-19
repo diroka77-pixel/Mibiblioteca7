@@ -1,3 +1,8 @@
+## Versión 1.0.61
+- Nuevo centro de ayuda en castellano para configurar Drive, importar libros, usar el lector por voz y recuperar una biblioteca.
+- La guía inicial puede volver a abrirse desde el menú en cualquier momento.
+- Se explican dentro de la aplicación los formatos compatibles y las limitaciones de AZW3, MOBI y PDF protegidos.
+
 ## Versión 1.0.60
 - Nueva pantalla «Acerca de y soporte» con versión instalada, estado de permisos opcionales y resumen técnico.
 - Informe de diagnóstico compartible sin títulos, notas, rutas ni contenido de los libros.

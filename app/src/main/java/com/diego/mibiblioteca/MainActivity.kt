@@ -1614,6 +1614,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putBoolean("first_run_guide_seen", true).apply()
     }
 
+    fun openFirstRunGuide() {
+        showFirstRunGuide = true
+    }
+
     fun readingBooks(): List<Book> = books.filter { it.status == ReadingStatus.READING }
         .sortedWith(compareByDescending<Book> { it.uri == lastOpenedUri }
             .thenByDescending { prefs.getLong("opened_" + it.uri.toString().hashCode(), 0L) })
@@ -3966,6 +3970,7 @@ private fun openCasaDelLibro(context: Context) {
     var activityOpen by remember { mutableStateOf(false) }
     var privacyOpen by remember { mutableStateOf(false) }
     var supportOpen by remember { mutableStateOf(false) }
+    var helpOpen by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var sortMode by rememberSaveable { mutableStateOf("Título") }
     val backupExport = rememberLauncherForActivityResult(
@@ -4807,6 +4812,25 @@ private fun openCasaDelLibro(context: Context) {
             }) { Text("Compartir diagnóstico") } },
             confirmButton = { LibraryTextButton(onClick = { supportOpen = false }) { Text("Cerrar") } })
     }
+    if (helpOpen) AlertDialog(onDismissRequest = { helpOpen = false },
+        title = { Text("Ayuda de MiBiblioteca") },
+        text = { Column(Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState())) {
+            libraryHelpSections().forEach { section ->
+                Text(section.title, fontWeight = FontWeight.Bold, color = Teal,
+                    modifier = Modifier.padding(top = 6.dp))
+                Text(section.body, fontSize = 13.sp, lineHeight = 19.sp,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
+            }
+            LibraryTextButton(onClick = {
+                helpOpen = false
+                vm.openFirstRunGuide()
+            }, modifier = Modifier.fillMaxWidth()) { Text("Ver guía inicial") }
+            LibraryTextButton(onClick = {
+                helpOpen = false
+                folderPicker.launch(null)
+            }, modifier = Modifier.fillMaxWidth()) { Text("Elegir carpeta de libros") }
+        } },
+        confirmButton = { LibraryTextButton(onClick = { helpOpen = false }) { Text("Cerrar") } })
     if (homeSettings) AlertDialog(onDismissRequest = { homeSettings = false },
         title = { Text("Organizar Inicio") },
         text = { Column {
@@ -5193,6 +5217,10 @@ private fun openCasaDelLibro(context: Context) {
                     NavigationDrawerItem(label = { Text("Acerca de y soporte") }, selected = false,
                         icon = { Icon(Icons.Outlined.Info, null) }, onClick = {
                             supportOpen = true; scope.launch { drawerState.close() }
+                        })
+                    NavigationDrawerItem(label = { Text("Ayuda y guía rápida") }, selected = false,
+                        icon = { Icon(Icons.Outlined.HelpOutline, null) }, onClick = {
+                            helpOpen = true; scope.launch { drawerState.close() }
                         })
                     NavigationDrawerItem(label = { Text("Estadísticas de lectura") }, selected = false,
                         icon = { AppIcon("Pendientes") }, onClick = {
