@@ -10,6 +10,7 @@ import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.app.Activity
 import android.graphics.Typeface
+import android.media.AudioAttributes
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.Layout
@@ -164,6 +165,19 @@ internal fun speechWordChunks(text: String, maxChars: Int = 320): List<SpeechChu
 
 internal fun speechSeekDistance(seconds: Int, rate: Float): Int =
     (seconds.coerceAtLeast(1) * 18f * rate.coerceIn(0.5f, 2f)).toInt().coerceAtLeast(1)
+
+internal fun speechCursorForVisiblePage(
+    cursor: Int,
+    pageStart: Int,
+    nextPageStart: Int,
+    total: Int
+): Int {
+    val safeTotal = total.coerceAtLeast(1)
+    val safeStart = pageStart.coerceIn(0, safeTotal - 1)
+    val safeEnd = nextPageStart.coerceIn(safeStart + 1, safeTotal)
+    return if (cursor in safeStart until safeEnd) cursor else safeStart
+}
+
 private fun speechPage(page: ReadingPage, paragraphs: List<ReadingParagraph>, positions: IntArray): SpeechPage {
     val text = StringBuilder()
     val sourcePositions = ArrayList<Int>()
@@ -1014,6 +1028,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     var searchText by remember { mutableStateOf("") }
     var speech by remember { mutableStateOf<TextToSpeech?>(null) }
     var speechReady by remember { mutableStateOf(false) }
+    var speechInitError by remember { mutableStateOf<String?>(null) }
     var audioActive by remember(book.uri) { mutableStateOf(false) }
     var audioControlsVisible by remember(book.uri) { mutableStateOf(false) }
     var audioCursor by remember(book.uri) {
@@ -1126,11 +1141,25 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     DisposableEffect(context, book.uri, selectedVoiceName) {
         var engine: TextToSpeech? = null
         speechReady = false
+        speechInitError = null
         engine = TextToSpeech(context, { status ->
             speechReady = status == TextToSpeech.SUCCESS
-            if (status != TextToSpeech.SUCCESS && selectedVoiceName == "davefx")
-                android.widget.Toast.makeText(context, "No se pudo iniciar Davefx. Revisa la instalación de la voz.",
-                    android.widget.Toast.LENGTH_LONG).show()
+            if (status == TextToSpeech.SUCCESS) {
+                engine?.setAudioAttributes(AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build())
+            } else {
+                if (selectedVoiceName == "davefx") {
+                    // An installation can remain registered even when Android can no longer
+                    // start it. Fall back immediately instead of leaving the play button mute.
+                    prefs.edit().remove("voice_name").apply()
+                    selectedVoiceName = ""
+                    speechInitError = "Davefx no respondió. Se ha activado la voz de Android."
+                } else {
+                    speechInitError = "No se pudo iniciar la voz de Android. Revisa el motor de texto a voz."
+                }
+            }
         }, if (selectedVoiceName == "davefx") DAVEFX_ENGINE else null)
         speech = engine
         onDispose {
@@ -1228,6 +1257,10 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 ensurePlaybackNotificationPermission()
                                 audioControlsVisible = true
                                 if (audioActive) pauseSpeech() else audioActive = true
+                            } else {
+                                android.widget.Toast.makeText(context,
+                                    speechInitError ?: "Preparando la voz. Vuelve a pulsar en unos segundos.",
+                                    android.widget.Toast.LENGTH_LONG).show()
                             }
                             scope.launch { drawer.close() }
                         },
@@ -1661,8 +1694,15 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         android.widget.Toast.LENGTH_LONG).show()
                                 } else {
                                     val pageData = pages[currentPage]
+                                    val startCursor = speechCursorForVisiblePage(
+                                        audioCursor,
+                                        pageData.startChar,
+                                        pages.getOrNull(currentPage + 1)?.startChar ?: total,
+                                        total
+                                    )
+                                    if (startCursor != audioCursor) saveSpeechCursor(startCursor)
                                     val spokenPage = speechPage(pageData, paragraphs, positions)
-                                    val offsetInPage = speechOffsetForChar(spokenPage, audioCursor)
+                                    val offsetInPage = speechOffsetForChar(spokenPage, startCursor)
                                         .coerceIn(0, spokenPage.text.length)
                                     val spoken = spokenPage.text.substring(offsetInPage)
                                     val spokenBaseOffset = offsetInPage
@@ -1673,7 +1713,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         val chunk = chunks.getOrNull(index) ?: return
                                         val result = engine.speak(chunk.text, queueMode, null,
                                             "page_${currentPage}_generation_${utteranceGeneration}_chunk_$index")
-                                        if (result == TextToSpeech.ERROR) audioActive = false
+                                        if (result == TextToSpeech.ERROR) {
+                                            audioActive = false
+                                            android.widget.Toast.makeText(context,
+                                                "La voz no pudo reproducir este fragmento. Prueba a elegir otra voz.",
+                                                android.widget.Toast.LENGTH_LONG).show()
+                                        }
                                     }
                                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                                         override fun onStart(utteranceId: String?) {
@@ -1752,7 +1797,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         override fun onError(utteranceId: String?) {
                                             if (speechGeneration.get() != utteranceGeneration) return
                                             Handler(Looper.getMainLooper()).post {
-                                                if (speechGeneration.get() == utteranceGeneration) audioActive = false
+                                                if (speechGeneration.get() == utteranceGeneration) {
+                                                    audioActive = false
+                                                    android.widget.Toast.makeText(context,
+                                                        "La lectura en voz alta se ha detenido. Prueba a elegir otra voz.",
+                                                        android.widget.Toast.LENGTH_LONG).show()
+                                                }
                                             }
                                         }
                                     })
@@ -2075,11 +2125,11 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     }
                     if (audioControlsVisible) {
                         Surface(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 2.dp),
                             color = if (dark) Color(0xFF302A25) else Color(0xFFF4EEE4),
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(13.dp)
                         ) {
-                            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 3.dp),
+                            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 1.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -2087,16 +2137,16 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 horizontalArrangement = Arrangement.Center
                             ) {
                                 TextButton(onClick = { changeSpeechRate(-0.1f) },
-                                    modifier = Modifier.height(42.dp),
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)) {
-                                    Text("−", fontSize = 22.sp, lineHeight = 24.sp)
+                                    modifier = Modifier.height(34.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)) {
+                                    Text("−", fontSize = 19.sp, lineHeight = 20.sp)
                                 }
                                 Text("Velocidad · ${String.format(java.util.Locale.ROOT, "%.1f", speechRate)}×",
-                                    fontSize = 13.sp, modifier = Modifier.padding(horizontal = 10.dp))
+                                    fontSize = 12.sp, modifier = Modifier.padding(horizontal = 6.dp))
                                 TextButton(onClick = { changeSpeechRate(0.1f) },
-                                    modifier = Modifier.height(42.dp),
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp)) {
-                                    Text("+", fontSize = 22.sp, lineHeight = 24.sp)
+                                    modifier = Modifier.height(34.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)) {
+                                    Text("+", fontSize = 19.sp, lineHeight = 20.sp)
                                 }
                             }
                             Row(
@@ -2105,17 +2155,17 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 horizontalArrangement = Arrangement.SpaceEvenly
                             ) {
                                 TextButton(
-                                    modifier = Modifier.weight(1f).height(54.dp),
+                                    modifier = Modifier.weight(1f).height(46.dp),
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = { requestAudioSeek(-speechSeekDistance(15, speechRate)) }
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        AppIcon("Retroceder", size = 19.dp)
-                                        Text("−15 s", fontSize = 10.sp, maxLines = 1)
+                                        AppIcon("Retroceder", size = 17.dp)
+                                        Text("−15 s", fontSize = 9.sp, maxLines = 1)
                                     }
                                 }
                                 TextButton(
-                                    modifier = Modifier.weight(1f).height(54.dp),
+                                    modifier = Modifier.weight(1f).height(46.dp),
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = {
                                         ensurePlaybackNotificationPermission()
@@ -2124,12 +2174,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     }
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        AppIcon(if (audioActive) "Pausar" else "Reproducir", size = 21.dp)
-                                        Text(if (audioActive) "Pausa" else "Play", fontSize = 10.sp)
+                                        AppIcon(if (audioActive) "Pausar" else "Reproducir", size = 19.dp)
+                                        Text(if (audioActive) "Pausa" else "Play", fontSize = 9.sp)
                                     }
                                 }
                                 TextButton(
-                                    modifier = Modifier.weight(1f).height(54.dp),
+                                    modifier = Modifier.weight(1f).height(46.dp),
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = {
                                         pauseSpeech()
@@ -2138,22 +2188,22 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     }
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        AppIcon("Detener", size = 19.dp)
-                                        Text("Stop", fontSize = 10.sp)
+                                        AppIcon("Detener", size = 17.dp)
+                                        Text("Stop", fontSize = 9.sp)
                                     }
                                 }
                                 TextButton(
-                                    modifier = Modifier.weight(1f).height(54.dp),
+                                    modifier = Modifier.weight(1f).height(46.dp),
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = { requestAudioSeek(speechSeekDistance(15, speechRate)) }
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        AppIcon("Avanzar", size = 19.dp)
-                                        Text("+15 s", fontSize = 10.sp, maxLines = 1)
+                                        AppIcon("Avanzar", size = 17.dp)
+                                        Text("+15 s", fontSize = 9.sp, maxLines = 1)
                                     }
                                 }
                                 TextButton(
-                                    modifier = Modifier.weight(1.25f).height(54.dp),
+                                    modifier = Modifier.weight(1.15f).height(46.dp),
                                     contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
                                     onClick = {
                                         activity?.moveTaskToBack(true)
@@ -2165,8 +2215,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     }
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        AppIcon("Bloquear", size = 19.dp)
-                                        Text("Pantalla", fontSize = 10.sp, maxLines = 1)
+                                        AppIcon("Bloquear", size = 17.dp)
+                                        Text("Pantalla", fontSize = 9.sp, maxLines = 1)
                                     }
                                 }
                             }

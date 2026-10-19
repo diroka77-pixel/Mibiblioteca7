@@ -30,4 +30,14 @@ class SpeechPositionTest {
         assertEquals(270, speechSeekDistance(15, 1f))
         assertEquals(405, speechSeekDistance(15, 1.5f))
     }
+
+    @Test fun speechStartsInsideTheVisiblePage() {
+        assertEquals(450, speechCursorForVisiblePage(450, 400, 600, 1_000))
+        assertEquals(400, speechCursorForVisiblePage(250, 400, 600, 1_000))
+        assertEquals(400, speechCursorForVisiblePage(760, 400, 600, 1_000))
+    }
+
+    @Test fun lastPageSpeechCursorIsClampedSafely() {
+        assertEquals(900, speechCursorForVisiblePage(1_000, 900, 1_000, 1_000))
+    }
 }
