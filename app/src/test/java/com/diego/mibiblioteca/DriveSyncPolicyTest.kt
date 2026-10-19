@@ -52,4 +52,10 @@ class DriveSyncPolicyTest {
         assertTrue(diagnostic.contains("Nuevos: 2"))
         assertTrue(diagnostic.contains("Modificados: 1"))
     }
+
+    @Test fun failuresRemainVisibleUntilTheUserActs() {
+        assertTrue(libraryNoticeIsPersistent("No se pudo leer la carpeta", null))
+        assertTrue(libraryNoticeIsPersistent("Drive está ocupado", DriveFailureKind.PROVIDER_BUSY))
+        assertEquals(false, libraryNoticeIsPersistent("Sincronización completada", null))
+    }
 }
