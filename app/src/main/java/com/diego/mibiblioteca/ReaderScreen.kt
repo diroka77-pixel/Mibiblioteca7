@@ -1446,13 +1446,30 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         when (document) {
             null -> Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(); Spacer(Modifier.height(12.dp)); Text("Preparando libro…")
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(12.dp))
+                    Text("Preparando libro…", fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        if (book.uri.scheme == "content") "Leyendo el archivo y preparando sus capítulos"
+                        else "Preparando el contenido para continuar donde lo dejaste",
+                        fontSize = 13.sp,
+                        color = foreground.copy(alpha = 0.72f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
                 }
             }
             is ReadingDocument.Unsupported -> Box(Modifier.padding(padding).fillMaxSize().padding(24.dp),
                 contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(document.reason, color = foreground)
+                    AppIcon("Aviso", size = 34.dp)
+                    Spacer(Modifier.height(12.dp))
+                    Text("No se pudo abrir este libro", color = foreground,
+                        fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Spacer(Modifier.height(8.dp))
+                    Text(document.reason, color = foreground.copy(alpha = 0.78f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     Spacer(Modifier.height(16.dp))
                     OutlinedButton(onClick = {
                         val mime = when (book.uri.lastPathSegment.orEmpty().substringAfterLast('.').lowercase()) {
@@ -1470,6 +1487,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 android.widget.Toast.LENGTH_LONG).show()
                         }
                     }) { Text("Abrir con otra aplicación") }
+                    TextButton(onClick = onBack) { Text("Volver a Mi Biblioteca") }
                 }
             }
             is ReadingDocument.PdfDocument -> {
