@@ -496,6 +496,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var newsLastChecked by mutableStateOf(0L); private set
     var folderName by mutableStateOf<String?>(null); private set
     var message by mutableStateOf<String?>(null); private set
+    var lastDriveFailure by mutableStateOf<DriveFailureKind?>(null); private set
     var activityLog by mutableStateOf<List<String>>(emptyList()); private set
 
     private val prefs = app.getSharedPreferences("library", Context.MODE_PRIVATE)
@@ -1603,11 +1604,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun sync(uri: Uri? = prefs.getString(folderKey, null)?.let(Uri::parse), changedFolder: Boolean = false) {
-        if (uri == null) { message = "Selecciona primero tu carpeta de libros."; return }
+        if (uri == null) {
+            message = "Selecciona primero tu carpeta de libros."
+            lastDriveFailure = DriveFailureKind.INVALID_FOLDER
+            return
+        }
         if (syncing) return
         val switchingFolder = prefs.getString(folderKey, null) != uri.toString()
         viewModelScope.launch {
-            syncing = true; syncCount = 0; message = null
+            syncing = true; syncCount = 0; message = null; lastDriveFailure = null
             val syncStartedAt = System.currentTimeMillis()
             var completed = false
             try {
@@ -1637,6 +1642,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     val kind = if (books.isNotEmpty()) DriveFailureKind.PROVIDER_BUSY
                         else DriveFailureKind.UNKNOWN
                     message = driveFailureMessage(kind, books.isNotEmpty(), folderName)
+                    lastDriveFailure = kind
                     syncReport = message.orEmpty()
                     val diagnostic = DriveSyncDiagnostic(
                         folderUri = uri.toString(),
@@ -1747,7 +1753,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 prefs.edit().putString("folder_name", folderName).apply()
                 // Una sincronización correcta no deja una advertencia permanente en el catálogo.
                 // El detalle sigue disponible en Centro de tareas y en el diagnóstico.
-                message = null
+                message = "Sincronización completada · ${result.size} archivos revisados"
+                lastDriveFailure = null
                 completed = true
                 } catch (e: Exception) {
                 val detail = e.localizedMessage.orEmpty()
@@ -1755,6 +1762,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 // Nunca se elimina automáticamente la carpeta elegida. Los fallos
                 // de Drive suelen ser temporales y el catálogo local debe seguir útil.
                 message = driveFailureMessage(kind, books.isNotEmpty(), folderName)
+                lastDriveFailure = kind
                 syncReport = message.orEmpty()
                 val diagnostic = DriveSyncDiagnostic(
                     folderUri = uri.toString(),
@@ -2102,7 +2110,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun updateReadingFirst(first: Boolean) {
         readingFirst = first; prefs.edit().putBoolean("reading_first", first).apply()
     }
-    fun clearMessage() { message = null }
+    fun clearMessage() { message = null; lastDriveFailure = null }
     fun clearDetailMessage() { detailMessage = null }
 }
 
@@ -2128,6 +2136,47 @@ private fun WallpaperLabel(
     Text(text, modifier = modifier, color = Color.White, fontSize = fontSize,
         fontWeight = fontWeight,
         style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+}
+
+@Composable
+private fun LibraryStatusBanner(
+    message: String,
+    failure: DriveFailureKind?,
+    onDismiss: () -> Unit,
+    onRetry: () -> Unit,
+    onChooseFolder: () -> Unit
+) {
+    val isError = libraryNoticeIsPersistent(message, failure)
+    val container = if (isError) Color(0xFF442E27).copy(alpha = 0.94f)
+        else Color(0xFF24554F).copy(alpha = 0.94f)
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = container, contentColor = Color.White),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (isError) Icons.Outlined.WarningAmber else Icons.Outlined.CheckCircle,
+                    contentDescription = null,
+                    tint = if (isError) Color(0xFFFFD6A0) else Color(0xFFBDEFE2),
+                    modifier = Modifier.size(22.dp)
+                )
+                Text(message, modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
+                    fontSize = 13.sp, lineHeight = 18.sp)
+                IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Outlined.Close, "Cerrar aviso", tint = Color.White)
+                }
+            }
+            when (failure) {
+                DriveFailureKind.PERMISSION, DriveFailureKind.INVALID_FOLDER ->
+                    TextButton(onClick = onChooseFolder) { Text("Elegir carpeta", color = Color.White) }
+                DriveFailureKind.OFFLINE, DriveFailureKind.PROVIDER_BUSY, DriveFailureKind.UNKNOWN ->
+                    TextButton(onClick = onRetry) { Text("Reintentar", color = Color.White) }
+                null -> Unit
+            }
+        }
+    }
 }
 
 internal fun displayAuthor(book: Book): String =
@@ -3885,8 +3934,8 @@ private fun openCasaDelLibro(context: Context) {
     val activeViewScope: String? = if (tab == "Secciones") "__secciones__" else vm.selectedSection
     val activeViewMode = vm.viewModeFor(activeViewScope)
     LaunchedEffect(vm.message) {
-        if (vm.message != null) {
-            kotlinx.coroutines.delay(2200)
+        if (vm.message != null && !libraryNoticeIsPersistent(vm.message, vm.lastDriveFailure)) {
+            kotlinx.coroutines.delay(4000)
             vm.clearMessage()
         }
     }
@@ -4439,7 +4488,9 @@ private fun openCasaDelLibro(context: Context) {
     if (taskCenterOpen) AlertDialog(onDismissRequest = { taskCenterOpen = false },
         title = { Text("Centro de tareas") },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-            Info("Sincronización de Drive", if (vm.syncing) "Revisando ${vm.syncCount} libros" else vm.syncSummary.ifBlank { "En espera" })
+            Info("Sincronización de Drive", if (vm.syncing)
+                if (vm.syncCount == 0) "Conectando con Drive" else "Revisando ${vm.syncCount} archivos"
+                else vm.syncSummary.ifBlank { "En espera" })
             Info("Portadas", if (vm.coverUpdateRunning) "${vm.coverUpdateDone}/${vm.coverUpdateTotal}" else
                 "${vm.books.count { it.cover == null }} pendientes")
             Info("Sagas", if (vm.sagaOrganizing) "${vm.sagaOrganized}/${vm.sagaOrganizeTotal}" else
@@ -5114,8 +5165,12 @@ private fun openCasaDelLibro(context: Context) {
                         fontWeight = FontWeight.Bold, color = Color.White)
                     if (vm.syncing) {
                         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
-                        Text("Revisando ${vm.syncCount} libros…", modifier = Modifier.padding(vertical = 8.dp),
-                            style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            if (vm.syncCount == 0) "Conectando con Drive…"
+                            else "Revisando ${vm.syncCount} archivos…",
+                            modifier = Modifier.padding(vertical = 8.dp),
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                     if (vm.coverUpdateRunning && (tab == "Inicio" || tab == "Biblioteca")) {
                         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Teal)
@@ -5194,7 +5249,15 @@ private fun openCasaDelLibro(context: Context) {
                             }
                         }
                         if (vm.bulkInfoLoading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
-                        vm.message?.let { WallpaperLabel(it, fontSize = 12.sp) }
+                        vm.message?.let { notice ->
+                            LibraryStatusBanner(
+                                message = notice,
+                                failure = vm.lastDriveFailure,
+                                onDismiss = vm::clearMessage,
+                                onRetry = vm::sync,
+                                onChooseFolder = { folderPicker.launch(null) }
+                            )
+                        }
                     }
                     if (tab == "Secciones") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
