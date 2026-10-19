@@ -17,4 +17,17 @@ class SpeechPositionTest {
     }
 
     @Test fun emptyTextHasNoSpeechChunks() { assertEquals(emptyList<SpeechChunk>(), speechWordChunks("")) }
+
+    @Test fun fallbackChunksPreferSentenceBoundaries() {
+        val text = "Primera frase suficientemente larga para superar el mínimo y alcanzar el corte. " +
+            "Segunda frase mucho más extensa que mantiene contenido suficiente para superar ciento veinte caracteres."
+        val chunks = speechWordChunks(text, maxChars = 120)
+        assertEquals("Primera frase suficientemente larga para superar el mínimo y alcanzar el corte.",
+            chunks.first().text)
+    }
+
+    @Test fun fifteenSecondSeekFollowsSpeechRate() {
+        assertEquals(270, speechSeekDistance(15, 1f))
+        assertEquals(405, speechSeekDistance(15, 1.5f))
+    }
 }
