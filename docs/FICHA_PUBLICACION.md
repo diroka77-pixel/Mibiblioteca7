@@ -1,4 +1,4 @@
-# Ficha de publicación — MiBiblioteca 1.0.61
+# Ficha de publicación — MiBiblioteca 1.0.62
 
 ## Nombre
 
@@ -38,3 +38,4 @@ La aplicación no solicita acceso general al almacenamiento ni permiso para inst
 - Abrir «Acerca de y soporte» y comprobar que el diagnóstico no muestra títulos, notas ni rutas.
 - Compartir el diagnóstico con cámara, micrófono y notificaciones concedidos y denegados.
 - Adjuntar esta política de privacidad y completar la declaración de seguridad de datos de la tienda.
+- Revisar «Información legal» y conservar los textos completos de licencia exigidos por cada dependencia en el paquete de distribución.

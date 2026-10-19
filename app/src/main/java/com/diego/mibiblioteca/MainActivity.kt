@@ -415,6 +415,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var animationMode by mutableStateOf("Equilibrada"); private set
     var interfaceTextScale by mutableFloatStateOf(1f); private set
     var showFirstRunGuide by mutableStateOf(false); private set
+    var showReleaseNotes by mutableStateOf(false); private set
     var lastOpenedUri by mutableStateOf<Uri?>(null); private set
     var selectedSection by mutableStateOf<String?>(null)
     var sections by mutableStateOf<List<String>>(emptyList()); private set
@@ -567,6 +568,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             normalizeCachedIdentities()
             showFirstRunGuide = !prefs.getBoolean("first_run_guide_seen", false) &&
                 books.isEmpty() && prefs.getString(folderKey, null).isNullOrBlank()
+            val currentVersion = app.packageManager.getPackageInfo(app.packageName, 0)
+                .versionName.orEmpty()
+            if (showFirstRunGuide) {
+                prefs.edit().putString("release_notes_seen", currentVersion).apply()
+            } else {
+                showReleaseNotes = shouldShowReleaseNotes(false,
+                    prefs.getString("release_notes_seen", null), currentVersion)
+            }
             // Las portadas se buscan manualmente desde Ajustes. Así abrir la app
             // no vuelve a recorrer toda la biblioteca ni consume red.
         }
@@ -1612,6 +1621,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun dismissFirstRunGuide() {
         showFirstRunGuide = false
         prefs.edit().putBoolean("first_run_guide_seen", true).apply()
+    }
+
+    fun dismissReleaseNotes() {
+        showReleaseNotes = false
+        val version = getApplication<Application>().packageManager
+            .getPackageInfo(getApplication<Application>().packageName, 0).versionName.orEmpty()
+        prefs.edit().putString("release_notes_seen", version).apply()
+    }
+
+    fun openReleaseNotes() {
+        showReleaseNotes = true
     }
 
     fun openFirstRunGuide() {
@@ -3835,6 +3855,14 @@ private fun openCasaDelLibro(context: Context) {
         }) { Text("Elegir carpeta") } },
         dismissButton = { TextButton(onClick = vm::dismissFirstRunGuide) { Text("Explorar primero") } }
     )
+    if (vm.showReleaseNotes && !vm.showFirstRunGuide) AlertDialog(
+        onDismissRequest = vm::dismissReleaseNotes,
+        title = { Text("Novedades de MiBiblioteca") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            currentReleaseNotes().forEach { note -> Text("• $note", fontSize = 13.sp) }
+        } },
+        confirmButton = { LibraryTextButton(onClick = vm::dismissReleaseNotes) { Text("Entendido") } }
+    )
     LaunchedEffect(vm.importedBookUri, vm.books) {
         vm.importedBookUri?.let { uri ->
             vm.books.firstOrNull { it.uri == uri }?.let {
@@ -3971,6 +3999,7 @@ private fun openCasaDelLibro(context: Context) {
     var privacyOpen by remember { mutableStateOf(false) }
     var supportOpen by remember { mutableStateOf(false) }
     var helpOpen by remember { mutableStateOf(false) }
+    var legalOpen by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var sortMode by rememberSaveable { mutableStateOf("Título") }
     val backupExport = rememberLauncherForActivityResult(
@@ -4831,6 +4860,21 @@ private fun openCasaDelLibro(context: Context) {
             }, modifier = Modifier.fillMaxWidth()) { Text("Elegir carpeta de libros") }
         } },
         confirmButton = { LibraryTextButton(onClick = { helpOpen = false }) { Text("Cerrar") } })
+    if (legalOpen) AlertDialog(onDismissRequest = { legalOpen = false },
+        title = { Text("Información legal y licencias") },
+        text = { Column(Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState())) {
+            Text("MiBiblioteca · By Diroka77", color = Mahogany,
+                fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+            legalNotices().forEach { notice ->
+                Text(notice.name, fontWeight = FontWeight.Bold, color = Teal,
+                    modifier = Modifier.padding(top = 6.dp))
+                Text(notice.notice, fontSize = 12.sp, lineHeight = 18.sp,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 7.dp))
+            }
+            Text("Los nombres y marcas mencionados se usan solo para identificar componentes o servicios compatibles.",
+                fontSize = 11.sp, color = Mahogany.copy(alpha = .75f))
+        } },
+        confirmButton = { LibraryTextButton(onClick = { legalOpen = false }) { Text("Cerrar") } })
     if (homeSettings) AlertDialog(onDismissRequest = { homeSettings = false },
         title = { Text("Organizar Inicio") },
         text = { Column {
@@ -5221,6 +5265,14 @@ private fun openCasaDelLibro(context: Context) {
                     NavigationDrawerItem(label = { Text("Ayuda y guía rápida") }, selected = false,
                         icon = { Icon(Icons.Outlined.HelpOutline, null) }, onClick = {
                             helpOpen = true; scope.launch { drawerState.close() }
+                        })
+                    NavigationDrawerItem(label = { Text("Novedades") }, selected = false,
+                        icon = { Icon(Icons.Outlined.NewReleases, null) }, onClick = {
+                            vm.openReleaseNotes(); scope.launch { drawerState.close() }
+                        })
+                    NavigationDrawerItem(label = { Text("Información legal") }, selected = false,
+                        icon = { Icon(Icons.Outlined.Gavel, null) }, onClick = {
+                            legalOpen = true; scope.launch { drawerState.close() }
                         })
                     NavigationDrawerItem(label = { Text("Estadísticas de lectura") }, selected = false,
                         icon = { AppIcon("Pendientes") }, onClick = {

@@ -1,3 +1,8 @@
+## Versión 1.0.62
+- Pantalla de novedades al actualizar, que puede volver a abrirse desde el menú.
+- Información legal y atribuciones de componentes incluidos y servicios externos.
+- Avisos diferenciados para AndroidX, Gson, jsoup, ML Kit, fuentes de libros, Wikimedia, RAE y Davefx.
+
 ## Versión 1.0.61
 - Nuevo centro de ayuda en castellano para configurar Drive, importar libros, usar el lector por voz y recuperar una biblioteca.
 - La guía inicial puede volver a abrirse desde el menú en cualquier momento.
