@@ -3965,6 +3965,7 @@ private fun openCasaDelLibro(context: Context) {
     var taskCenterOpen by remember { mutableStateOf(false) }
     var activityOpen by remember { mutableStateOf(false) }
     var privacyOpen by remember { mutableStateOf(false) }
+    var supportOpen by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var sortMode by rememberSaveable { mutableStateOf("Título") }
     val backupExport = rememberLauncherForActivityResult(
@@ -4121,6 +4122,31 @@ private fun openCasaDelLibro(context: Context) {
     val offlineBookUris = remember(booksSnapshot, vm.offlineRevision) {
         booksSnapshot.asSequence().filter { offlineBookUri(context, it) != null }
             .map { it.uri }.toSet()
+    }
+    @Suppress("DEPRECATION")
+    fun supportDiagnosticText(): String {
+        val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+        val versionCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P)
+            packageInfo.longVersionCode else packageInfo.versionCode.toLong()
+        fun granted(permission: String) = ContextCompat.checkSelfPermission(context, permission) ==
+            PackageManager.PERMISSION_GRANTED
+        return buildSupportDiagnostic(SupportDiagnosticInput(
+            appVersion = packageInfo.versionName.orEmpty(),
+            versionCode = versionCode,
+            androidVersion = android.os.Build.VERSION.RELEASE.orEmpty(),
+            deviceModel = listOf(android.os.Build.MANUFACTURER, android.os.Build.MODEL)
+                .filter(String::isNotBlank).joinToString(" ").trim(),
+            totalBooks = booksSnapshot.size,
+            readingBooks = booksSnapshot.count { it.status == ReadingStatus.READING },
+            offlineBooks = offlineBookUris.size,
+            folderLinked = vm.folderName != null,
+            cameraGranted = granted(Manifest.permission.CAMERA),
+            microphoneGranted = granted(Manifest.permission.RECORD_AUDIO),
+            notificationsGranted = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU ||
+                granted(Manifest.permission.POST_NOTIFICATIONS),
+            driveDiagnostic = vm.driveDiagnosticText(),
+            performanceDiagnostic = (context as? MainActivity)?.performanceReport().orEmpty()
+        ))
     }
     val typedQuery = vm.query
     var debouncedQuery by remember { mutableStateOf(typedQuery) }
@@ -4756,6 +4782,31 @@ private fun openCasaDelLibro(context: Context) {
                 fontSize = 12.sp, color = Mahogany.copy(alpha = .75f))
         } },
         confirmButton = { LibraryTextButton(onClick = { privacyOpen = false }) { Text("Entendido") } })
+    if (supportOpen) {
+        val diagnostic = supportDiagnosticText()
+        AlertDialog(onDismissRequest = { supportOpen = false },
+            title = { Text("Acerca de y soporte") },
+            text = { Column(Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState())) {
+                Text("Mi Biblioteca", fontFamily = FontFamily.Serif, fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold, color = Mahogany)
+                Text("By Diroka77", color = Teal, fontSize = 12.sp)
+                Spacer(Modifier.height(12.dp))
+                Text(diagnostic, fontSize = 12.sp, lineHeight = 18.sp)
+            } },
+            dismissButton = { LibraryTextButton(onClick = {
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "Diagnóstico de MiBiblioteca")
+                    putExtra(Intent.EXTRA_TEXT, diagnostic)
+                }
+                try { context.startActivity(Intent.createChooser(send, "Compartir diagnóstico")) }
+                catch (_: Exception) {
+                    android.widget.Toast.makeText(context, "No se pudo compartir el diagnóstico.",
+                        android.widget.Toast.LENGTH_LONG).show()
+                }
+            }) { Text("Compartir diagnóstico") } },
+            confirmButton = { LibraryTextButton(onClick = { supportOpen = false }) { Text("Cerrar") } })
+    }
     if (homeSettings) AlertDialog(onDismissRequest = { homeSettings = false },
         title = { Text("Organizar Inicio") },
         text = { Column {
@@ -5138,6 +5189,10 @@ private fun openCasaDelLibro(context: Context) {
                     NavigationDrawerItem(label = { Text("Privacidad y datos") }, selected = false,
                         icon = { AppIcon("Ajustes") }, onClick = {
                             privacyOpen = true; scope.launch { drawerState.close() }
+                        })
+                    NavigationDrawerItem(label = { Text("Acerca de y soporte") }, selected = false,
+                        icon = { Icon(Icons.Outlined.Info, null) }, onClick = {
+                            supportOpen = true; scope.launch { drawerState.close() }
                         })
                     NavigationDrawerItem(label = { Text("Estadísticas de lectura") }, selected = false,
                         icon = { AppIcon("Pendientes") }, onClick = {

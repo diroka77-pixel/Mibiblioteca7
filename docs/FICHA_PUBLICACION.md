@@ -1,4 +1,4 @@
-# Ficha de publicación — MiBiblioteca 1.0.59
+# Ficha de publicación — MiBiblioteca 1.0.60
 
 ## Nombre
 
@@ -34,4 +34,6 @@ La aplicación no solicita acceso general al almacenamiento ni permiso para inst
 - Probar selección, revocación y nueva selección de carpeta del proveedor.
 - Denegar cámara, micrófono y notificaciones para comprobar la degradación segura.
 - Verificar lector, TTS, respaldo, restauración y pantalla Privacidad y datos.
+- Abrir «Acerca de y soporte» y comprobar que el diagnóstico no muestra títulos, notas ni rutas.
+- Compartir el diagnóstico con cámara, micrófono y notificaciones concedidos y denegados.
 - Adjuntar esta política de privacidad y completar la declaración de seguridad de datos de la tienda.

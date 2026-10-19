@@ -1,3 +1,8 @@
+## Versión 1.0.60
+- Nueva pantalla «Acerca de y soporte» con versión instalada, estado de permisos opcionales y resumen técnico.
+- Informe de diagnóstico compartible sin títulos, notas, rutas ni contenido de los libros.
+- El diagnóstico reúne sincronización, rendimiento de la sesión y cifras generales para facilitar la resolución de incidencias.
+
 ## Versión 1.0.59
 - Nuevo panel «Privacidad y datos» con información clara sobre almacenamiento, red y permisos opcionales.
 - Eliminado el permiso para instalar paquetes: la descarga opcional de Davefx se abre ahora en el navegador.
