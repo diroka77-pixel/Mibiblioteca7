@@ -138,7 +138,7 @@ internal fun readerImageHeight(
         (pageHeight * 0.55f).toInt().coerceAtLeast(1)
     )
 }
-internal fun speechWordChunks(text: String, maxChars: Int = 900): List<SpeechChunk> {
+internal fun speechWordChunks(text: String, maxChars: Int = 320): List<SpeechChunk> {
     if (text.isBlank()) return emptyList()
     val limit = maxChars.coerceAtLeast(120)
     val chunks = mutableListOf<SpeechChunk>()
@@ -146,10 +146,14 @@ internal fun speechWordChunks(text: String, maxChars: Int = 900): List<SpeechChu
     while (from < text.length) {
         val hardEnd = (from + limit).coerceAtMost(text.length)
         val end = if (hardEnd == text.length) hardEnd else {
-            val boundary = text.lastIndexOf(' ', hardEnd - 1).takeIf { it > from }
+            val sentenceFloor = from + (limit / 2)
+            val sentenceEnd = listOf('.', '!', '?', ';', ':')
+                .maxOfOrNull { text.lastIndexOf(it, hardEnd - 1) }
+                ?.takeIf { it >= sentenceFloor }
+                ?.plus(1)
+            sentenceEnd ?: text.lastIndexOf(' ', hardEnd - 1).takeIf { it > from }
                 ?: text.indexOf(' ', hardEnd).takeIf { it >= 0 }
                 ?: hardEnd
-            boundary
         }
         val content = text.substring(from, end)
         if (content.isNotBlank()) chunks += SpeechChunk(from, content)
@@ -157,6 +161,9 @@ internal fun speechWordChunks(text: String, maxChars: Int = 900): List<SpeechChu
     }
     return chunks
 }
+
+internal fun speechSeekDistance(seconds: Int, rate: Float): Int =
+    (seconds.coerceAtLeast(1) * 18f * rate.coerceIn(0.5f, 2f)).toInt().coerceAtLeast(1)
 private fun speechPage(page: ReadingPage, paragraphs: List<ReadingParagraph>, positions: IntArray): SpeechPage {
     val text = StringBuilder()
     val sourcePositions = ArrayList<Int>()
@@ -1033,6 +1040,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         audioCursor = safePosition
         prefs.edit().putInt("char_$key", safePosition).apply()
     }
+    fun persistSpeechCursorNow(position: Int = activeSpeechCursor.get()) {
+        val safePosition = position.coerceAtLeast(0)
+        activeSpeechCursor.set(safePosition)
+        audioCursor = safePosition
+        prefs.edit().putInt("char_$key", safePosition).commit()
+    }
     fun saveReadingCursor(position: Int) {
         prefs.edit().putInt("reading_char_$key", position.coerceAtLeast(0)).apply()
     }
@@ -1041,7 +1054,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     }
     fun pauseSpeech() {
         // Ignore callbacks delivered late by the utterance that is being stopped.
-        if (audioActive) saveSpeechCursor(currentSpeechPosition())
+        if (audioActive) persistSpeechCursorNow()
         speechGeneration.incrementAndGet()
         speech?.stop()
         audioActive = false
@@ -1072,8 +1085,10 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     }
                     ReaderPlaybackService.ACTION_PAUSE -> pauseSpeech()
                     ReaderPlaybackService.ACTION_STOP -> pauseSpeech()
-                    ReaderPlaybackService.ACTION_FORWARD -> requestAudioSeek(270)
-                    ReaderPlaybackService.ACTION_REWIND -> requestAudioSeek(-270)
+                    ReaderPlaybackService.ACTION_FORWARD ->
+                        requestAudioSeek(speechSeekDistance(15, speechRate))
+                    ReaderPlaybackService.ACTION_REWIND ->
+                        requestAudioSeek(-speechSeekDistance(15, speechRate))
                 }
             }
         }
@@ -1643,7 +1658,20 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         if (result == TextToSpeech.ERROR) audioActive = false
                                     }
                                     engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                                        override fun onStart(utteranceId: String?) {}
+                                        override fun onStart(utteranceId: String?) {
+                                            if (speechGeneration.get() != utteranceGeneration) return
+                                            val chunkIndex = utteranceId?.substringAfterLast('_')?.toIntOrNull()
+                                                ?: return
+                                            val chunk = chunks.getOrNull(chunkIndex) ?: return
+                                            val fallbackPosition = speechCharForOffset(
+                                                spokenPage, spokenBaseOffset + chunk.start, total)
+                                            Handler(Looper.getMainLooper()).post {
+                                                if (speechGeneration.get() == utteranceGeneration) {
+                                                    saveSpeechCursor(fallbackPosition)
+                                                    percent = readerProgressPercent(fallbackPosition, total)
+                                                }
+                                            }
+                                        }
                                         override fun onRangeStart(utteranceId: String?, start: Int, end: Int,
                                             frame: Int) {
                                             if (speechGeneration.get() != utteranceGeneration) return
@@ -1661,8 +1689,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                 if (speechGeneration.get() == utteranceGeneration) {
                                                     activeSpeechCursor.set(sourcePosition)
                                                     audioCursor = sourcePosition
+                                                    percent = readerProgressPercent(sourcePosition, total)
+                                                    currentChapterTitle = chapterNavigation.getOrNull(
+                                                        readerChapterIndexAt(chapterNavigation, sourcePosition)
+                                                    )?.title.orEmpty()
                                                     prefs.edit().putInt("char_$key", sourcePosition)
-                                                        .putInt("percent_$key", (sourcePosition * 100 / total).coerceIn(0, 99))
+                                                        .putInt("percent_$key", percent)
                                                         .apply()
                                                 }
                                             }
@@ -2057,7 +2089,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 TextButton(
                                     modifier = Modifier.weight(1f).height(54.dp),
                                     contentPadding = PaddingValues(0.dp),
-                                    onClick = { requestAudioSeek(-270) }
+                                    onClick = { requestAudioSeek(-speechSeekDistance(15, speechRate)) }
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         AppIcon("Retroceder", size = 19.dp)
@@ -2095,7 +2127,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 TextButton(
                                     modifier = Modifier.weight(1f).height(54.dp),
                                     contentPadding = PaddingValues(0.dp),
-                                    onClick = { requestAudioSeek(270) }
+                                    onClick = { requestAudioSeek(speechSeekDistance(15, speechRate)) }
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         AppIcon("Avanzar", size = 19.dp)
@@ -2120,6 +2152,18 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     }
                                 }
                             }
+                            Text(
+                                buildString {
+                                    append("Escuchando · ").append(percent).append(" %")
+                                    if (currentChapterTitle.isNotBlank())
+                                        append(" · ").append(currentChapterTitle)
+                                },
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
                             }
                         }
                     }
