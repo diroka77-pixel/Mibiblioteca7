@@ -6,7 +6,7 @@ plugins {
 
 android { namespace = "com.diego.mibiblioteca"; compileSdk = 35
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 35; versionCode = 158; versionName = "1.0.58" }
+    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 35; versionCode = 159; versionName = "1.0.59" }
     val persistentKeyPath = System.getenv("MIBIBLIOTECA_KEYSTORE_PATH")
     val persistentSigning = if (!persistentKeyPath.isNullOrBlank()) signingConfigs.create("persistent") {
         storeFile = file(persistentKeyPath)
@@ -23,6 +23,9 @@ android { namespace = "com.diego.mibiblioteca"; compileSdk = 35
       getByName("release") {
         signingConfig = persistentSigning
         isMinifyEnabled = true
+        isShrinkResources = true
+        isDebuggable = false
+        isJniDebuggable = false
         proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
     } }
 }

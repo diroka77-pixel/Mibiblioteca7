@@ -3964,6 +3964,7 @@ private fun openCasaDelLibro(context: Context) {
     var releaseCalendarOpen by remember { mutableStateOf(false) }
     var taskCenterOpen by remember { mutableStateOf(false) }
     var activityOpen by remember { mutableStateOf(false) }
+    var privacyOpen by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var sortMode by rememberSaveable { mutableStateOf("Título") }
     val backupExport = rememberLauncherForActivityResult(
@@ -4741,6 +4742,20 @@ private fun openCasaDelLibro(context: Context) {
                 fontSize = 12.sp, color = Mahogany) }
         } },
         confirmButton = { LibraryTextButton(onClick = { activityOpen = false }) { Text("Cerrar") } })
+    if (privacyOpen) AlertDialog(onDismissRequest = { privacyOpen = false },
+        title = { Text("Privacidad y datos") },
+        text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+            Text("Resumen claro de cómo funciona MiBiblioteca.", color = Mahogany)
+            Spacer(Modifier.height(10.dp))
+            privacyDisclosures().forEach { disclosure ->
+                Text(disclosure.title, fontWeight = FontWeight.Bold, color = Teal)
+                Text(disclosure.detail, fontSize = 13.sp, lineHeight = 19.sp,
+                    modifier = Modifier.padding(bottom = 10.dp))
+            }
+            Text("Puedes revisar y exportar tus datos desde Opciones de biblioteca.",
+                fontSize = 12.sp, color = Mahogany.copy(alpha = .75f))
+        } },
+        confirmButton = { LibraryTextButton(onClick = { privacyOpen = false }) { Text("Entendido") } })
     if (homeSettings) AlertDialog(onDismissRequest = { homeSettings = false },
         title = { Text("Organizar Inicio") },
         text = { Column {
@@ -5008,6 +5023,10 @@ private fun openCasaDelLibro(context: Context) {
                             icon = { AppIcon("Opciones") }, onClick = {
                                 scope.launch { drawerState.close() }; backupMenu = true
                             })
+                        NavigationDrawerItem(label = { Text("Privacidad y datos") }, selected = false,
+                            icon = { AppIcon("Ajustes") }, onClick = {
+                                scope.launch { drawerState.close() }; privacyOpen = true
+                            })
                     } else {
                     Surface(color = Mahogany,
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)) {
@@ -5115,6 +5134,10 @@ private fun openCasaDelLibro(context: Context) {
                     NavigationDrawerItem(label = { Text("Actividad reciente") }, selected = false,
                         icon = { Icon(Icons.Outlined.History, null) }, onClick = {
                             activityOpen = true; scope.launch { drawerState.close() }
+                        })
+                    NavigationDrawerItem(label = { Text("Privacidad y datos") }, selected = false,
+                        icon = { AppIcon("Ajustes") }, onClick = {
+                            privacyOpen = true; scope.launch { drawerState.close() }
                         })
                     NavigationDrawerItem(label = { Text("Estadísticas de lectura") }, selected = false,
                         icon = { AppIcon("Pendientes") }, onClick = {

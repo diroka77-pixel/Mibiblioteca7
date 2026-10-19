@@ -1,0 +1,11 @@
+package com.diego.mibiblioteca
+
+internal data class PrivacyDisclosure(val title: String, val detail: String)
+
+internal fun privacyDisclosures(): List<PrivacyDisclosure> = listOf(
+    PrivacyDisclosure("Datos bajo tu control", "El catálogo, el progreso, las notas y las preferencias se guardan en este dispositivo y en el respaldo de Drive que tú elijas."),
+    PrivacyDisclosure("Sin anuncios ni seguimiento", "MiBiblioteca no incluye publicidad, analítica de uso ni exige crear una cuenta propia."),
+    PrivacyDisclosure("Acceso a Internet", "Se usa para sincronizar con el proveedor de archivos elegido y consultar portadas, fichas, noticias, diccionario o traducción cuando solicitas esas funciones."),
+    PrivacyDisclosure("Permisos opcionales", "La cámara solo se solicita al escanear un ISBN, el micrófono al usar búsqueda por voz y las notificaciones para mantener los controles de lectura en voz alta."),
+    PrivacyDisclosure("Copias de Android desactivadas", "La aplicación impide que Android copie automáticamente sus datos. Tú decides cuándo exportar o restaurar un respaldo.")
+)

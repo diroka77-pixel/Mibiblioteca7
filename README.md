@@ -1,3 +1,9 @@
+## Versión 1.0.59
+- Nuevo panel «Privacidad y datos» con información clara sobre almacenamiento, red y permisos opcionales.
+- Eliminado el permiso para instalar paquetes: la descarga opcional de Davefx se abre ahora en el navegador.
+- Reducida la visibilidad de aplicaciones externas y desactivado explícitamente el código de depuración en la compilación pública.
+- Activada la eliminación de recursos no utilizados para reducir el tamaño final sin afectar a la biblioteca.
+
 ## Versión 1.0.58
 - Estado de la biblioteca realiza una revisión incremental y no destructiva de cada referencia del catálogo.
 - Detecta archivos inaccesibles, referencias repetidas, copias posibles, archivos vacíos o incompatibles y tamaños aún no confirmados por Drive.
