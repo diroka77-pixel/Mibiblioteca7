@@ -1,0 +1,4 @@
+• Mejoras de accesibilidad para TalkBack en el catálogo y el lector.
+• Controles de voz y zonas de paso de página con objetivos táctiles más amplios.
+• Progreso, descarga, sincronización y mantenimiento con estados hablados.
+• Mejor adaptación de la cabecera, navegación y modos de biblioteca al texto grande.

@@ -10,6 +10,8 @@ La rama `desarrollo/optimizacion-integral` es experimental. No fusionar con `mai
 - El resumen de sincronización incluye el número de libros sin portada.
 - La navegación inferior toma colores de `LibraryVisualTokens`.
 - Se añadieron reglas de proporción y cuatro pruebas unitarias.
+- TalkBack recibe etiquetas y estados para paginación, voz, progreso, descarga, sincronización y mantenimiento.
+- Las zonas táctiles principales del lector tienen al menos 48 dp y los controles principales admiten texto grande.
 
 ## Validación estática / compilación (sin publicar APK)
 1. Ejecutar `gradle :app:testDebugUnitTest --no-daemon` en el entorno con SDK Android 35.

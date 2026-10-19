@@ -4,7 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -51,7 +51,7 @@ internal fun UnifiedLibraryModeBar(
             actions.forEach { (mode, icon, action) ->
                 val selected = current == mode
                 Surface(
-                    modifier = Modifier.weight(1f).height(48.dp)
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                         .semantics { stateDescription = if (selected) "Seleccionado" else "No seleccionado" }
                         .selectable(selected = selected, onClick = action, role = Role.Tab),
                     color = if (selected) Color(0xFF9A6843) else Color.Transparent,
@@ -59,7 +59,7 @@ internal fun UnifiedLibraryModeBar(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 7.dp)
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp)
                     ) {
                         Icon(icon, contentDescription = null, tint = Color.White)
                         Text(
@@ -68,7 +68,7 @@ internal fun UnifiedLibraryModeBar(
                             color = Color.White,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                             fontSize = 13.sp,
-                            maxLines = 1
+                            maxLines = 2
                         )
                     }
                 }

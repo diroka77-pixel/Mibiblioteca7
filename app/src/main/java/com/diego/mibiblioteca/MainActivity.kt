@@ -16,6 +16,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.res.painterResource
 import android.content.Context
 import android.content.Intent
@@ -4605,7 +4606,10 @@ private fun openCasaDelLibro(context: Context) {
                 Text("Salud del catálogo", fontWeight = FontWeight.SemiBold)
                 LinearProgressIndicator(
                     progress = { health.healthScore / 100f },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp).semantics {
+                        contentDescription = "Salud de la biblioteca"
+                        stateDescription = percentDescription("Salud", health.healthScore)
+                    },
                     color = Teal)
                 if (vm.maintenanceRunning) {
                     Text("Comprobando archivos ${vm.maintenanceDone}/${vm.maintenanceTotal}…",
@@ -4613,7 +4617,10 @@ private fun openCasaDelLibro(context: Context) {
                     LinearProgressIndicator(
                         progress = { if (vm.maintenanceTotal == 0) 0f else
                             vm.maintenanceDone.toFloat() / vm.maintenanceTotal },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), color = Brass)
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).semantics {
+                            contentDescription = "Comprobación de archivos"
+                            stateDescription = "${vm.maintenanceDone} de ${vm.maintenanceTotal}"
+                        }, color = Brass)
                 } else Text("Revisión incremental completada", fontSize = 12.sp, color = Teal)
                 Info("Libros analizados", health.total.toString())
                 Info("Fichas completas", health.healthy.toString())
@@ -5317,7 +5324,7 @@ private fun openCasaDelLibro(context: Context) {
         containerColor = Color.Transparent,
         topBar = {
             Column(Modifier.fillMaxWidth().background(if (immersive) immersedBar else HeaderBrown).statusBarsPadding()) {
-                Box(Modifier.fillMaxWidth().height(50.dp)) {
+                Box(Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
                     IconButton(onClick = { scope.launch { drawerState.open() } },
                         modifier = Modifier.align(Alignment.CenterStart)
                             .semantics { contentDescription = "Abrir menú" }) {
@@ -5325,14 +5332,18 @@ private fun openCasaDelLibro(context: Context) {
                     }
                     Text("Mi Biblioteca", modifier = Modifier.align(Alignment.Center),
                         color = Color.White, fontSize = 26.sp,
-                        fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Serif)
+                        fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Serif,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                     IconButton(onClick = {
                         vm.sync()
                         android.widget.Toast.makeText(context,
                             "Buscando libros nuevos y cambios en Drive…",
                             android.widget.Toast.LENGTH_SHORT).show()
                     }, enabled = !vm.syncing, modifier = Modifier.align(Alignment.CenterEnd)
-                        .semantics { contentDescription = "Actualizar biblioteca" }) {
+                        .semantics {
+                            contentDescription = "Actualizar biblioteca"
+                            stateDescription = if (vm.syncing) "Actualización en curso" else "Disponible"
+                        }) {
                         if (vm.syncing) {
                             CircularProgressIndicator(Modifier.size(22.dp), color = Color.White,
                                 strokeWidth = 2.dp)
@@ -5386,7 +5397,7 @@ private fun openCasaDelLibro(context: Context) {
                             (targetTab == "Biblioteca" && tab == "Secciones"),
                         onClick = { switchTab(targetTab) },
                         icon = { AppIcon(icon, description = label, size = 22.dp) },
-                        label = { Text(label, maxLines = 1, softWrap = false,
+                        label = { Text(label, maxLines = 2, softWrap = true,
                             fontSize = 11.sp) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = Mahogany,
@@ -5404,7 +5415,10 @@ private fun openCasaDelLibro(context: Context) {
         Column(Modifier.fillMaxSize()) {
         if (vm.offlineDownloadUri != null) {
             LinearProgressIndicator(progress = { vm.offlineDownloadPercent / 100f },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), color = Teal)
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).semantics {
+                    contentDescription = "Descarga del libro"
+                    stateDescription = percentDescription("Descarga", vm.offlineDownloadPercent)
+                }, color = Teal)
             WallpaperLabel("Descargando libro · ${vm.offlineDownloadPercent} %",
                 modifier = Modifier.padding(horizontal = 16.dp), fontSize = 12.sp)
         }

@@ -75,6 +75,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -1427,7 +1431,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 Slider(value = if (brightness < 0f) 0.5f else brightness, onValueChange = {
                     brightness = it.coerceIn(0.05f, 1f)
                     prefs.edit().putFloat("brightness", brightness).apply()
-                }, valueRange = 0.05f..1f)
+                }, valueRange = 0.05f..1f,
+                    modifier = Modifier.semantics { contentDescription = "Brillo de lectura" })
                 TextButton(onClick = {
                     brightness = -1f
                     prefs.edit().putFloat("brightness", -1f).apply()
@@ -1581,9 +1586,11 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 else CircularProgressIndicator()
                             }
                         }
-                        Box(Modifier.align(Alignment.CenterStart).width(38.dp).fillMaxHeight()
+                        Box(Modifier.align(Alignment.CenterStart).width(48.dp).fillMaxHeight()
+                            .semantics { contentDescription = "Página anterior"; role = Role.Button }
                             .clickable { page = (index - 1).coerceAtLeast(0) })
-                        Box(Modifier.align(Alignment.CenterEnd).width(38.dp).fillMaxHeight()
+                        Box(Modifier.align(Alignment.CenterEnd).width(48.dp).fillMaxHeight()
+                            .semantics { contentDescription = "Página siguiente"; role = Role.Button }
                             .clickable { page = (index + 1).coerceAtMost(document.pages - 1) })
                     }
                     Text("Página ${index + 1} de ${document.pages} · ${((index + 1) * 100f / document.pages).toInt()} %",
@@ -1914,9 +1921,11 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     }
                                 }
                             }
-                            Box(Modifier.align(Alignment.CenterStart).width(32.dp).fillMaxHeight()
+                            Box(Modifier.align(Alignment.CenterStart).width(48.dp).fillMaxHeight()
+                                .semantics { contentDescription = "Página anterior"; role = Role.Button }
                                 .clickable { turn(-1) })
-                            Box(Modifier.align(Alignment.CenterEnd).width(32.dp).fillMaxHeight()
+                            Box(Modifier.align(Alignment.CenterEnd).width(48.dp).fillMaxHeight()
+                                .semantics { contentDescription = "Página siguiente"; role = Role.Button }
                                 .clickable { turn(1) })
                         }
                         if (showReaderTools) {
@@ -1943,6 +1952,10 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         color = foreground.copy(alpha = 0.75f))
                                     Slider(value = requestedPage, onValueChange = { requestedPage = it },
                                         valueRange = 0f..pages.lastIndex.toFloat().coerceAtLeast(0f),
+                                        modifier = Modifier.semantics {
+                                            contentDescription = "Posición de lectura"
+                                            stateDescription = pageDescription(requestedPage.toInt(), pages.size)
+                                        },
                                         onValueChangeFinished = {
                                             val target = requestedPage.toInt().coerceIn(pages.indices)
                                             textPage = target
@@ -2024,13 +2037,15 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     Slider(value = readerMargin, onValueChange = {
                                         readerMargin = it
                                         prefs.edit().putFloat("reader_margin", it).apply()
-                                    }, valueRange = 12f..42f)
+                                    }, valueRange = 12f..42f,
+                                        modifier = Modifier.semantics { contentDescription = "Márgenes de lectura" })
                                     Text("Espaciado entre líneas · ${String.format(java.util.Locale.ROOT, "%.2f", lineSpacing)}",
                                         color = foreground.copy(alpha = 0.78f))
                                     Slider(value = lineSpacing, onValueChange = {
                                         lineSpacing = it
                                         prefs.edit().putFloat("line_spacing", it).apply()
-                                    }, valueRange = 1.15f..1.8f)
+                                    }, valueRange = 1.15f..1.8f,
+                                        modifier = Modifier.semantics { contentDescription = "Espaciado entre líneas" })
                                     HorizontalDivider()
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
@@ -2124,7 +2139,10 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 }
                                 LinearProgressIndicator(
                                     progress = { (percent / 100f).coerceIn(0f, 1f) },
-                                    modifier = Modifier.fillMaxWidth().height(2.dp),
+                                    modifier = Modifier.fillMaxWidth().height(2.dp).semantics {
+                                        contentDescription = "Progreso de lectura"
+                                        stateDescription = percentDescription("Lectura", percent)
+                                    },
                                     color = if (dark) Color(0xFF8BC7D1) else Color(0xFF8A2D2D),
                                     trackColor = foreground.copy(alpha = 0.12f)
                                 )
@@ -2152,14 +2170,20 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 horizontalArrangement = Arrangement.Center
                             ) {
                                 TextButton(onClick = { changeSpeechRate(-0.1f) },
-                                    modifier = Modifier.height(34.dp),
+                                    modifier = Modifier.heightIn(min = 48.dp).semantics {
+                                        contentDescription = "Reducir velocidad de lectura"
+                                    },
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)) {
                                     Text("−", fontSize = 19.sp, lineHeight = 20.sp)
                                 }
                                 Text("Velocidad · ${String.format(java.util.Locale.ROOT, "%.1f", speechRate)}×",
-                                    fontSize = 12.sp, modifier = Modifier.padding(horizontal = 6.dp))
+                                    fontSize = 12.sp, modifier = Modifier.padding(horizontal = 6.dp).semantics {
+                                        contentDescription = speechRateDescription(speechRate)
+                                    })
                                 TextButton(onClick = { changeSpeechRate(0.1f) },
-                                    modifier = Modifier.height(34.dp),
+                                    modifier = Modifier.heightIn(min = 48.dp).semantics {
+                                        contentDescription = "Aumentar velocidad de lectura"
+                                    },
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)) {
                                     Text("+", fontSize = 19.sp, lineHeight = 20.sp)
                                 }
@@ -2170,7 +2194,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 horizontalArrangement = Arrangement.SpaceEvenly
                             ) {
                                 TextButton(
-                                    modifier = Modifier.weight(1f).height(46.dp),
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics {
+                                        contentDescription = "Retroceder quince segundos"
+                                    },
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = { requestAudioSeek(-speechSeekDistance(15, speechRate)) }
                                 ) {
@@ -2180,7 +2206,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     }
                                 }
                                 TextButton(
-                                    modifier = Modifier.weight(1f).height(46.dp),
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics {
+                                        contentDescription = if (audioActive) "Pausar lectura" else "Reproducir lectura"
+                                    },
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = {
                                         if (audioActive) pauseSpeech() else startSpeech()
@@ -2192,7 +2220,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     }
                                 }
                                 TextButton(
-                                    modifier = Modifier.weight(1f).height(46.dp),
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics {
+                                        contentDescription = "Detener lectura"
+                                    },
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = {
                                         pauseSpeech()
@@ -2206,7 +2236,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     }
                                 }
                                 TextButton(
-                                    modifier = Modifier.weight(1f).height(46.dp),
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics {
+                                        contentDescription = "Avanzar quince segundos"
+                                    },
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = { requestAudioSeek(speechSeekDistance(15, speechRate)) }
                                 ) {
@@ -2216,7 +2248,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     }
                                 }
                                 TextButton(
-                                    modifier = Modifier.weight(1.15f).height(46.dp),
+                                    modifier = Modifier.weight(1.15f).heightIn(min = 48.dp).semantics {
+                                        contentDescription = "Continuar con la pantalla bloqueada"
+                                    },
                                     contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
                                     onClick = {
                                         activity?.moveTaskToBack(true)

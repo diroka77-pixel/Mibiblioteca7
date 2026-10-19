@@ -1,3 +1,9 @@
+## Versión 1.0.63
+- TalkBack identifica las zonas para avanzar y retroceder página, los controles de voz y los ajustes del lector.
+- El progreso de lectura, las descargas, la sincronización y el mantenimiento anuncian su estado.
+- Los objetivos táctiles principales del lector respetan un mínimo de 48 dp.
+- La cabecera, la navegación inferior y el selector Libros/Géneros/Secciones admiten mejor el texto grande.
+
 ## Versión 1.0.62
 - Pantalla de novedades al actualizar, que puede volver a abrirse desde el menú.
 - Información legal y atribuciones de componentes incluidos y servicios externos.
