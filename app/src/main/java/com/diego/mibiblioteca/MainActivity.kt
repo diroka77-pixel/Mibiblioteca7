@@ -534,6 +534,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var hiddenNewsUrls by mutableStateOf<Set<String>>(emptySet()); private set
     var newsLastChecked by mutableStateOf(0L); private set
     var folderName by mutableStateOf<String?>(null); private set
+    val folderLinked: Boolean
+        get() = !prefs.getString(folderKey, null).isNullOrBlank()
     var message by mutableStateOf<String?>(null); private set
     internal var lastDriveFailure by mutableStateOf<DriveFailureKind?>(null); private set
     var activityLog by mutableStateOf<List<String>>(emptyList()); private set
@@ -622,7 +624,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         animationMode = prefs.getString("animation_mode", "Equilibrada") ?: "Equilibrada"
         interfaceTextScale = prefs.getFloat("interface_text_scale", 1f).coerceIn(1f, 1.3f)
         lastOpenedUri = prefs.getString("last_opened_book", null)?.let(Uri::parse)
-        folderName = prefs.getString("folder_name", null)
+        folderName = prefs.getString("folder_name", null)?.takeIf(String::isNotBlank)
+        if (folderLinked && folderName == null) folderName = "Carpeta de libros"
         restoreLaunchNews()
         hiddenNewsSources = safeSavedArray(prefs.getString("hidden_news_sources", "[]")).let { arr ->
             (0 until arr.length()).map { arr.optString(it) }.toSet()
@@ -4112,22 +4115,23 @@ private fun openCasaDelLibro(context: Context) {
         else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
     val readingBooks = remember(vm.books) { vm.readingBooks() }
-    val homeRecommendations = remember(vm.books) {
-        val byId = vm.books.associateBy { it.uri.toString() }
-        localBookRecommendations(vm.books.map { book ->
-            RecommendationInput(
-                id = book.uri.toString(),
-                title = displayTitle(book),
-                author = displayAuthor(book),
-                genres = normalizeBookGenres(book.genre),
-                saga = book.saga,
-                status = book.status,
-                favorite = book.favorite,
-                wantToRead = book.wantToRead,
-                rating = book.rating
+    val homeRecommendations by produceState<List<PublicBookResult>>(
+        initialValue = emptyList(), vm.books
+    ) {
+        val snapshot = vm.books
+        if (snapshot.isEmpty()) return@produceState
+        val preferred = snapshot.filter {
+            it.favorite || it.rating >= 4 || it.status == ReadingStatus.READING ||
+                it.status == ReadingStatus.READ
+        }.ifEmpty { snapshot }.take(8)
+        value = withContext(Dispatchers.IO) {
+            externalBookRecommendations(
+                preferred.map { book -> ExternalRecommendationSeed(
+                    displayTitle(book), displayAuthor(book), normalizeBookGenres(book.genre)
+                ) },
+                snapshot.map { displayTitle(it) to displayAuthor(it) },
+                limit = 12
             )
-        }).mapNotNull { recommendation ->
-            byId[recommendation.id]?.let { recommendation to it }
         }
     }
     // Secciones mantiene su propia vista, separada de Biblioteca.
@@ -4174,7 +4178,7 @@ private fun openCasaDelLibro(context: Context) {
             totalBooks = booksSnapshot.size,
             readingBooks = booksSnapshot.count { it.status == ReadingStatus.READING },
             offlineBooks = offlineBookUris.size,
-            folderLinked = vm.folderName != null,
+            folderLinked = vm.folderLinked,
             cameraGranted = granted(Manifest.permission.CAMERA),
             microphoneGranted = granted(Manifest.permission.RECORD_AUDIO),
             notificationsGranted = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU ||
@@ -4989,7 +4993,8 @@ private fun openCasaDelLibro(context: Context) {
                 }, {
                     selected = null; vm.query = shown.saga; vm.groupMode = "Sagas"
                     switchTab("Biblioteca")
-                }, { tags, loanTo, loanDate, rereads ->
+                }, { result -> vm.addGoodreadsWish(result.title, result.sourceUrl) },
+                { tags, loanTo, loanDate, rereads ->
                     vm.saveBookManagement(shown.uri, tags, loanTo, loanDate, rereads)
                 })
         } else {
@@ -5424,14 +5429,7 @@ private fun openCasaDelLibro(context: Context) {
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().graphicsLayer {
-                val travel = (pageMotion.value + pageDrag.floatValue * 0.18f)
-                    .coerceIn(-pageTravelPx, pageTravelPx)
-                translationX = travel
-                alpha = 1f - FastOutSlowInEasing.transform(
-                    (kotlin.math.abs(travel) / pageTravelPx.coerceAtLeast(1f))
-                        .coerceIn(0f, 1f))
-            },
+            modifier = Modifier.fillMaxSize(),
             state = listState,
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -5481,11 +5479,13 @@ private fun openCasaDelLibro(context: Context) {
                     startReader(book)
                 } }
             if (tab == "Inicio" && homeRecommendations.isNotEmpty())
-                item(key = "local-recommendations") {
-                    HomeRecommendations(homeRecommendations, offlineBookUris,
-                        onLongPress = { bookMenu = it },
-                        onViewAll = { switchTab("Biblioteca") },
-                        onOpen = ::openBookFromList)
+                item(key = "external-recommendations") {
+                    HomeExternalRecommendations(homeRecommendations,
+                        onViewAll = { switchTab("Descubrir") },
+                        onOpen = {
+                            selectedPublicResult = it
+                            switchTab("Descubrir")
+                        })
                 }
             if (tab == "Estadísticas") item(key = "reading-statistics-page") {
                 ReadingStatisticsPage(vm.books, vm::readingPercent,
@@ -5800,7 +5800,7 @@ private fun openCasaDelLibro(context: Context) {
                     }
                 }
                 }
-                if (vm.books.isEmpty() && !vm.syncing) item(key = "empty-home") {
+                if (vm.books.isEmpty() && !vm.syncing && !vm.folderLinked) item(key = "empty-home") {
                     Surface(Modifier.fillMaxWidth().padding(16.dp), color = Paper,
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)) {
                         Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally,
@@ -5834,7 +5834,7 @@ private fun openCasaDelLibro(context: Context) {
                 }
             } else if (tab == "Descubrir") {
                 // La pantalla de consulta pública tiene su propio contenido.
-            } else if (vm.books.isEmpty() && !vm.syncing) {
+            } else if (vm.books.isEmpty() && !vm.syncing && !vm.folderLinked) {
                 item(key = "empty") {
                     Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -6370,6 +6370,54 @@ private fun HomeMetricCard(label: String, value: String, accent: Color, modifier
         Column(Modifier.padding(11.dp)) {
             Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = accent)
             Text(label, fontSize = 11.sp, color = Ink, maxLines = 1)
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HomeExternalRecommendations(
+    books: List<PublicBookResult>,
+    onViewAll: () -> Unit,
+    onOpen: (PublicBookResult) -> Unit
+) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("Descubre tu próxima lectura", fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Color.White,
+                modifier = Modifier.weight(1f),
+                style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+            TextButton(onClick = onViewAll) { Text("Explorar", color = Color.White) }
+        }
+        LazyRow(Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp)) {
+            items(books, key = { "external:" + it.sourceUrl }) { result ->
+                val cover by rememberPublicCover(result.coverUrl)
+                Card(
+                    modifier = Modifier.width(126.dp).clickable { onOpen(result) },
+                    colors = CardDefaults.cardColors(containerColor = Paper.copy(alpha = .97f)),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                ) {
+                    if (cover != null) Image(cover!!.asImageBitmap(),
+                        contentDescription = "Portada de ${result.title}",
+                        modifier = Modifier.fillMaxWidth().height(178.dp),
+                        contentScale = ContentScale.Fit)
+                    else Box(Modifier.fillMaxWidth().height(178.dp),
+                        contentAlignment = Alignment.Center) {
+                        AppIcon("Libros", tint = Mahogany.copy(alpha = .5f), size = 42.dp)
+                    }
+                    Column(Modifier.padding(9.dp)) {
+                        Text(result.title, color = Ink, fontFamily = FontFamily.Serif,
+                            fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 2,
+                            overflow = TextOverflow.Ellipsis)
+                        Text(result.author, color = Mahogany.copy(alpha = .78f),
+                            fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
         }
     }
 }
@@ -7341,6 +7389,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     wallpaperMode: String, libraryBooks: List<Book>,
     saveReadingRecord: (Int, String, String, String) -> Unit,
     showAuthorBooks: () -> Unit, showSagaBooks: () -> Unit,
+    onWishExternal: (PublicBookResult) -> Unit,
     saveBookManagement: (String, String, String, Int) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -7509,6 +7558,20 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
             volume.order !in ownedSagaOrders && titleKey !in ownedSagaTitles
         }
     }
+    val similarBooks by produceState<List<PublicBookResult>>(
+        initialValue = emptyList(), book.uri, book.genre, libraryBooks
+    ) {
+        value = withContext(Dispatchers.IO) {
+            externalBookRecommendations(
+                listOf(ExternalRecommendationSeed(
+                    displayTitle(book), displayAuthor(book), normalizeBookGenres(book.genre)
+                )),
+                libraryBooks.map { displayTitle(it) to displayAuthor(it) },
+                limit = 10
+            )
+        }
+    }
+    var selectedSimilar by remember(book.uri) { mutableStateOf<PublicBookResult?>(null) }
     Box(Modifier.fillMaxSize().background(Parchment)) {
     LibraryWallpaper(wallpaperMode, book)
     Scaffold(containerColor = Color.Transparent, topBar = {
@@ -7850,6 +7913,52 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                     LibraryTextButton(onClick = {
                         searchInGoogleApp(context, displayAuthor(book) + " bibliografía completa")
                     }) { Text("Consultar bibliografía completa") }
+                }
+            }
+            if (similarBooks.isNotEmpty()) item(key = "similar-public-books") {
+                BookPanel("Libros similares", book.uri.toString(), initiallyExpanded = true) {
+                    val picked = selectedSimilar
+                    if (picked != null) {
+                        val publicDetails by produceState<PublicBookDetails?>(
+                            initialValue = null, picked.sourceUrl
+                        ) { value = localizedPublicBookDetails(picked) }
+                        PublicBookDetailPage(picked, publicDetails, false,
+                            onBack = { selectedSimilar = null },
+                            onWish = { onWishExternal(picked) })
+                    } else {
+                        Text("Sugerencias externas según la temática, el género y el autor.",
+                            color = Mahogany.copy(alpha = .76f), fontSize = 12.sp)
+                        LazyRow(Modifier.fillMaxWidth().padding(top = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(similarBooks, key = { "similar:" + it.sourceUrl }) { result ->
+                                val publicCover by rememberPublicCover(result.coverUrl)
+                                Card(
+                                    modifier = Modifier.width(118.dp).clickable {
+                                        selectedSimilar = result
+                                    },
+                                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                                ) {
+                                    if (publicCover != null) Image(publicCover!!.asImageBitmap(),
+                                        contentDescription = "Portada de ${result.title}",
+                                        modifier = Modifier.fillMaxWidth().height(164.dp),
+                                        contentScale = ContentScale.Fit)
+                                    else Box(Modifier.fillMaxWidth().height(164.dp),
+                                        contentAlignment = Alignment.Center) {
+                                        AppIcon("Libros", tint = Mahogany.copy(alpha = .5f), size = 38.dp)
+                                    }
+                                    Column(Modifier.padding(8.dp)) {
+                                        Text(result.title, color = Ink, fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Serif, fontSize = 11.sp,
+                                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        Text(result.author, color = Mahogany.copy(alpha = .74f),
+                                            fontSize = 9.sp, maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             item {

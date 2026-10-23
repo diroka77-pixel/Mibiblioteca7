@@ -20,6 +20,91 @@ data class PublicBookDetails(
     val source: String = "Open Library", val authorImageUrl: String = "", val coverUrl: String = ""
 )
 
+data class ExternalRecommendationSeed(
+    val title: String,
+    val author: String,
+    val genres: List<String> = emptyList()
+)
+
+private fun publicIdentity(title: String, author: String): String =
+    discoverNormalizeSearchText(title) + "|" + discoverNormalizeSearchText(author)
+
+/**
+ * Recomendaciones públicas y gratuitas. Combina Google Books y Open Library,
+ * y descarta los libros que ya forman parte de la biblioteca local.
+ */
+fun externalBookRecommendations(
+    seeds: List<ExternalRecommendationSeed>,
+    ownedBooks: List<Pair<String, String>>,
+    limit: Int = 12
+): List<PublicBookResult> {
+    if (limit <= 0 || seeds.isEmpty()) return emptyList()
+    val owned = ownedBooks.map { publicIdentity(it.first, it.second) }.toSet()
+    val ownedTitles = ownedBooks.map { discoverNormalizeSearchText(it.first) }.toSet()
+    val queries = buildList {
+        seeds.take(3).forEach { seed ->
+            seed.genres.map(String::trim).filter { it.length >= 3 }.take(2).forEach {
+                add("subject:$it")
+            }
+            if (seed.author.isNotBlank() && seed.author != "Autor desconocido") {
+                add("inauthor:${seed.author}")
+            }
+            if (seed.title.isNotBlank()) add(seed.title)
+        }
+    }.distinct().take(6)
+    val results = mutableListOf<PublicBookResult>()
+    queries.forEach { query ->
+        runCatching {
+            val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+            val items = getJson(
+                "https://www.googleapis.com/books/v1/volumes?q=$encoded&maxResults=20&printType=books"
+            ).optJSONArray("items")
+            for (index in 0 until (items?.length() ?: 0)) {
+                val row = items?.optJSONObject(index) ?: continue
+                val info = row.optJSONObject("volumeInfo") ?: continue
+                val title = info.optString("title").trim()
+                val authors = info.optJSONArray("authors")
+                val author = (0 until (authors?.length() ?: 0))
+                    .joinToString(", ") { authors!!.optString(it) }.trim()
+                if (title.isBlank() || author.isBlank()) continue
+                if (publicIdentity(title, author) in owned ||
+                    discoverNormalizeSearchText(title) in ownedTitles) continue
+                val identifiers = info.optJSONArray("industryIdentifiers")
+                val isbn = (0 until (identifiers?.length() ?: 0)).mapNotNull { item ->
+                    identifiers?.optJSONObject(item)?.optString("identifier")
+                        ?.filter(Char::isDigit)?.takeIf { it.length in setOf(10, 13) }
+                }.firstOrNull { it.length == 13 }.orEmpty()
+                val image = info.optJSONObject("imageLinks")?.let { links ->
+                    listOf("extraLarge", "large", "medium", "thumbnail", "smallThumbnail")
+                        .firstNotNullOfOrNull { key -> links.optString(key).takeIf(String::isNotBlank) }
+                }.orEmpty().replace("http://", "https://").ifBlank {
+                    isbn.takeIf(String::isNotBlank)?.let {
+                        "https://covers.openlibrary.org/b/isbn/$it-L.jpg?default=false"
+                    }.orEmpty()
+                }
+                results += PublicBookResult(
+                    title = title,
+                    author = author,
+                    year = info.optString("publishedDate").take(4),
+                    isbn = isbn,
+                    coverUrl = image,
+                    sourceUrl = info.optString("canonicalVolumeLink").ifBlank {
+                        "https://books.google.com/books?id=" + row.optString("id")
+                    },
+                    summary = info.optString("description"),
+                    confidence = 70,
+                    source = "Google Books"
+                )
+            }
+        }
+    }
+    return results.distinctBy { publicIdentity(it.title, it.author) }
+        .filter { it.coverUrl.isNotBlank() }
+        .sortedWith(compareByDescending<PublicBookResult> { it.summary.length }
+            .thenByDescending { it.year })
+        .take(limit)
+}
+
 private fun curatedPublicResult(title: String, author: String): PublicBookResult? {
     val normalizedTitle = java.text.Normalizer.normalize(title, java.text.Normalizer.Form.NFD)
         .replace(Regex("\\p{M}+"), "").trim().lowercase()
