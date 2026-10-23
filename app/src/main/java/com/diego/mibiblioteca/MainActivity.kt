@@ -4539,9 +4539,9 @@ private fun openCasaDelLibro(context: Context) {
                 compareBy<Book> { sagaOrders.getValue(it.uri) }.thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
             else when (sortMode) {
                 "Autor" -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { authors.getValue(it.uri) })
-                "Saga" -> group.sortedWith(compareBy<Book>(String.CASE_INSENSITIVE_ORDER) {
-                    inferredSaga(it).first.ifBlank { "zzzz Sin saga" }
-                }.thenBy { sagaOrders[it.uri] ?: Double.POSITIVE_INFINITY }
+                "Saga" -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { value: Book ->
+                    inferredSaga(value).first.ifBlank { "zzzz Sin saga" }
+                }.thenBy { value: Book -> sagaOrders[value.uri] ?: Double.POSITIVE_INFINITY }
                     .thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
                 "Género" -> group.sortedWith(
                     compareBy(String.CASE_INSENSITIVE_ORDER) { value: Book -> genres.getValue(value.uri) }
