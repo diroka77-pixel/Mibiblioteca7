@@ -5402,8 +5402,8 @@ private fun openCasaDelLibro(context: Context) {
                             (targetTab == "Biblioteca" && tab == "Secciones"),
                         onClick = { switchTab(targetTab) },
                         icon = { AppIcon(icon, description = label, size = 22.dp) },
-                        label = { Text(label, maxLines = 2, softWrap = true,
-                            fontSize = 11.sp) },
+                        label = { Text(label, maxLines = 1, softWrap = false,
+                            fontSize = 9.sp) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = Mahogany,
                             selectedTextColor = Mahogany,
@@ -6548,13 +6548,27 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
                 if (offline) OfflineBadge(Modifier.align(Alignment.TopEnd).padding(4.dp))
             }
             Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f).height(132.dp).padding(vertical = 4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(title, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif,
-                        fontSize = 14.sp, lineHeight = 18.sp, modifier = Modifier.weight(1f))
+                        fontSize = 19.sp, lineHeight = 23.sp, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     if (book.favorite) AppIcon("Favorito", tint = Brass, size = 18.dp)
                 }
-                Text(author, fontSize = 12.sp)
+                Text(author, fontSize = 15.sp, color = Mahogany, maxLines = 2,
+                    overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(8.dp))
+                val details = buildList {
+                    normalizeBookGenres(book.genre).firstOrNull()?.let(::add)
+                    book.date.takeIf(String::isNotBlank)?.let(::add)
+                    book.saga.takeIf(String::isNotBlank)?.let { add("Saga: $it") }
+                }
+                if (details.isNotEmpty()) Text(details.joinToString(" · "), fontSize = 11.sp,
+                    color = Mahogany.copy(alpha = .68f), maxLines = 2,
+                    overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.weight(1f))
+                Text(book.status.label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                    color = Teal)
             }
         }
     }

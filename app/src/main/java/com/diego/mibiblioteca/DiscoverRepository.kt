@@ -98,6 +98,61 @@ fun externalBookRecommendations(
             }
         }
     }
+    // Open Library aporta una segunda fuente sin clave y evita que una respuesta
+    // vacía o limitada de Google Books deje sin sugerencias la pantalla.
+    val openLibraryQueries = buildList {
+        seeds.take(4).forEach { seed ->
+            seed.genres.map(String::trim).filter { it.length >= 3 }.take(2).forEach {
+                add("subject:" + discoverNormalizeSearchText(it).replace(' ', '_'))
+            }
+            if (seed.author.isNotBlank() && seed.author != "Autor desconocido") {
+                add("author:\"${seed.author}\"")
+            }
+            if (seed.title.isNotBlank()) {
+                val significant = discoverNormalizeSearchText(seed.title).split(' ')
+                    .filter { it.length >= 4 }.take(3).joinToString(" ")
+                if (significant.isNotBlank()) add(significant)
+            }
+        }
+    }.distinct().take(8)
+    openLibraryQueries.forEach { rawQuery ->
+        runCatching {
+            val encoded = java.net.URLEncoder.encode(rawQuery, "UTF-8")
+            val docs = getJson(
+                "https://openlibrary.org/search.json?q=$encoded&limit=24&fields=key,title,author_name,author_key,isbn,cover_i,first_publish_year,first_sentence,subject,publisher,language"
+            ).optJSONArray("docs")
+            for (index in 0 until (docs?.length() ?: 0)) {
+                val row = docs?.optJSONObject(index) ?: continue
+                val title = row.optString("title").trim()
+                val names = row.optJSONArray("author_name")
+                val author = (0 until (names?.length() ?: 0))
+                    .joinToString(", ") { names!!.optString(it) }.trim()
+                if (title.isBlank() || author.isBlank()) continue
+                if (publicIdentity(title, author) in owned ||
+                    discoverNormalizeSearchText(title) in ownedTitles) continue
+                val coverId = row.optInt("cover_i", 0)
+                if (coverId <= 0) continue
+                val isbns = row.optJSONArray("isbn")
+                val isbn = (0 until (isbns?.length() ?: 0)).map {
+                    isbns!!.optString(it).filter(Char::isDigit)
+                }.firstOrNull { it.length == 13 }.orEmpty()
+                val workKey = row.optString("key").removePrefix("/works/")
+                results += PublicBookResult(
+                    title = title,
+                    author = author,
+                    year = row.optInt("first_publish_year", 0)
+                        .takeIf { it > 0 }?.toString().orEmpty(),
+                    isbn = isbn,
+                    coverUrl = "https://covers.openlibrary.org/b/id/$coverId-L.jpg",
+                    sourceUrl = "https://openlibrary.org/works/$workKey",
+                    summary = row.optJSONArray("first_sentence")?.optString(0).orEmpty(),
+                    authorKey = row.optJSONArray("author_key")?.optString(0).orEmpty(),
+                    confidence = 65,
+                    source = "Open Library"
+                )
+            }
+        }
+    }
     return results.distinctBy { publicIdentity(it.title, it.author) }
         .filter { it.coverUrl.isNotBlank() }
         .sortedWith(compareByDescending<PublicBookResult> { it.summary.length }
