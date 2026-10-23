@@ -81,7 +81,9 @@ internal fun fetchFeaturedNews(source: String, address: String): List<LaunchNews
         finally { connection.disconnect() }
     val host = Uri.parse(address).host.orEmpty().removePrefix("www.")
     val today = java.time.LocalDate.now().toString()
-    doc.select("a[href]").mapNotNull { link ->
+    val rejected = Regex("(?i)^(logo|inicio|libros|revista|actualidad|lecturalia|librotea|planeta ?de ?libros|ver más|leer más)")
+    val topical = Regex("(?i)novedad|libro|novela|lanzamiento|lectura|publica|autor|escritor|premio|literar")
+    val candidates = doc.select("article a[href], h1 a[href], h2 a[href], h3 a[href], .card a[href], main a[href]").mapNotNull { link ->
         val destination = link.absUrl("href")
         val destinationHost = Uri.parse(destination).host.orEmpty().removePrefix("www.")
         if (!destination.startsWith("https://") || destination == address ||
@@ -89,17 +91,32 @@ internal fun fetchFeaturedNews(source: String, address: String): List<LaunchNews
         val picture = link.selectFirst("img") ?: link.parent()?.selectFirst("img")
         val image = imageFrom(picture)
         val title = link.text().trim().ifBlank { picture?.attr("alt")?.trim().orEmpty() }
-        if (title.length !in 9..150 || title.contains("cookie", true) ||
+        if (title.length !in 16..150 || rejected.containsMatchIn(title) || title.equals(source, true) ||
+            title.contains("cookie", true) ||
             title.contains("iniciar sesión", true) ||
-            (image == null && !Regex("(?i)novedad|libro|novela|lanzamiento|lectura|publica")
-                .containsMatchIn(title))) return@mapNotNull null
+            !topical.containsMatchIn(title)) return@mapNotNull null
         title to (destination to image)
-    }.distinctBy { it.second.first }.take(4).mapNotNull { (title, linkAndImage) ->
+    }.distinctBy { it.first.lowercase() }.take(6)
+    val stories = candidates.mapNotNull { (title, linkAndImage) ->
         val (destination, listingImage) = linkAndImage
         val image = articleImageUrl(destination) ?: listingImage ?: return@mapNotNull null
         LaunchNews(source, title, destination, image, today)
     }.take(2)
+    if (stories.isNotEmpty()) stories else {
+        val headline = doc.select("main h1, article h1, main h2, article h2").asSequence()
+            .map { it.text().trim() }
+            .firstOrNull { it.length in 16..150 && !rejected.containsMatchIn(it) &&
+                !it.equals(source, true) && topical.containsMatchIn(it) }
+        val image = imageFrom(doc.selectFirst("main img, article img"))
+        if (headline != null && image != null) listOf(LaunchNews(source, headline, address, image, today))
+        else emptyList()
+    }
 } catch (_: Exception) { emptyList() }
+
+internal fun isLowQualityFeaturedNews(news: LaunchNews): Boolean =
+    news.source in featuredNewsSources && (
+        news.title.contains("logo", true) || news.title.equals(news.source, true) ||
+        news.title.startsWith("Revista ${news.source}", true) || news.title.length < 16)
 
 internal val starterNews = listOf(
     LaunchNews("Clara", "Las 25 novedades en libros más esperadas del otoño de 2026",

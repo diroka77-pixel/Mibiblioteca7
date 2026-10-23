@@ -38,4 +38,12 @@ class ExternalRecommendationsTest {
             "https://example.com/cover.jpg", "2026-11-12")), library)
         assertTrue(result.isEmpty())
     }
+
+    @Test fun rejectsWebsiteLogosAsLiteraryNews() {
+        assertTrue(isLowQualityFeaturedNews(LaunchNews("Librotea", "Logo Librotea",
+            "https://librotea.eldiario.es", "https://example.com/logo.png", "2026-10-23")))
+        assertFalse(isLowQualityFeaturedNews(LaunchNews("Librotea",
+            "Las novelas españolas que marcarán este otoño", "https://librotea.eldiario.es/a",
+            "https://example.com/book.jpg", "2026-10-23")))
+    }
 }

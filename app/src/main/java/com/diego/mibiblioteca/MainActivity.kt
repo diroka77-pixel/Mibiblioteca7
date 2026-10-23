@@ -380,7 +380,9 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 Spacer(Modifier.height(18.dp))
                 Text("Sobre el autor", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
                 val authorPicture by rememberPublicCover(details?.authorImageUrl.orEmpty())
-                if (authorPicture != null) Image(authorPicture!!.asImageBitmap(), "Foto de ${result.author}", Modifier.fillMaxWidth().height(190.dp), contentScale = ContentScale.Crop)
+                if (authorPicture != null) Image(authorPicture!!.asImageBitmap(), "Foto de ${result.author}",
+                    Modifier.fillMaxWidth().height(220.dp), contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopCenter)
                 Text(details?.authorBio?.ifBlank { "No hay biografía disponible en las fuentes públicas." } ?: "Cargando biografía…", color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
                 Spacer(Modifier.height(18.dp))
                 Text("Detalles del libro", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
@@ -630,7 +632,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         hiddenNewsUrls = safeSavedArray(prefs.getString("hidden_news_urls", "[]")).let { arr ->
             (0 until arr.length()).map { arr.optString(it) }.toSet()
         }
-        newsLastChecked = prefs.getLong("literary_news_v3_checked", 0L)
+        newsLastChecked = prefs.getLong("literary_news_v4_checked", 0L)
         refreshLaunchNews()
         syncReport = prefs.getString("sync_report", "Todavía no se ha sincronizado.") ?: ""
     }
@@ -644,7 +646,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     it.getString("image"), it.getString("date"))
             } } catch (_: Exception) { null }
         }
-        launchNews = cached.ifEmpty { starterNews }
+        launchNews = cached.filterNot(::isLowQualityFeaturedNews).ifEmpty { starterNews }
     }
 
     fun isNewsVisible(news: LaunchNews) = news.source !in hiddenNewsSources &&
@@ -670,7 +672,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshLaunchNews(force: Boolean = false) {
         if (newsRefreshing || (!force &&
-            System.currentTimeMillis() - prefs.getLong("literary_news_v3_checked", 0L) < 12L * 60 * 60 * 1000)) return
+            System.currentTimeMillis() - prefs.getLong("literary_news_v4_checked", 0L) < 12L * 60 * 60 * 1000)) return
         newsRefreshing = true
         viewModelScope.launch {
             try {
@@ -691,7 +693,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     .put("title", it.title).put("url", it.url)
                     .put("image", it.imageUrl).put("date", it.releaseDate)) }
                 prefs.edit().putString("literary_news", array.toString())
-                    .putLong("literary_news_v3_checked", System.currentTimeMillis()).apply()
+                    .putLong("literary_news_v4_checked", System.currentTimeMillis()).apply()
                 newsLastChecked = System.currentTimeMillis()
             } catch (_: Exception) {
                 // Se muestran las noticias guardadas si alguna fuente falla.
@@ -3146,6 +3148,29 @@ private fun goodreadsPlot(book: Book): String {
         if (description.length > 90) return description.take(700)
     } catch (_: Exception) {}
     return ""
+}
+
+private suspend fun fetchSpanishBookReview(book: Book): String = withContext(Dispatchers.IO) {
+    val public = runCatching {
+        searchPublicBooks(displayTitle(book), displayAuthor(book)).firstOrNull()
+    }.getOrNull()
+    val publicSummary = public?.let { result ->
+        runCatching { loadPublicBookDetails(result).summary }.getOrDefault("")
+    }.orEmpty()
+    val raw = publicSummary.ifBlank { book.spanishPlot }.ifBlank {
+        runCatching { fetchSpanishInfo(book).plot }.getOrDefault("")
+    }
+    val summary = ensureSpanish(raw).ifBlank { raw }.trim()
+    if (summary.isBlank()) return@withContext ""
+    buildString {
+        append('«').append(displayTitle(book)).append("», de ")
+            .append(displayAuthor(book)).append(", ")
+        val genres = normalizeBookGenres(book.genre)
+        if (genres.isNotEmpty()) append("es una obra de ")
+            .append(genres.take(2).joinToString(" y ").lowercase()).append(". ")
+        else append("es una obra cuya propuesta se desarrolla así: ")
+        append(summary)
+    }.take(3200)
 }
 
 private fun fetchSpanishInfo(book: Book): InfoCandidate {
@@ -7476,6 +7501,10 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     }
     var editGenre by remember { mutableStateOf(false) }
     var notesDraft by remember(book.uri, book.notes) { mutableStateOf(book.notes) }
+    var reviewText by remember(book.uri) { mutableStateOf("") }
+    var reviewVisible by remember(book.uri) { mutableStateOf(false) }
+    var reviewLoading by remember(book.uri) { mutableStateOf(false) }
+    var reviewError by remember(book.uri) { mutableStateOf<String?>(null) }
     var ratingDraft by remember(book.uri, book.rating) { mutableIntStateOf(book.rating) }
     var startedDraft by remember(book.uri, book.startedDate) { mutableStateOf(book.startedDate) }
     var finishedDraft by remember(book.uri, book.finishedDate) { mutableStateOf(book.finishedDate) }
@@ -8064,35 +8093,52 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { openGoodreads(context, book) },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    OutlinedButton(onClick = {
+                        if (reviewText.isNotBlank()) reviewVisible = !reviewVisible
+                        else if (!reviewLoading) scope.launch {
+                            reviewLoading = true
+                            reviewError = null
+                            reviewText = fetchSpanishBookReview(book)
+                            reviewVisible = reviewText.isNotBlank()
+                            if (reviewText.isBlank()) reviewError =
+                                "No se ha encontrado una reseña en castellano para este libro."
+                            reviewLoading = false
+                        }
+                    }, enabled = !reviewLoading,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = Paper.copy(alpha = .94f),
                             contentColor = Mahogany)) {
-                        ActionLabel("Abrir reseña del libro", "Reseña")
+                        ActionLabel(when {
+                            reviewLoading -> "Buscando reseña en castellano…"
+                            reviewVisible -> "Ocultar reseña del libro"
+                            else -> "Obtener reseña del libro"
+                        }, "Reseña")
                     }
+                    if (reviewVisible && reviewText.isNotBlank()) Surface(
+                        modifier = Modifier.fillMaxWidth(), color = Paper,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = .45f))) {
+                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Reseña", color = Mahogany, fontFamily = FontFamily.Serif,
+                                fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                            Text(reviewText, color = Ink, fontSize = 15.sp, lineHeight = 22.sp)
+                        }
+                    }
+                    reviewError?.let { Text(it, color = Color.White, fontSize = 12.sp,
+                        style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow)) }
                     OutlinedButton(onClick = {
                         searchInGoogleApp(context, displayTitle(book) + " " + displayAuthor(book))
-                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    }, modifier = Modifier.fillMaxWidth().height(56.dp),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = Paper.copy(alpha = .94f),
                             contentColor = Mahogany)) {
                         ActionLabel("Buscar información del libro", "Búsqueda IA")
                     }
-                    OutlinedButton(onClick = {
-                        val query = Uri.encode("title:(\"${displayTitle(book)}\") AND mediatype:texts")
-                        context.startActivity(Intent(Intent.ACTION_VIEW,
-                            Uri.parse("https://archive.org/advancedsearch.php?q=$query")))
-                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = Paper.copy(alpha = .94f), contentColor = Mahogany)) {
-                        ActionLabel("Buscar préstamo o EPUB legal", "Buscar", 12.sp)
-                    }
                     OutlinedButton(onClick = { confirmDelete = true },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFB54A42)),
                         colors = ButtonDefaults.outlinedButtonColors(
