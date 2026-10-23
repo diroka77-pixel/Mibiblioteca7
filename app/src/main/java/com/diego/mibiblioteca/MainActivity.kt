@@ -386,10 +386,7 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 Text("Detalles del libro", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
                 val rows = listOf("Publicación" to (details?.published ?: result.year), "Páginas" to (details?.pages ?: ""), "Idioma" to (details?.language ?: ""), "Editorial" to (details?.publisher ?: ""), "ISBN" to result.isbn).filter { it.second.isNotBlank() }
                 rows.forEach { (label, value) -> Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) { Text("$label: ", fontWeight = FontWeight.Bold, color = Ink); Text(value, color = Ink) } }
-                Spacer(Modifier.height(12.dp))
-                Text("Metadatos públicos: ${details?.source ?: "Open Library"}", fontSize = 12.sp, color = Mahogany.copy(alpha = .7f))
-                if (result.confidence > 0) Text("Coincidencia: ${result.confidence} % · ${result.source}",
-                    fontSize = 11.sp, color = Mahogany.copy(alpha = .62f))
+                Spacer(Modifier.height(6.dp))
             }
         }
     }
@@ -4116,22 +4113,22 @@ private fun openCasaDelLibro(context: Context) {
     }
     val readingBooks = remember(vm.books) { vm.readingBooks() }
     val homeRecommendations by produceState<List<PublicBookResult>>(
-        initialValue = emptyList(), vm.books
+        initialValue = emptyList(), vm.books, vm.launchNews
     ) {
         val snapshot = vm.books
-        if (snapshot.isEmpty()) return@produceState
         val preferred = snapshot.filter {
             it.favorite || it.rating >= 4 || it.status == ReadingStatus.READING ||
                 it.status == ReadingStatus.READ
         }.ifEmpty { snapshot }.take(8)
+        val owned = snapshot.map { displayTitle(it) to displayAuthor(it) }
         value = withContext(Dispatchers.IO) {
-            externalBookRecommendations(
-                preferred.map { book -> ExternalRecommendationSeed(
-                    displayTitle(book), displayAuthor(book), normalizeBookGenres(book.genre)
-                ) },
-                snapshot.map { displayTitle(it) to displayAuthor(it) },
-                limit = 30
-            )
+            val upcoming = launchNewsAsPublicBooks(vm.launchNews, owned)
+            val discovered = if (preferred.isEmpty()) emptyList() else externalBookRecommendations(
+                preferred.map { book -> ExternalRecommendationSeed(displayTitle(book),
+                    displayAuthor(book), normalizeBookGenres(book.genre)) }, owned, limit = 30)
+            (upcoming + discovered).distinctBy {
+                it.title.lowercase() + "|" + it.author.lowercase()
+            }.filterNot { isLikelyOwnedRecommendation(it.title, it.author, owned) }.take(30)
         }
     }
     // Secciones mantiene su propia vista, separada de Biblioteca.
@@ -5749,10 +5746,16 @@ private fun openCasaDelLibro(context: Context) {
                 items(visibleNews, key = { "news:" + it.url }, contentType = { "news" }) { news ->
                     val picture by rememberNewsImage(news)
                     Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp).clickable {
-                        try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url))) }
-                        catch (_: Exception) {
-                            android.widget.Toast.makeText(context, "No se pudo abrir la noticia",
-                                android.widget.Toast.LENGTH_SHORT).show()
+                        if (news.source == "Casa del Libro" && launchBookAuthor(news).isNotBlank()) {
+                            selectedPublicResult = launchNewsAsPublicBooks(listOf(news),
+                                vm.books.map { displayTitle(it) to displayAuthor(it) }).firstOrNull()
+                            if (selectedPublicResult != null) switchTab("Descubrir")
+                        } else {
+                            try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url))) }
+                            catch (_: Exception) {
+                                android.widget.Toast.makeText(context, "No se pudo abrir la noticia",
+                                    android.widget.Toast.LENGTH_SHORT).show()
+                            }
                         }
                     }, shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
                         colors = CardDefaults.cardColors(containerColor = Paper),
@@ -5761,9 +5764,14 @@ private fun openCasaDelLibro(context: Context) {
                             Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 16.dp,
                                 end = 12.dp, bottom = 4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text(news.title, fontFamily = FontFamily.Serif,
+                                Column(Modifier.weight(1f)) {
+                                Text(launchBookTitle(news), fontFamily = FontFamily.Serif,
                                     fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Mahogany,
-                                    lineHeight = 23.sp, maxLines = 4, modifier = Modifier.weight(1f))
+                                    lineHeight = 23.sp, maxLines = 3)
+                                if (launchBookAuthor(news).isNotBlank()) Text(launchBookAuthor(news),
+                                    color = Mahogany.copy(alpha = .78f), fontSize = 13.sp,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                }
                                 if (picture != null) Image(picture!!.asImageBitmap(),
                                     contentDescription = "Imagen de la noticia: ${news.title}",
                                     modifier = Modifier.size(72.dp)
@@ -5772,17 +5780,11 @@ private fun openCasaDelLibro(context: Context) {
                             }
                             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, bottom = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(22.dp).background(Brass.copy(alpha = 0.16f),
-                                    androidx.compose.foundation.shape.CircleShape),
-                                    contentAlignment = Alignment.Center) {
-                                    Text(news.source.take(1).uppercase(), color = Mahogany,
-                                        fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                                Spacer(Modifier.width(7.dp))
-                                Text(news.source, color = Mahogany, fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold, maxLines = 1,
+                                Text(if (news.source == "Casa del Libro") "Próximo lanzamiento" else "Actualidad literaria",
+                                    color = Mahogany, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.weight(1f))
-                                Text(if (news.source == "Casa del Libro") "Próximamente" else
+                                Text(if (news.source == "Casa del Libro")
+                                    formatLaunchDate(news.releaseDate) else
                                     if (news.source in featuredNewsSources) "Novedad" else
                                     try {
                                         java.time.LocalDate.parse(news.releaseDate).format(
@@ -6382,8 +6384,10 @@ private fun HomeExternalRecommendations(
     onOpen: (PublicBookResult) -> Unit
 ) {
     val currentYear = java.time.LocalDate.now().year
-    val upcoming = books.filter { it.publishDates.take(4).toIntOrNull()?.let { year -> year > currentYear } == true }
-    val newReleases = books.filter { it.publishDates.take(4).toIntOrNull()?.let { year -> year in (currentYear - 1)..currentYear } == true }
+    val upcoming = books.filter { it.source == "Catálogo editorial" ||
+        it.publishDates.take(4).toIntOrNull()?.let { year -> year > currentYear } == true }
+    val newReleases = books.filterNot { it in upcoming }.filter {
+        it.publishDates.take(4).toIntOrNull()?.let { year -> year in (currentYear - 1)..currentYear } == true }
     val suggestions = books.filterNot { it in upcoming || it in newReleases }
     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -6394,7 +6398,7 @@ private fun HomeExternalRecommendations(
                 style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
             TextButton(onClick = onViewAll) { Text("Explorar", color = Color.White) }
         }
-        ExternalBooksRow(if (suggestions.isEmpty()) books.take(12) else suggestions.take(12), "recomendada", onOpen)
+        if (suggestions.isNotEmpty()) ExternalBooksRow(suggestions.take(12), "recomendada", onOpen)
         if (newReleases.isNotEmpty()) {
             ExternalSectionTitle("Novedades")
             ExternalBooksRow(newReleases, "novedad", onOpen)

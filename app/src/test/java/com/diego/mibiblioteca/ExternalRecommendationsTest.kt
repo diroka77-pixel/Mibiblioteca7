@@ -22,4 +22,20 @@ class ExternalRecommendationsTest {
         assertFalse(isLikelyOwnedRecommendation(
             "La casa de los espíritus", "Isabel Allende", library))
     }
+
+    @Test fun convertsUpcomingCatalogEntryAndSeparatesAuthor() {
+        val result = launchNewsAsPublicBooks(listOf(LaunchNews("Casa del Libro",
+            "Espinas en el aire · Javier Castillo", "https://www.casadellibro.com/libro/1",
+            "https://example.com/cover.jpg", "2026-11-12")), library)
+        assertTrue(result.size == 1)
+        assertTrue(result.first().title == "Espinas en el aire")
+        assertTrue(result.first().author == "Javier Castillo")
+    }
+
+    @Test fun excludesUpcomingEntryAlreadyOwned() {
+        val result = launchNewsAsPublicBooks(listOf(LaunchNews("Casa del Libro",
+            "1984 · George Orwell", "https://www.casadellibro.com/libro/2",
+            "https://example.com/cover.jpg", "2026-11-12")), library)
+        assertTrue(result.isEmpty())
+    }
 }

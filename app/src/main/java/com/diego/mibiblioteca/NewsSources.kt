@@ -10,6 +10,32 @@ data class LaunchNews(
     val imageUrl: String, val releaseDate: String
 )
 
+internal fun launchBookTitle(news: LaunchNews): String = news.title.substringBefore(" · ").trim()
+internal fun launchBookAuthor(news: LaunchNews): String = news.title.substringAfter(" · ", "").trim()
+internal fun formatLaunchDate(value: String): String = try {
+    java.time.LocalDate.parse(value).format(java.time.format.DateTimeFormatter.ofPattern(
+        "d 'de' MMMM 'de' yyyy", java.util.Locale("es", "ES")))
+} catch (_: Exception) { value.ifBlank { "Próximamente" } }
+
+internal fun launchNewsAsPublicBooks(
+    news: List<LaunchNews>,
+    ownedBooks: List<Pair<String, String>>
+): List<PublicBookResult> = news.asSequence()
+    .filter { it.source == "Casa del Libro" }
+    .mapNotNull { item ->
+        val title = launchBookTitle(item)
+        val author = launchBookAuthor(item)
+        if (title.isBlank() || author.isBlank() ||
+            isLikelyOwnedRecommendation(title, author, ownedBooks)) null
+        else PublicBookResult(
+            title = title, author = author,
+            year = item.releaseDate.take(4), isbn = "",
+            coverUrl = item.imageUrl, sourceUrl = item.url,
+            publishDates = item.releaseDate,
+            confidence = 90, source = "Catálogo editorial", language = "es"
+        )
+    }.distinctBy { it.title.lowercase() + "|" + it.author.lowercase() }.toList()
+
 internal val featuredNewsSources = linkedMapOf(
     "Fnac" to "https://www.fnac.es/s129487/Proximos-lanzamientos-en-libros",
     "Librotea" to "https://librotea.eldiario.es/estanterias",
@@ -162,7 +188,54 @@ internal fun fetchCasaUpcomingBooks(): List<LaunchNews> = try {
         val link = title.absUrl("href")
         if (title.text().isBlank() || !link.startsWith("https://www.casadellibro.com/") ||
             !image.startsWith("https://imagessl")) return@mapNotNull null
+        val cardText = card.text()
+        val dateText = card.selectFirst("time, .release-date, .product-date, .fecha")
+            ?.let { it.attr("datetime").ifBlank { it.text() } }.orEmpty()
+        val release = parseSpanishReleaseDate(dateText.ifBlank { cardText }) ?: checked
         LaunchNews("Casa del Libro", title.text() +
-            if (author.isBlank()) "" else " · $author", link, image, checked)
+            if (author.isBlank()) "" else " · $author", link, image, release)
     }.distinctBy { it.url }.take(5)
 } catch (_: Exception) { emptyList() }
+
+private fun parseSpanishReleaseDate(text: String): String? {
+    val iso = Regex("\\b(20\\d{2})-(\\d{2})-(\\d{2})\\b").find(text)
+    if (iso != null) return iso.value
+    val numeric = Regex("\\b(\\d{1,2})[/-](\\d{1,2})[/-](20\\d{2})\\b").find(text)
+    if (numeric != null) return runCatching {
+        java.time.LocalDate.of(numeric.groupValues[3].toInt(), numeric.groupValues[2].toInt(),
+            numeric.groupValues[1].toInt()).toString()
+    }.getOrNull()
+    val months = mapOf("enero" to 1, "febrero" to 2, "marzo" to 3, "abril" to 4,
+        "mayo" to 5, "junio" to 6, "julio" to 7, "agosto" to 8,
+        "septiembre" to 9, "octubre" to 10, "noviembre" to 11, "diciembre" to 12)
+    val written = Regex("(?i)\\b(\\d{1,2})\\s+de\\s+([a-záéíóú]+)(?:\\s+de)?\\s+(20\\d{2})\\b").find(text)
+        ?: return null
+    val month = months[written.groupValues[2].lowercase()] ?: return null
+    return runCatching { java.time.LocalDate.of(written.groupValues[3].toInt(), month,
+        written.groupValues[1].toInt()).toString() }.getOrNull()
+}
+
+internal fun fetchLaunchBookDetails(result: PublicBookResult): PublicBookDetails? {
+    if (!result.sourceUrl.startsWith("https://www.casadellibro.com/")) return null
+    return try {
+    val connection = URL(result.sourceUrl).openConnection() as HttpURLConnection
+    connection.connectTimeout = 7000
+    connection.readTimeout = 9000
+    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+    val doc = try { connection.inputStream.use { Jsoup.parse(it, "UTF-8", result.sourceUrl) } }
+        finally { connection.disconnect() }
+    val description = listOf("[itemprop=description]", ".product-description", ".sinopsis",
+        "#product-description", ".description").firstNotNullOfOrNull { selector ->
+        doc.selectFirst(selector)?.text()?.trim()?.takeIf { it.length >= 80 }
+    } ?: doc.selectFirst("meta[name=description]")?.attr("content").orEmpty()
+    val text = doc.text()
+    val pages = Regex("(?i)(\\d{2,4})\\s+p[aá]ginas").find(text)?.groupValues?.get(1).orEmpty()
+    val isbn = Regex("(?i)ISBN(?:-13)?\\s*:?\\s*([0-9-]{10,17})").find(text)
+        ?.groupValues?.get(1)?.filter(Char::isDigit).orEmpty()
+    val published = parseSpanishReleaseDate(text) ?: result.publishDates
+    val publisher = Regex("(?i)(?:Editorial|Sello)\\s*:?\\s*([\\p{L}0-9 &.'-]{2,50})")
+        .find(text)?.groupValues?.get(1)?.trim().orEmpty()
+        PublicBookDetails(description, "", published, pages, "Español", publisher,
+            "Catálogo editorial", coverUrl = result.coverUrl)
+    } catch (_: Exception) { null }
+}

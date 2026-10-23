@@ -167,6 +167,15 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
     var source = "Open Library"
     var authorImageUrl = ""
     var coverUrl = result.coverUrl
+    fetchLaunchBookDetails(result)?.let { catalog ->
+        summary = catalog.summary.ifBlank { summary }
+        published = catalog.published.ifBlank { published }
+        pages = catalog.pages
+        language = catalog.language
+        publisher = catalog.publisher
+        source = catalog.source
+        coverUrl = catalog.coverUrl.ifBlank { coverUrl }
+    }
     if (result.author.equals("Rodrigo Cortés", true) && result.title.equals("Hija del cielo", true)) {
         bio = "Rodrigo Cortés (Pazos Hermos, 1973) es director, actor, productor y guionista español. Como escritor ha publicado A las 3 son las 2, Sí importa el modo en que un hombre se hunde, Dormir es de patos, Los años extraordinarios y Cuentos telúricos. También escribe para ABC y participa en los pódcast Aquí hay dragones y Todopoderosos."
         published = "2026"
