@@ -18,7 +18,15 @@ data class PublicBookResult(
 data class PublicBookDetails(
     val summary: String, val authorBio: String, val published: String = "",
     val pages: String = "", val language: String = "", val publisher: String = "",
-    val source: String = "Open Library", val authorImageUrl: String = "", val coverUrl: String = ""
+    val source: String = "Open Library", val authorImageUrl: String = "", val coverUrl: String = "",
+    val saga: String = "", val sagaOrder: String = "", val review: String = "",
+    val editions: List<PublicBookEdition> = emptyList(), val promotionalVideoUrl: String = ""
+)
+
+data class PublicBookEdition(
+    val label: String, val coverUrl: String = "", val publisher: String = "",
+    val published: String = "", val isbn: String = "",
+    val availability: String = "Disponibilidad no confirmada"
 )
 
 data class ExternalRecommendationSeed(
@@ -167,6 +175,10 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
     var source = "Open Library"
     var authorImageUrl = ""
     var coverUrl = result.coverUrl
+    var saga = ""
+    var sagaOrder = ""
+    var review = ""
+    val editions = mutableListOf<PublicBookEdition>()
     fetchLaunchBookDetails(result)?.let { catalog ->
         summary = catalog.summary.ifBlank { summary }
         published = catalog.published.ifBlank { published }
@@ -222,21 +234,23 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
             }
         }
         val q = java.net.URLEncoder.encode("intitle:${result.title} inauthor:${result.author}", "UTF-8")
-        val volumes = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=10").optJSONArray("items")
+        val volumes = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=20&country=ES").optJSONArray("items")
         val wantedTitle = discoverNormalizeSearchText(result.title)
         val wantedAuthor = discoverNormalizeSearchText(result.author)
-        val info = (0 until (volumes?.length() ?: 0))
-            .mapNotNull { volumes?.optJSONObject(it)?.optJSONObject("volumeInfo") }
-            .maxByOrNull { candidate ->
+        val volumeRows = (0 until (volumes?.length() ?: 0)).mapNotNull { volumes?.optJSONObject(it) }
+        fun volumeScore(row: org.json.JSONObject): Int {
+                val candidate = row.optJSONObject("volumeInfo") ?: return 0
                 val candidateTitle = discoverNormalizeSearchText(candidate.optString("title"))
                 val candidateAuthors = candidate.optJSONArray("authors")?.let { authors ->
                     (0 until authors.length()).joinToString(" ") { authors.optString(it) }
                 }.orEmpty()
                 val candidateAuthor = discoverNormalizeSearchText(candidateAuthors)
-                (if (candidateTitle == wantedTitle) 100 else 0) +
+                return (if (candidateTitle == wantedTitle) 100 else 0) +
                     wantedTitle.split(" ").count { it.length > 1 && candidateTitle.contains(it) } * 10 +
                     wantedAuthor.split(" ").count { it.length > 2 && candidateAuthor.contains(it) } * 5
-            }
+        }
+        val selectedVolume = volumeRows.maxByOrNull(::volumeScore)
+        val info = selectedVolume?.optJSONObject("volumeInfo")
         if (info != null) {
             summary = info.optString("description").ifBlank { summary }
             published = info.optString("publishedDate").ifBlank { published }
@@ -246,6 +260,41 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
             coverUrl = info.optJSONObject("imageLinks")?.optString("large")?.ifBlank { info.optJSONObject("imageLinks")?.optString("thumbnail") }.orEmpty()
                 .replace("http://", "https://").ifBlank { coverUrl }
             source = "Open Library · Google Books"
+            val series = info.optJSONObject("seriesInfo") ?: selectedVolume?.optJSONObject("seriesInfo")
+            saga = series?.optString("shortSeriesBookTitle").orEmpty()
+            sagaOrder = series?.optString("bookDisplayNumber").orEmpty()
+            if (saga.isBlank()) {
+                Regex("(?i)(?:saga|serie)\\s+([^,;:()]+?)(?:[,;:]|\\s*[#№]\\s*)(\\d+(?:[.]\\d+)?)")
+                    .find(info.optString("subtitle"))?.let {
+                        saga = it.groupValues[1].trim()
+                        sagaOrder = it.groupValues[2]
+                    }
+            }
+        }
+        volumeRows.sortedByDescending(::volumeScore).forEach { row ->
+            if (volumeScore(row) < 42 || editions.size >= 8) return@forEach
+            val edition = row.optJSONObject("volumeInfo") ?: return@forEach
+            val ids = edition.optJSONArray("industryIdentifiers")
+            val editionIsbn = (0 until (ids?.length() ?: 0)).mapNotNull { index ->
+                ids?.optJSONObject(index)?.optString("identifier")?.filter(Char::isDigit)
+                    ?.takeIf { it.length in setOf(10, 13) }
+            }.firstOrNull { it.length == 13 }.orEmpty()
+            val editionCover = edition.optJSONObject("imageLinks")?.let { links ->
+                listOf("extraLarge", "large", "medium", "thumbnail").firstNotNullOfOrNull { key ->
+                    links.optString(key).takeIf(String::isNotBlank)
+                }
+            }.orEmpty().replace("http://", "https://")
+            val availability = when (row.optJSONObject("saleInfo")?.optString("saleability").orEmpty()) {
+                "FOR_SALE", "FREE" -> "Disponible"
+                "NOT_FOR_SALE" -> "No disponible en este catálogo"
+                else -> "Disponibilidad no confirmada"
+            }
+            val label = listOf(edition.optString("publisher"), edition.optString("publishedDate"))
+                .filter(String::isNotBlank).joinToString(" · ").ifBlank { "Edición registrada" }
+            val item = PublicBookEdition(label, editionCover, edition.optString("publisher"),
+                edition.optString("publishedDate"), editionIsbn, availability)
+            if (editions.none { it.isbn.isNotBlank() && it.isbn == item.isbn } &&
+                editions.none { it.label == item.label && it.coverUrl == item.coverUrl }) editions += item
         }
         if (summary.length < 80 && result.title.isNotBlank()) {
             val bookQuery = java.net.URLEncoder.encode(
@@ -291,7 +340,16 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
             if (summary.isNotBlank()) source = "$source · Open Library ampliado"
         }
     }
-    return PublicBookDetails(summary.trim(), bio.trim(), published, pages, language, publisher, source, authorImageUrl, coverUrl)
+    if (review.isBlank() && summary.length >= 100) {
+        review = "Una obra de ${result.author.ifBlank { "autoría no indicada" }} cuya propuesta, " +
+            "según la información editorial disponible, gira en torno a " +
+            summary.substringBefore('.').trim().replaceFirstChar { it.lowercase() } + "."
+    }
+    val videoQuery = java.net.URLEncoder.encode(
+        "\"${result.title}\" ${result.author} tráiler libro presentación editorial", "UTF-8")
+    return PublicBookDetails(summary.trim(), bio.trim(), published, pages, language, publisher,
+        source, authorImageUrl, coverUrl, saga, sagaOrder, review, editions,
+        "https://www.youtube.com/results?search_query=$videoQuery")
 }
 
 fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<PublicBookResult> {

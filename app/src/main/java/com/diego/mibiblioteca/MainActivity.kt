@@ -65,6 +65,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.viewinterop.AndroidView
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.AnimatedVisibility
@@ -357,6 +360,22 @@ private fun PublicBookCard(result: PublicBookResult, onOpen: () -> Unit, onWish:
 
 @Composable
 private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDetails?, wishListed: Boolean, onBack: () -> Unit, onWish: () -> Unit) {
+    var showPromotionalVideo by remember(result.sourceUrl) { mutableStateOf(false) }
+    if (showPromotionalVideo) AlertDialog(
+        onDismissRequest = { showPromotionalVideo = false },
+        title = { Text("Vídeo promocional o presentación") },
+        text = {
+            AndroidView(factory = { context ->
+                WebView(context).apply {
+                    webViewClient = WebViewClient()
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    loadUrl(details?.promotionalVideoUrl.orEmpty())
+                }
+            }, modifier = Modifier.fillMaxWidth().height(420.dp))
+        },
+        confirmButton = { TextButton(onClick = { showPromotionalVideo = false }) { Text("Cerrar") } }
+    )
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
         TextButton(onClick = onBack) { Text("← Volver a resultados", color = Brass) }
         Surface(Modifier.fillMaxWidth(), color = Paper.copy(alpha = .98f), shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp)) {
@@ -377,6 +396,12 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 Spacer(Modifier.height(18.dp))
                 Text("Descripción", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
                 Text(details?.summary?.ifBlank { "No hay descripción disponible en las fuentes públicas." } ?: "Cargando información pública…", color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
+                if (!details?.review.isNullOrBlank()) {
+                    Spacer(Modifier.height(18.dp))
+                    Text("Reseña y contexto", fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
+                    Text(details!!.review, color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
+                }
                 Spacer(Modifier.height(18.dp))
                 Text("Sobre el autor", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
                 val authorPicture by rememberPublicCover(details?.authorImageUrl.orEmpty())
@@ -386,8 +411,47 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 Text(details?.authorBio?.ifBlank { "No hay biografía disponible en las fuentes públicas." } ?: "Cargando biografía…", color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
                 Spacer(Modifier.height(18.dp))
                 Text("Detalles del libro", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
-                val rows = listOf("Publicación" to (details?.published ?: result.year), "Páginas" to (details?.pages ?: ""), "Idioma" to (details?.language ?: ""), "Editorial" to (details?.publisher ?: ""), "ISBN" to result.isbn).filter { it.second.isNotBlank() }
+                val sagaLabel = details?.saga.orEmpty() +
+                    details?.sagaOrder?.takeIf(String::isNotBlank)?.let { " · Libro $it" }.orEmpty()
+                val rows = listOf("Publicación" to (details?.published ?: result.year),
+                    "Páginas" to (details?.pages ?: ""), "Idioma" to (details?.language ?: ""),
+                    "Editorial" to (details?.publisher ?: ""), "Saga" to sagaLabel,
+                    "ISBN" to result.isbn).filter { it.second.isNotBlank() }
                 rows.forEach { (label, value) -> Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) { Text("$label: ", fontWeight = FontWeight.Bold, color = Ink); Text(value, color = Ink) } }
+                if (!details?.editions.isNullOrEmpty()) {
+                    Spacer(Modifier.height(18.dp))
+                    Text("Ediciones y portadas", fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(details!!.editions, key = { it.isbn.ifBlank { it.label + it.coverUrl } }) { edition ->
+                            Surface(Modifier.width(150.dp), color = Color.White,
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = .3f))) {
+                                Column(Modifier.padding(9.dp)) {
+                                    val editionCover by rememberPublicCover(edition.coverUrl)
+                                    if (editionCover != null) Image(editionCover!!.asImageBitmap(),
+                                        edition.label, Modifier.fillMaxWidth().height(185.dp),
+                                        contentScale = ContentScale.Fit)
+                                    Text(edition.label, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                        color = Ink, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                    Text(edition.availability, fontSize = 10.sp,
+                                        color = if (edition.availability == "Disponible") Teal
+                                            else Mahogany.copy(alpha = .72f))
+                                }
+                            }
+                        }
+                    }
+                }
+                if (!details?.promotionalVideoUrl.isNullOrBlank()) {
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = { showPromotionalVideo = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Mahogany)) {
+                        Icon(Icons.Outlined.PlayCircle, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Buscar vídeo promocional")
+                    }
+                }
                 Spacer(Modifier.height(6.dp))
             }
         }
@@ -2942,15 +3006,20 @@ private fun fetchSagaMetadata(book: Book): Pair<String, String> {
     val author = displayAuthor(book).takeUnless(::unknownAuthor).orEmpty()
     val encodedTitle = java.net.URLEncoder.encode(plainTitle, "UTF-8")
     val encodedAuthor = java.net.URLEncoder.encode(author, "UTF-8")
+    val isbn = book.isbn.filter(Char::isDigit)
+    val coreTitle = plainTitle.substringBefore(':').substringBefore(" - ").trim()
 
     // Open Library is the best source when an edition exposes its series field. Try both a
     // precise and a broad search because many Spanish editions omit or alter the author name.
     val openLibraryQueries = listOf(
+        isbn.takeIf { it.length in setOf(10, 13) }?.let { "isbn=$it" },
         "title=$encodedTitle" + if (author.isNotBlank()) "&author=$encodedAuthor" else "",
+        "title=" + java.net.URLEncoder.encode(coreTitle, "UTF-8") +
+            if (author.isNotBlank()) "&author=$encodedAuthor" else "",
         "q=" + java.net.URLEncoder.encode("$plainTitle $author", "UTF-8")
-    ).distinct()
+    ).filterNotNull().distinct()
     for (query in openLibraryQueries) try {
-        val docs = getJson("https://openlibrary.org/search.json?$query&fields=title,author_name,series&limit=20")
+        val docs = getJson("https://openlibrary.org/search.json?$query&fields=key,title,author_name,series,isbn&limit=50")
             .optJSONArray("docs")
         for (i in 0 until (docs?.length() ?: 0)) {
             val item = docs?.optJSONObject(i) ?: continue
@@ -2969,7 +3038,7 @@ private fun fetchSagaMetadata(book: Book): Pair<String, String> {
     try {
         val q = java.net.URLEncoder.encode("intitle:$plainTitle" +
             if (author.isNotBlank()) " inauthor:$author" else "", "UTF-8")
-        val items = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=20")
+        val items = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=40&country=ES")
             .optJSONArray("items")
         for (i in 0 until (items?.length() ?: 0)) {
             val volume = items?.optJSONObject(i) ?: continue
@@ -2983,8 +3052,13 @@ private fun fetchSagaMetadata(book: Book): Pair<String, String> {
             if (name.isNotBlank()) return parseSagaLabel(name).let { parsed ->
                 parsed.first to number.ifBlank { parsed.second }
             }
-            listOf(info.optString("subtitle"), info.optString("title")).forEach { candidate ->
+            listOf(info.optString("subtitle"), info.optString("title"),
+                info.optString("description").take(280)).forEach { candidate ->
                 Regex("(?:serie|saga)\\s+([^,;:()]+?)(?:[,;:]|\\s*[#№]\\s*)(\\d+(?:[.]\\d+)?)",
+                    RegexOption.IGNORE_CASE).find(candidate)?.let { match ->
+                    return match.groupValues[1].trim() to match.groupValues[2]
+                }
+                Regex("([^,;:()]{3,80})\\s*[#№]\\s*(\\d+(?:[.]\\d+)?)",
                     RegexOption.IGNORE_CASE).find(candidate)?.let { match ->
                     return match.groupValues[1].trim() to match.groupValues[2]
                 }
@@ -4422,8 +4496,8 @@ private fun openCasaDelLibro(context: Context) {
         val genres = if (sortMode == "Género") booksToGroup.associate { book ->
             book.uri to normalizeBookGenres(book.genre).firstOrNull().orEmpty().ifBlank { "Sin clasificar" }
         } else emptyMap()
-        val sagaOrders = if (groupMode == "Sagas") booksToGroup.associate { it.uri to sagaNumber(it) }
-            else emptyMap()
+        val sagaOrders = if (groupMode == "Sagas" || sortMode == "Saga")
+            booksToGroup.associate { it.uri to sagaNumber(it) } else emptyMap()
         val sagaDisplayNames = if (groupMode == "Sagas") booksToGroup
             .map { sagaGroupKey(it) to inferredSaga(it).first }
             .filter { it.first.isNotBlank() && it.second.isNotBlank() }
@@ -4465,6 +4539,10 @@ private fun openCasaDelLibro(context: Context) {
                 compareBy<Book> { sagaOrders.getValue(it.uri) }.thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
             else when (sortMode) {
                 "Autor" -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { authors.getValue(it.uri) })
+                "Saga" -> group.sortedWith(compareBy<Book>(String.CASE_INSENSITIVE_ORDER) {
+                    inferredSaga(it).first.ifBlank { "zzzz Sin saga" }
+                }.thenBy { sagaOrders[it.uri] ?: Double.POSITIVE_INFINITY }
+                    .thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
                 "Género" -> group.sortedWith(
                     compareBy(String.CASE_INSENSITIVE_ORDER) { value: Book -> genres.getValue(value.uri) }
                         .thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
@@ -5655,7 +5733,7 @@ private fun openCasaDelLibro(context: Context) {
                         Box(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                                 ConceptSortButton("Ordenar por: $sortMode", Modifier.fillMaxWidth()) { sortMenu = true }
                                 DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                                    listOf("Título", "Autor", "Género", "Recientes").forEach { option ->
+                                    listOf("Título", "Autor", "Saga", "Género", "Recientes").forEach { option ->
                                         DropdownMenuItem(text = { Text(option) }, onClick = {
                                             sortMode = option
                                             // Ordenar es independiente de agrupar. Al elegir un criterio
@@ -5665,6 +5743,8 @@ private fun openCasaDelLibro(context: Context) {
                                                 vm.groupMode = "Todos"
                                             } else if (option == "Autor") {
                                                 vm.groupMode = "Autores"
+                                            } else if (option == "Saga") {
+                                                vm.groupMode = "Sagas"
                                             } else if (option == "Género") {
                                                 vm.groupMode = "Géneros"
                                             }
@@ -5795,46 +5875,40 @@ private fun openCasaDelLibro(context: Context) {
                             }
                         }
                     }, shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = Paper),
+                        colors = CardDefaults.cardColors(containerColor = Ink),
                         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) {
-                        Column(Modifier.fillMaxWidth()) {
-                            Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 16.dp,
-                                end = 12.dp, bottom = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Column(Modifier.weight(1f)) {
+                        Box(Modifier.fillMaxWidth().height(255.dp)) {
+                            if (picture != null) Image(picture!!.asImageBitmap(),
+                                contentDescription = "Imagen de la noticia: ${news.title}",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = if (news.source == "Casa del Libro")
+                                    ContentScale.Fit else ContentScale.Crop)
+                            else Box(Modifier.fillMaxSize().background(Mahogany))
+                            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+                                listOf(Color.Transparent, Color.Black.copy(alpha = .15f),
+                                    Color.Black.copy(alpha = .92f)))))
+                            Column(Modifier.align(Alignment.BottomStart)
+                                .fillMaxWidth().padding(start = 18.dp, top = 16.dp,
+                                    end = 52.dp, bottom = 17.dp)) {
+                                Text(if (news.source == "Casa del Libro") "PRÓXIMO LANZAMIENTO"
+                                    else "ACTUALIDAD LITERARIA",
+                                    color = Brass, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 Text(launchBookTitle(news), fontFamily = FontFamily.Serif,
-                                    fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Mahogany,
-                                    lineHeight = 23.sp, maxLines = 3)
+                                    fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White,
+                                    lineHeight = 29.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                                    style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
                                 if (launchBookAuthor(news).isNotBlank()) Text(launchBookAuthor(news),
-                                    color = Mahogany.copy(alpha = .78f), fontSize = 13.sp,
-                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                }
-                                if (picture != null) Image(picture!!.asImageBitmap(),
-                                    contentDescription = "Imagen de la noticia: ${news.title}",
-                                    modifier = Modifier.size(72.dp)
-                                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
-                                    contentScale = ContentScale.Crop)
-                            }
-                            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, bottom = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                Text(if (news.source == "Casa del Libro") "Próximo lanzamiento" else "Actualidad literaria",
-                                    color = Mahogany, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.weight(1f))
+                                    color = Color.White.copy(alpha = .88f), fontSize = 14.sp,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(if (news.source == "Casa del Libro")
-                                    formatLaunchDate(news.releaseDate) else
-                                    if (news.source in featuredNewsSources) "Novedad" else
-                                    try {
-                                        java.time.LocalDate.parse(news.releaseDate).format(
-                                            java.time.format.DateTimeFormatter.ofPattern("d MMM",
-                                                java.util.Locale("es", "ES")))
-                                    } catch (_: Exception) { news.releaseDate },
-                                    color = Mahogany.copy(alpha = 0.7f), fontSize = 11.sp)
-                                IconButton(onClick = { vm.hideNews(news.url) },
-                                    modifier = Modifier.semantics { contentDescription = "Ocultar noticia" }) {
-                                    AppIcon("Cerrar", "Ocultar noticia", tint = Mahogany)
-                                }
+                                    formatLaunchDate(news.releaseDate) else news.source,
+                                    color = Color.White.copy(alpha = .72f), fontSize = 11.sp)
                             }
-
+                            IconButton(onClick = { vm.hideNews(news.url) },
+                                modifier = Modifier.align(Alignment.TopEnd)
+                                    .semantics { contentDescription = "Ocultar noticia" }) {
+                                AppIcon("Cerrar", "Ocultar noticia", tint = Color.White)
+                            }
                         }
                     }
                 }
@@ -6639,17 +6713,10 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
                 Text(author, fontSize = 15.sp, color = Mahogany, maxLines = 2,
                     overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(8.dp))
-                val details = buildList {
-                    normalizeBookGenres(book.genre).firstOrNull()?.let(::add)
-                    book.date.takeIf(String::isNotBlank)?.let(::add)
-                    book.saga.takeIf(String::isNotBlank)?.let { add("Saga: $it") }
+                book.date.takeIf(String::isNotBlank)?.let {
+                    Text(it, fontSize = 12.sp, color = Mahogany.copy(alpha = .68f),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                if (details.isNotEmpty()) Text(details.joinToString(" · "), fontSize = 11.sp,
-                    color = Mahogany.copy(alpha = .68f), maxLines = 2,
-                    overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.weight(1f))
-                Text(book.status.label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
-                    color = Teal)
             }
         }
     }
