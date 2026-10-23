@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 117274)
+Total output lines: 8246
+
 package com.diego.mibiblioteca
 
 import android.app.Application
@@ -224,6 +227,12 @@ internal fun extractSagaFromText(raw: String): Pair<String, String>? {
 
 private fun sagaGroupKey(book: Book): String = normalizeSagaName(inferredSaga(book).first)
 
+private fun sagaDisplayName(value: String): String = when {
+    normalizeSagaName(value).contains("antonia scott") &&
+        normalizeSagaName(value).contains("jon gutierrez") -> "Reina Roja"
+    else -> value
+}
+
 private val newsImageCache = object : LruCache<String, Bitmap>(12 * 1024) {
     override fun sizeOf(key: String, value: Bitmap): Int =
         (value.byteCount / 1024).coerceAtLeast(1)
@@ -327,10 +336,10 @@ private fun PublicBookCard(result: PublicBookResult, onOpen: () -> Unit, onWish:
         border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = .35f)),
         shadowElevation = 2.dp
     ) {
-        Row(Modifier.padding(12.dp).clickable(onClick = onOpen), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.width(78.dp).height(112.dp), contentAlignment = Alignment.Center) {
+        Row(Modifier.padding(14.dp).clickable(onClick = onOpen), verticalAlignment = Alignment.Top) {
+            Box(Modifier.width(104.dp).height(156.dp), contentAlignment = Alignment.Center) {
                 if (cover != null) Image(cover!!.asImageBitmap(), "Portada de ${result.title}",
-                    Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                 else {
                     AppIcon("Libros", tint = Mahogany.copy(alpha = .55f), size = 38.dp)
                     Text("Sin portada", fontSize = 9.sp, color = Mahogany.copy(alpha = .65f))
@@ -342,12 +351,14 @@ private fun PublicBookCard(result: PublicBookResult, onOpen: () -> Unit, onWish:
                     color = Ink, fontSize = 17.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 if (result.author.isNotBlank()) Text(result.author, color = Mahogany,
                     fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (result.year.isNotBlank()) Text("Publicado en ${result.year}",
+                if (result.year.isNotBlank()) Text("Publicación: ${result.year}",
                     color = Mahogany.copy(alpha = .72f), fontSize = 12.sp)
-                if (result.publishDates.isNotBlank()) Text("Ediciones: ${result.publishDates}",
-                    color = Mahogany.copy(alpha = .62f), fontSize = 11.sp, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis)
-                Text("Toca para ver argumento y autor", color = Mahogany.copy(alpha = .7f), fontSize = 11.sp)
+                if (result.publisher.isNotBlank()) Text("Editorial: ${result.publisher}",
+                    color = Mahogany.copy(alpha = .7f), fontSize = 11.sp, maxLines = 2)
+                if (result.summary.isNotBlank()) Text(result.summary, color = Ink.copy(alpha = .82f),
+                    fontSize = 11.sp, lineHeight = 15.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text("Abrir ficha completa", color = Teal, fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Button(onClick = onWish, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                     AppIcon("Favoritos", tint = Color.White, size = 17.dp)
@@ -372,7 +383,7 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                     settings.domStorageEnabled = true
                     loadUrl(details?.promotionalVideoUrl.orEmpty())
                 }
-            }, modifier = Modifier.fillMaxWidth().height(420.dp))
+            }, modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f))
         },
         confirmButton = { TextButton(onClick = { showPromotionalVideo = false }) { Text("Cerrar") } }
     )
@@ -406,8 +417,8 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 Text("Sobre el autor", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
                 val authorPicture by rememberPublicCover(details?.authorImageUrl.orEmpty())
                 if (authorPicture != null) Image(authorPicture!!.asImageBitmap(), "Foto de ${result.author}",
-                    Modifier.fillMaxWidth().height(220.dp), contentScale = ContentScale.Crop,
-                    alignment = Alignment.TopCenter)
+                    Modifier.fillMaxWidth().heightIn(max = 300.dp), contentScale = ContentScale.Fit,
+                    alignment = Alignment.Center)
                 Text(details?.authorBio?.ifBlank { "No hay biografía disponible en las fuentes públicas." } ?: "Cargando biografía…", color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
                 Spacer(Modifier.height(18.dp))
                 Text("Detalles del libro", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
@@ -446,10 +457,10 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                     Spacer(Modifier.height(16.dp))
                     Button(onClick = { showPromotionalVideo = true },
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Mahogany)) {
+                        colors = ButtonDefaults.buttonColors(containerColor = Teal)) {
                         Icon(Icons.Outlined.PlayCircle, null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Buscar vídeo promocional")
+                        Text("Tráilers y presentaciones")
                     }
                 }
                 Spacer(Modifier.height(6.dp))
@@ -1723,7 +1734,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         ?: source.lastPathSegment.orEmpty().substringAfterLast('/')
                     val mime = context.contentResolver.getType(source).orEmpty().substringBefore(';')
                     val format = detectImportedBookFormat(name, mime)
-                        ?: error("Mi Biblioteca puede abrir archivos EPUB, PDF, MOBI, AZW y FB2.")
+                        ?: error("BookNook puede abrir archivos EPUB, PDF, MOBI, AZW y FB2.")
                     val extension = format.extension
                     val safeName = name.ifBlank { "Libro.$extension" }
                     val folder = File(context.filesDir, "imported").apply { mkdirs() }
@@ -1754,7 +1765,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 saveBooks()
                 importedBookUri = imported.uri
                 val format = detectImportedBookFormat(imported.uri.lastPathSegment.orEmpty(), "")
-                message = "${format?.label ?: "Libro"} añadido a Mi Biblioteca"
+                message = "${format?.label ?: "Libro"} añadido a BookNook"
             } catch (e: Exception) {
                 message = "No se pudo abrir el archivo: ${e.localizedMessage ?: "archivo no válido"}"
             }
@@ -3727,1230 +3738,7 @@ private fun openCasaDelLibro(context: Context) {
             }
             if (name == tab) {
                 showWishList = showPending
-                pageMotion.animateTo(0f, tween(motionDuration(120), easing = FastOutSlowInEasing))
-                return@launch
-            }
-            val direction = if (tabs.indexOf(name) > tabs.indexOf(tab)) -1f else 1f
-            val distance = pageTravelPx
-            // El destino cambia en el mismo fotograma del toque. Antes se esperaba
-            // a terminar una animación de salida y el botón parecía no responder.
-            tab = name
-            vm.query = ""
-            showWishList = showPending
-            vm.selectedSection = null
-            vm.qualityFilter = "Ninguno"
-            vm.statusFilter = null
-            vm.onlyFavorites = name == "Favoritos"
-            smartCollection = null
-            pageMotion.snapTo(-direction * distance * .55f)
-            withFrameNanos { }
-            pageMotion.animateTo(0f, tween(motionDuration(210), easing = FastOutSlowInEasing))
-        }
-    }
-    fun settlePage() {
-        tabTransitionJob?.cancel()
-        tabTransitionJob = scope.launch {
-            pageMotion.snapTo((pageDrag.floatValue * 0.18f).coerceIn(-pageTravelPx, pageTravelPx))
-            pageDrag.floatValue = 0f
-            pageMotion.animateTo(0f, tween(motionDuration(210), easing = FastOutSlowInEasing))
-        }
-    }
-    var bookMenu by remember { mutableStateOf<Book?>(null) }
-    var addWishDialog by remember { mutableStateOf(false) }
-    var wishTitle by remember { mutableStateOf("") }
-    var wishUrl by remember { mutableStateOf("") }
-    var publicSearchOpen by remember { mutableStateOf(false) }
-    var publicQuery by remember { mutableStateOf("") }
-    var publicResults by remember { mutableStateOf<List<PublicBookResult>>(emptyList()) }
-    var publicSearching by remember { mutableStateOf(false) }
-    var publicSearchJob by remember { mutableStateOf<Job?>(null) }
-    var selectedPublicResult by remember { mutableStateOf<PublicBookResult?>(null) }
-    var wallpaperPickerOpen by remember { mutableStateOf(false) }
-    var animationPickerOpen by remember { mutableStateOf(false) }
-    var textSizePickerOpen by remember { mutableStateOf(false) }
-    var sagaRenameSource by remember { mutableStateOf<String?>(null) }
-    var sagaRenameTarget by remember { mutableStateOf("") }
-    if (wallpaperPickerOpen) AlertDialog(
-        onDismissRequest = { wallpaperPickerOpen = false },
-        title = { Text("Elegir fondo de pantalla") },
-        text = {
-            LazyColumn(Modifier.heightIn(max = 440.dp)) {
-                items(listOf("Automático", "Clásico", "Portada") + wallpaperGenres) { mode ->
-                    Row(Modifier.fillMaxWidth().clickable {
-                        vm.chooseWallpaper(mode)
-                        wallpaperPickerOpen = false
-                    }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = vm.wallpaperMode == mode,
-                            onClick = { vm.chooseWallpaper(mode); wallpaperPickerOpen = false })
-                        Text(mode, color = Mahogany)
-                    }
-                }
-            }
-        },
-        confirmButton = { LibraryTextButton(onClick = { wallpaperPickerOpen = false }) {
-            Text("Cerrar")
-        } }
-    )
-    if (animationPickerOpen) AlertDialog(
-        onDismissRequest = { animationPickerOpen = false },
-        title = { Text("Movimiento y fluidez") },
-        text = { Column {
-            listOf("Equilibrada", "Suave", "Sin animaciones").forEach { mode ->
-                Row(Modifier.fillMaxWidth().clickable {
-                    vm.chooseAnimationMode(mode); animationPickerOpen = false
-                }, verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(vm.animationMode == mode, onClick = {
-                        vm.chooseAnimationMode(mode); animationPickerOpen = false
-                    })
-                    Text(mode)
-                }
-            }
-        } },
-        confirmButton = { LibraryTextButton(onClick = { animationPickerOpen = false }) { Text("Cerrar") } })
-    if (textSizePickerOpen) AlertDialog(
-        onDismissRequest = { textSizePickerOpen = false },
-        title = { Text("Tamaño del texto") },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            listOf("Normal" to 1f, "Grande" to 1.15f, "Muy grande" to 1.3f).forEach { (label, scale) ->
-                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable {
-                    vm.chooseInterfaceTextScale(scale); textSizePickerOpen = false
-                }.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = kotlin.math.abs(vm.interfaceTextScale - scale) < .01f,
-                        onClick = { vm.chooseInterfaceTextScale(scale); textSizePickerOpen = false })
-                    Text(label, fontSize = 16.sp)
-                }
-            }
-            Text("Se suma al tamaño de letra configurado en Android.",
-                color = Mahogany.copy(alpha = .76f), fontSize = 12.sp,
-                modifier = Modifier.padding(top = 8.dp))
-        } },
-        confirmButton = { LibraryTextButton(onClick = { textSizePickerOpen = false }) { Text("Cerrar") } })
-    if (addingSection) AlertDialog(
-        onDismissRequest = { addingSection = false },
-        title = { Text("Nueva sección") },
-        text = { OutlinedTextField(sectionName, { sectionName = it }, label = { Text("Nombre") }) },
-        confirmButton = { LibraryTextButton(onClick = { vm.addSection(sectionName); sectionName = ""; addingSection = false }) { Text("Crear") } },
-        dismissButton = { LibraryTextButton(onClick = { addingSection = false }) { Text("Cancelar") } }
-    )
-    sectionToDelete?.let { name -> AlertDialog(
-        onDismissRequest = { sectionToDelete = null },
-        title = { Text("Eliminar sección") },
-        text = { Text("Se eliminará la sección «$name». Los libros permanecerán en la biblioteca.") },
-        confirmButton = { LibraryTextButton(onClick = { vm.deleteSection(name); sectionToDelete = null }) { Text("Eliminar") } },
-        dismissButton = { LibraryTextButton(onClick = { sectionToDelete = null }) { Text("Cancelar") } }
-    ) }
-    if (addWishDialog) AlertDialog(
-        onDismissRequest = { addWishDialog = false },
-        title = { Text("Añadir a la lista de deseos") },
-        text = { Column {
-            OutlinedTextField(wishTitle, { wishTitle = it }, label = { Text("Título") })
-            OutlinedTextField(wishUrl, { wishUrl = it }, label = { Text("Enlace opcional") })
-        } },
-        confirmButton = { LibraryTextButton(onClick = {
-            vm.addGoodreadsWish(wishTitle, wishUrl); addWishDialog = false; wishTitle = ""; wishUrl = ""
-        }) { Text("Añadir") } },
-        dismissButton = { LibraryTextButton(onClick = { addWishDialog = false }) { Text("Cancelar") } }
-    )
-    if (publicSearchOpen) AlertDialog(
-        onDismissRequest = { publicSearchOpen = false; selectedPublicResult = null },
-        title = { Text("Consultar libros públicos", fontFamily = FontFamily.Serif, color = Ink) },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
-                DiscoverSearchField(
-                    query = publicQuery,
-                    searching = publicSearching,
-                    voiceListening = false,
-                    onVoice = { },
-                    onSearch = { requested ->
-                        publicQuery = requested
-                        publicSearching = true
-                        publicSearchJob?.cancel()
-                        val launchCatalog = vm.launchNews
-                        val owned = vm.books.map { displayTitle(it) to displayAuthor(it) }
-                        publicSearchJob = scope.launch(Dispatchers.IO) {
-                            val releases = searchLaunchCatalog(requested, launchCatalog, owned)
-                            val public = runCatching { searchPublicBooks(requested) }.getOrDefault(emptyList())
-                            val found = (releases + public).distinctBy {
-                                it.title.lowercase() + "|" + it.author.lowercase()
-                            }
-                            withContext(Dispatchers.Main) {
-                                publicResults = found
-                                publicSearching = false
-                                selectedPublicResult = null
-                            }
-                        }
-                    }
-                )
-                Spacer(Modifier.height(10.dp))
-                if (publicSearching) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
-                if (!publicSearching && publicQuery.isNotBlank() && publicResults.isEmpty())
-                    Text("No se han encontrado resultados.", color = Mahogany)
-                if (selectedPublicResult == null) {
-                    LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                        items(publicResults, key = { it.sourceUrl.ifBlank { it.title + "|" + it.author } }) { result ->
-                            PublicBookCard(result, onOpen = { selectedPublicResult = result },
-                                onWish = { vm.addGoodreadsWish(result.title, result.sourceUrl) })
-                            Spacer(Modifier.height(8.dp))
-                        }
-                    }
-                } else {
-                    val result = selectedPublicResult!!
-                    val details by produceState<PublicBookDetails?>(initialValue = null, result.sourceUrl) {
-                        value = withContext(Dispatchers.IO) { loadPublicBookDetails(result) }
-                    }
-                    LazyColumn(Modifier.heightIn(max = 470.dp)) {
-                        item {
-                            PublicBookDetailPage(result, details,
-                                wishListed = vm.wishList.any { it.first.equals(result.title, true) && it.second == result.sourceUrl },
-                                onBack = { selectedPublicResult = null },
-                                onWish = { vm.addGoodreadsWish(result.title, result.sourceUrl) })
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { publicSearchOpen = false; selectedPublicResult = null }) { Text("Cerrar") } }
-    )
-    sagaRenameSource?.let { source -> AlertDialog(
-        onDismissRequest = { sagaRenameSource = null },
-        title = { Text("Unificar nombre de saga") },
-        text = { Column {
-            Text("Todos los libros agrupados como «$source» usarán el nuevo nombre.")
-            OutlinedTextField(sagaRenameTarget, { sagaRenameTarget = it },
-                label = { Text("Nombre definitivo") }, singleLine = true)
-        } },
-        confirmButton = { LibraryTextButton(onClick = {
-            vm.renameSagaGroup(source, sagaRenameTarget)
-            sagaRenameSource = null; sagaRenameTarget = ""
-        }, enabled = sagaRenameTarget.isNotBlank()) { Text("Unificar") } },
-        dismissButton = { LibraryTextButton(onClick = { sagaRenameSource = null }) { Text("Cancelar") } }
-    ) }
-    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
-    val bookPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let(vm::importLocalBook)
-    }
-    if (vm.showFirstRunGuide) AlertDialog(
-        onDismissRequest = vm::dismissFirstRunGuide,
-        title = { Text("Bienvenido a Mi Biblioteca", fontFamily = FontFamily.Serif,
-            fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Conecta la carpeta donde guardas tus libros. La aplicación creará el catálogo y conservará tus datos en el teléfono.")
-                listOf(
-                    "1" to "Elige la carpeta Libros de Google Drive.",
-                    "2" to "Pulsa Usar esta carpeta en la pantalla de Android.",
-                    "3" to "Espera al primer análisis; después solo se revisarán los cambios."
-                ).forEach { (number, instruction) ->
-                    Row(verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Surface(shape = androidx.compose.foundation.shape.CircleShape,
-                            color = Teal, modifier = Modifier.size(28.dp)) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(number, color = Color.White, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        Text(instruction, color = Ink, modifier = Modifier.weight(1f))
-                    }
-                }
-                Text("Mi Biblioteca no mueve ni elimina tus archivos durante la sincronización.",
-                    color = Mahogany.copy(alpha = .78f), fontSize = 12.sp)
-            }
-        },
-        confirmButton = { LibraryTextButton(onClick = {
-            vm.dismissFirstRunGuide(); folderPicker.launch(null)
-        }) { Text("Elegir carpeta") } },
-        dismissButton = { TextButton(onClick = vm::dismissFirstRunGuide) { Text("Explorar primero") } }
-    )
-    if (vm.showReleaseNotes && !vm.showFirstRunGuide) AlertDialog(
-        onDismissRequest = vm::dismissReleaseNotes,
-        title = { Text("Novedades de MiBiblioteca") },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            currentReleaseNotes().forEach { note -> Text("• $note", fontSize = 13.sp) }
-        } },
-        confirmButton = { LibraryTextButton(onClick = vm::dismissReleaseNotes) { Text("Entendido") } }
-    )
-    LaunchedEffect(vm.importedBookUri, vm.books) {
-        vm.importedBookUri?.let { uri ->
-            vm.books.firstOrNull { it.uri == uri }?.let {
-                selected = it
-                readingUri = uri.toString()
-                vm.recordOpen(uri)
-                vm.setStatus(uri, ReadingStatus.READING)
-                vm.clearImportedBook()
-            }
-        }
-    }
-    val current = selected?.let { s -> vm.books.firstOrNull { it.uri == s.uri } }
-    BackHandler(enabled = readingUri == null && (selected != null || showWishList || tab != "Inicio")) {
-        when {
-            selected != null -> selected = null
-            showWishList -> showWishList = false
-            else -> switchTab("Inicio")
-        }
-    }
-    val homeListState = rememberLazyListState()
-    val libraryListState = rememberLazyListState()
-    val genreListState = rememberLazyListState()
-    val sectionsListState = rememberLazyListState()
-    val favoritesListState = rememberLazyListState()
-    val listState = when (tab) {
-        "Inicio" -> homeListState
-        "Biblioteca" -> libraryListState
-        "Géneros" -> genreListState
-        "Secciones" -> sectionsListState
-        "Favoritos" -> favoritesListState
-        else -> sectionsListState
-    }
-    var restoreListPosition by remember { mutableStateOf(false) }
-    var savedListIndex by remember { mutableIntStateOf(0) }
-    var savedListOffset by remember { mutableIntStateOf(0) }
-    fun startReader(book: Book) {
-        if (readerTransitionBusy) return
-        readerTransitionBusy = true
-        vm.recordOpen(book.uri)
-        vm.setStatus(book.uri, ReadingStatus.READING)
-        if (!android.animation.ValueAnimator.areAnimatorsEnabled()) {
-            readingUri = book.uri.toString()
-            readerTransitionBusy = false
-            return
-        }
-        scope.launch {
-            try {
-                if (book.cover != null) coverDecodeSlots.withPermit {
-                    withContext(Dispatchers.Default) {
-                        decodeCover(book, coverPreviewWidthPx, coverPreviewHeightPx)
-                    }
-                }
-                readerTransition.snapTo(0f)
-                pendingReader = book
-                // Finish the physical movement before composing the reader behind the page.
-                readerTransition.animateTo(0.84f,
-                    tween(2600, easing = FastOutSlowInEasing))
-                // Deja la portada encuadrada unos instantes antes de mostrar el texto.
-                kotlinx.coroutines.delay(900)
-                readingUri = book.uri.toString()
-                withFrameNanos { }
-                readerTransition.animateTo(1f,
-                    tween(850, easing = FastOutSlowInEasing))
-            } finally {
-                pendingReader = null
-                readerTransitionBusy = false
-            }
-        }
-    }
-    fun openBookFromList(book: Book) {
-        savedListIndex = listState.firstVisibleItemIndex
-        savedListOffset = listState.firstVisibleItemScrollOffset
-        restoreListPosition = true
-        selected = book
-    }
-    LaunchedEffect(vm.shortcutRequest, vm.books, vm.lastOpenedUri) {
-        when (vm.shortcutRequest) {
-            ACTION_OPEN_LIBRARY -> {
-                switchTab("Biblioteca")
-                vm.consumeShortcut()
-            }
-            ACTION_IMPORT_BOOK -> {
-                vm.consumeShortcut()
-                bookPicker.launch(arrayOf(
-                    "application/epub+zip", "application/pdf",
-                    "application/x-mobipocket-ebook", "application/vnd.amazon.ebook",
-                    "application/x-fictionbook+xml", "application/octet-stream"
-                ))
-            }
-            ACTION_CONTINUE_READING -> {
-                val lastUri = vm.lastOpenedUri
-                val book = vm.books.firstOrNull { it.uri == lastUri }
-                when {
-                    book != null -> {
-                        vm.consumeShortcut()
-                        startReader(book)
-                    }
-                    lastUri == null -> {
-                        vm.consumeShortcut()
-                        switchTab("Biblioteca")
-                    }
-                    vm.books.isNotEmpty() -> {
-                        vm.consumeShortcut()
-                        switchTab("Biblioteca")
-                    }
-                }
-            }
-        }
-    }
-    LaunchedEffect(selected, restoreListPosition, tab) {
-        if (selected == null && restoreListPosition) {
-            listState.scrollToItem(savedListIndex, savedListOffset)
-            restoreListPosition = false
-        }
-    }
-    // Require a deliberate horizontal gesture. A low threshold made vertical scrolling and
-    // taps on cards feel as if the whole screen was trying to change tab.
-    val swipeThreshold = with(LocalDensity.current) { 56.dp.toPx() }
-    val pullRefreshTopInset = with(LocalDensity.current) { 148.dp.toPx() }
-    val pullRefreshBottomInset = with(LocalDensity.current) { 80.dp.toPx() }
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
-    var settingsOpen by rememberSaveable { mutableStateOf(false) }
-    var showSyncReport by remember { mutableStateOf(false) }
-    var homeSettings by remember { mutableStateOf(false) }
-    var newsSettings by remember { mutableStateOf(false) }
-    var organizeSections by remember { mutableStateOf(false) }
-    var backupMenu by remember { mutableStateOf(false) }
-    var duplicateDialog by remember { mutableStateOf(false) }
-    var libraryHealthOpen by remember { mutableStateOf(false) }
-    var readingStatsOpen by remember { mutableStateOf(false) }
-    var releaseCalendarOpen by remember { mutableStateOf(false) }
-    var taskCenterOpen by remember { mutableStateOf(false) }
-    var activityOpen by remember { mutableStateOf(false) }
-    var privacyOpen by remember { mutableStateOf(false) }
-    var supportOpen by remember { mutableStateOf(false) }
-    var helpOpen by remember { mutableStateOf(false) }
-    var legalOpen by remember { mutableStateOf(false) }
-    var sortMenu by remember { mutableStateOf(false) }
-    var sortMode by rememberSaveable { mutableStateOf("Título") }
-    val backupExport = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        uri?.let(vm::exportBackup)
-    }
-    val backupImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let(vm::importBackup)
-    }
-    val catalogExport = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("text/csv")) { uri -> uri?.let(vm::exportCatalogCsv) }
-    val notebookExport = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("text/plain")) { uri -> uri?.let(vm::exportReadingNotebook) }
-    val isbnCamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
-        if (bitmap != null) BarcodeScanning.getClient().process(InputImage.fromBitmap(bitmap, 0))
-            .addOnSuccessListener { codes ->
-                val isbn = codes.asSequence().filter { it.valueType == Barcode.TYPE_ISBN ||
-                    it.format == Barcode.FORMAT_EAN_13 || it.format == Barcode.FORMAT_EAN_8 }
-                    .mapNotNull { it.rawValue }.firstOrNull()
-                if (isbn != null) { vm.query = isbn; switchTab("Biblioteca") }
-                else android.widget.Toast.makeText(context, "No se ha detectado un ISBN. Acerca más la cámara.",
-                    android.widget.Toast.LENGTH_LONG).show()
-            }
-    }
-    var launchIsbnCamera by remember { mutableStateOf(false) }
-    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted && launchIsbnCamera) isbnCamera.launch(null)
-        launchIsbnCamera = false
-    }
-    var voiceListening by remember { mutableStateOf(false) }
-    var voiceTargetPublic by remember { mutableStateOf(false) }
-    var startVoiceWhenPermitted by remember { mutableStateOf(false) }
-    val speechRecognizer = remember {
-        when {
-            android.os.Build.VERSION.SDK_INT >= 31 &&
-                SpeechRecognizer.isOnDeviceRecognitionAvailable(context) ->
-                SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
-            SpeechRecognizer.isRecognitionAvailable(context) ->
-                SpeechRecognizer.createSpeechRecognizer(context)
-            else -> null
-        }
-    }
-    DisposableEffect(speechRecognizer) {
-        speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) { voiceListening = true }
-            override fun onBeginningOfSpeech() { voiceListening = true }
-            override fun onRmsChanged(rmsdB: Float) = Unit
-            override fun onBufferReceived(buffer: ByteArray?) = Unit
-            override fun onEndOfSpeech() { voiceListening = false }
-            override fun onError(error: Int) {
-                voiceListening = false
-                val message = when (error) {
-                    SpeechRecognizer.ERROR_NO_MATCH -> "No he entendido la búsqueda. Inténtalo otra vez."
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No he oído ninguna búsqueda."
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Activa el permiso del micrófono."
-                    else -> "No se ha podido reconocer la voz."
-                }
-                android.widget.Toast.makeText(context, message,
-                    android.widget.Toast.LENGTH_SHORT).show()
-            }
-            override fun onResults(results: Bundle?) {
-                voiceListening = false
-                val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    ?.firstOrNull().orEmpty().trim()
-                if (spoken.isNotBlank()) {
-                    if (voiceTargetPublic) publicQuery = spoken
-                    else { vm.query = spoken; switchTab("Biblioteca") }
-                    voiceTargetPublic = false
-                }
-            }
-            override fun onPartialResults(partialResults: Bundle?) {
-                val spoken = partialResults
-                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    ?.firstOrNull().orEmpty().trim()
-                if (spoken.isNotBlank()) {
-                    if (voiceTargetPublic) publicQuery = spoken else vm.query = spoken
-                }
-            }
-            override fun onEvent(eventType: Int, params: Bundle?) = Unit
-        })
-        onDispose { speechRecognizer?.destroy() }
-    }
-    val microphonePermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) startVoiceWhenPermitted = true
-        else android.widget.Toast.makeText(context, "Se necesita permiso para usar el micrófono.",
-            android.widget.Toast.LENGTH_LONG).show()
-    }
-    LaunchedEffect(startVoiceWhenPermitted) {
-        if (!startVoiceWhenPermitted) return@LaunchedEffect
-        startVoiceWhenPermitted = false
-        speechRecognizer?.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-ES")
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-        })
-    }
-    fun launchVoiceSearch(publicSearch: Boolean = false) {
-        if (speechRecognizer == null) {
-            android.widget.Toast.makeText(context,
-                "El reconocimiento de voz no está disponible.",
-                android.widget.Toast.LENGTH_LONG).show()
-            return
-        }
-        if (voiceListening) { speechRecognizer.cancel(); voiceTargetPublic = false }
-        else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-            PackageManager.PERMISSION_GRANTED) { voiceTargetPublic = publicSearch; startVoiceWhenPermitted = true }
-        else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
-    }
-    val readingBooks = remember(vm.books) { vm.readingBooks() }
-    val homeRecommendations by produceState<List<PublicBookResult>>(
-        initialValue = emptyList(), vm.books, vm.launchNews
-    ) {
-        val snapshot = vm.books
-        val preferred = snapshot.filter {
-            it.favorite || it.rating >= 4 || it.status == ReadingStatus.READING ||
-                it.status == ReadingStatus.READ
-        }.ifEmpty { snapshot }.take(8)
-        val owned = snapshot.map { displayTitle(it) to displayAuthor(it) }
-        value = withContext(Dispatchers.IO) {
-            val upcoming = launchNewsAsPublicBooks(vm.launchNews, owned)
-            val discovered = if (preferred.isEmpty()) emptyList() else externalBookRecommendations(
-                preferred.map { book -> ExternalRecommendationSeed(displayTitle(book),
-                    displayAuthor(book), normalizeBookGenres(book.genre)) }, owned, limit = 30)
-            (upcoming + discovered).distinctBy {
-                it.title.lowercase() + "|" + it.author.lowercase()
-            }.filterNot { isLikelyOwnedRecommendation(it.title, it.author, owned) }.take(30)
-        }
-    }
-    // Secciones mantiene su propia vista, separada de Biblioteca.
-    val activeViewScope: String? = if (tab == "Secciones") "__secciones__" else vm.selectedSection
-    val activeViewMode = vm.viewModeFor(activeViewScope)
-    LaunchedEffect(vm.message) {
-        if (vm.message != null && !libraryNoticeIsPersistent(vm.message, vm.lastDriveFailure)) {
-            kotlinx.coroutines.delay(4000)
-            vm.clearMessage()
-        }
-    }
-    val visibleNews = remember(vm.launchNews, vm.hiddenNewsSources, vm.hiddenNewsUrls) {
-        vm.launchNews.filter(vm::isNewsVisible)
-    }
-    val duplicateSnapshot = vm.books
-    var duplicateScanComplete by remember { mutableStateOf(false) }
-    val scanDuplicatesNow = selected != null || duplicateDialog || libraryHealthOpen
-    val duplicateGroups by produceState(
-        initialValue = emptyList<List<Book>>(), duplicateSnapshot, scanDuplicatesNow
-    ) {
-        if (!scanDuplicatesNow) return@produceState
-        duplicateScanComplete = false
-        value = withContext(Dispatchers.Default) { findDuplicateGroups(duplicateSnapshot) }
-        duplicateScanComplete = true
-    }
-    val booksSnapshot = vm.books
-    val offlineBookUris = remember(booksSnapshot, vm.offlineRevision) {
-        booksSnapshot.asSequence().filter { offlineBookUri(context, it) != null }
-            .map { it.uri }.toSet()
-    }
-    @Suppress("DEPRECATION")
-    fun supportDiagnosticText(): String {
-        val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-        val versionCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P)
-            packageInfo.longVersionCode else packageInfo.versionCode.toLong()
-        fun granted(permission: String) = ContextCompat.checkSelfPermission(context, permission) ==
-            PackageManager.PERMISSION_GRANTED
-        return buildSupportDiagnostic(SupportDiagnosticInput(
-            appVersion = packageInfo.versionName.orEmpty(),
-            versionCode = versionCode,
-            androidVersion = android.os.Build.VERSION.RELEASE.orEmpty(),
-            deviceModel = listOf(android.os.Build.MANUFACTURER, android.os.Build.MODEL)
-                .filter(String::isNotBlank).joinToString(" ").trim(),
-            totalBooks = booksSnapshot.size,
-            readingBooks = booksSnapshot.count { it.status == ReadingStatus.READING },
-            offlineBooks = offlineBookUris.size,
-            folderLinked = vm.folderLinked,
-            cameraGranted = granted(Manifest.permission.CAMERA),
-            microphoneGranted = granted(Manifest.permission.RECORD_AUDIO),
-            notificationsGranted = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU ||
-                granted(Manifest.permission.POST_NOTIFICATIONS),
-            driveDiagnostic = vm.driveDiagnosticText(),
-            performanceDiagnostic = (context as? MainActivity)?.performanceReport().orEmpty()
-        ))
-    }
-    val typedQuery = vm.query
-    var debouncedQuery by remember { mutableStateOf(typedQuery) }
-    LaunchedEffect(typedQuery) {
-        if (typedQuery.isBlank()) {
-            debouncedQuery = ""
-        } else {
-            // Esperar una pausa breve evita recalcular resultados por cada tecla.
-            delay(180)
-            debouncedQuery = typedQuery
-        }
-    }
-    val querySnapshot = debouncedQuery
-    val statusSnapshot = vm.statusFilter
-    // El destino Favoritos aplica su estado desde el primer fotograma,
-    // sin esperar a que el ViewModel cambie después de la navegación.
-    val favoritesSnapshot = tab == "Favoritos" || vm.onlyFavorites
-    val sectionSnapshot = vm.selectedSection
-    val qualitySnapshot = vm.qualityFilter
-    val reviewSnapshot = vm.reviewPending
-    val hasCatalogFilters = querySnapshot.isNotBlank() || statusSnapshot != null ||
-        favoritesSnapshot || sectionSnapshot != null || qualitySnapshot != "Ninguno" ||
-        reviewSnapshot.isNotEmpty()
-    val baseFilteredBooks by produceState(
-        initialValue = if (hasCatalogFilters) emptyList() else booksSnapshot,
-        booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
-        sectionSnapshot, qualitySnapshot, reviewSnapshot
-    ) {
-        value = if (!hasCatalogFilters) booksSnapshot else withContext(Dispatchers.Default) {
-            val exactMatches = if (querySnapshot.isBlank()) emptySet()
-                else catalogSearchIndex.matchingBookUris(booksSnapshot, querySnapshot)
-            val fuzzyCandidates = if (shouldUseFuzzyCatalogFallback(exactMatches, querySnapshot))
-                CatalogQuality.rank(booksSnapshot, querySnapshot) else null
-            val searchMatches = when {
-                querySnapshot.isBlank() -> null
-                fuzzyCandidates != null -> fuzzyCandidates.mapTo(hashSetOf()) { it.uri.toString() }
-                else -> exactMatches
-            }
-            val filtered = filterBooks(booksSnapshot, querySnapshot, statusSnapshot, favoritesSnapshot,
-                sectionSnapshot, qualitySnapshot, reviewSnapshot, searchMatches)
-            when {
-                querySnapshot.isBlank() -> filtered
-                fuzzyCandidates != null -> {
-                    val allowed = filtered.mapTo(hashSetOf()) { it.uri.toString() }
-                    fuzzyCandidates.filter { it.uri.toString() in allowed }
-                }
-                shouldRankCatalogSearch(querySnapshot) -> CatalogQuality.rank(filtered, querySnapshot)
-                else -> filtered
-            }
-        }
-    }
-    val filteredBooks = remember(baseFilteredBooks, smartCollection) {
-        when (smartCollection) {
-            "abandonados" -> baseFilteredBooks.filter { it.status == ReadingStatus.PENDING &&
-                vm.readingPercent(it.uri) in 1..99 }
-            "sin_terminar" -> baseFilteredBooks.filter { vm.readingPercent(it.uri) in 1..99 &&
-                it.status != ReadingStatus.READ }
-            "pendientes" -> baseFilteredBooks.filter { it.status == ReadingStatus.PENDING &&
-                it.startedDate.isBlank() && vm.readingPercent(it.uri) == 0 }
-            else -> baseFilteredBooks
-        }
-    }
-    val smartBooks = filteredBooks
-    val visibleBooks = if (tab == "Inicio") emptyList() else smartBooks
-    val genreSourceBooks = if (tab == "Géneros") visibleBooks else emptyList()
-    val genreOptions by produceState(initialValue = listOf("Todos"), genreSourceBooks) {
-        value = withContext(Dispatchers.Default) {
-            val known = linkedSetOf<String>()
-            var hasUnclassified = false
-            genreSourceBooks.forEach { book ->
-                val genres = normalizeBookGenres(book.genre)
-                if (genres.isEmpty()) hasUnclassified = true else known.addAll(genres)
-            }
-            listOf("Todos") + known.sortedWith(String.CASE_INSENSITIVE_ORDER) +
-                if (hasUnclassified) listOf("Sin clasificar") else emptyList()
-        }
-    }
-    val allGenres = remember(genreOptions) { genreOptions.filterNot { it == "Todos" } }
-    val activeGenres = if (tab == "Géneros" && !genreAllSelected)
-        selectedGenres intersect allGenres.toSet() else emptySet()
-    val matchingGenres = remember(allGenres, genreSearch) {
-        val query = genreSearch.trim()
-        if (query.isBlank()) allGenres
-        else allGenres.filter { it.contains(query, ignoreCase = true) }
-    }
-    fun updateGenreSelection(genre: String, checked: Boolean) {
-        if (checked) {
-            if (draftAllGenres) return
-            val next = draftGenres + genre
-            if (allGenres.isNotEmpty() && next.containsAll(allGenres)) {
-                draftAllGenres = true
-                draftGenres = emptySet()
-            } else draftGenres = next
-        } else {
-            draftGenres = (if (draftAllGenres) allGenres.toSet() else draftGenres) - genre
-            draftAllGenres = false
-        }
-    }
-    LaunchedEffect(tab, genreOptions) {
-        if (tab == "Géneros" && allGenres.isNotEmpty() &&
-            !genreAllSelected && selectedGenres.isNotEmpty()) {
-            selectedGenres = selectedGenres intersect allGenres.toSet()
-            if (selectedGenres.containsAll(allGenres) && allGenres.isNotEmpty()) {
-                selectedGenres = emptySet()
-                genreAllSelected = true
-            }
-        }
-    }
-    LaunchedEffect(genrePickerOpen, genreSearch) {
-        if (genrePickerOpen) genrePickerListState.scrollToItem(0)
-    }
-    if (genrePickerOpen) AlertDialog(
-        onDismissRequest = { genrePickerOpen = false; genreSearch = "" },
-        title = { Text("Filtrar géneros") },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
-                OutlinedTextField(
-                    value = genreSearch, onValueChange = { genreSearch = it },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true,
-                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (genreSearch.isNotEmpty()) IconButton(onClick = { genreSearch = "" }) {
-                            Icon(Icons.Outlined.Close, contentDescription = "Borrar búsqueda")
-                        }
-                    },
-                    placeholder = { Text("Escribe para filtrar géneros") }
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    if (genreSearch.isBlank()) "${matchingGenres.size} géneros disponibles"
-                    else "${matchingGenres.size} resultados",
-                    modifier = Modifier.padding(start = 12.dp, bottom = 4.dp),
-                    style = MaterialTheme.typography.bodySmall, color = Mahogany
-                )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextButton(
-                        onClick = { draftAllGenres = true; draftGenres = emptySet() },
-                        enabled = !draftAllGenres
-                    ) { Text("Marcar todos") }
-                    TextButton(
-                        onClick = { draftAllGenres = false; draftGenres = emptySet() },
-                        enabled = draftAllGenres || draftGenres.isNotEmpty()
-                    ) { Text("Desmarcar todos") }
-                }
-                LazyColumn(state = genrePickerListState, modifier = Modifier.heightIn(max = 320.dp)) {
-                    items(matchingGenres, key = { it }) { genre ->
-                        val checked = draftAllGenres || genre in draftGenres
-                        Row(
-                            Modifier.fillMaxWidth().toggleable(
-                                value = checked, role = Role.Checkbox
-                            ) { updateGenreSelection(genre, !checked) }
-                                .padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(checked = checked, onCheckedChange = null)
-                            Text(genre, modifier = Modifier.weight(1f))
-                        }
-                    }
-                    if (matchingGenres.isEmpty()) item {
-                        Text("No hay géneros que coincidan con «${genreSearch.trim()}».",
-                            Modifier.padding(12.dp))
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                genreAllSelected = draftAllGenres
-                selectedGenres = if (draftAllGenres) emptySet() else draftGenres intersect allGenres.toSet()
-                genrePickerOpen = false
-                genreSearch = ""
-            }) { Text("Listo") }
-        }
-    )
-    val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Géneros") "Géneros" else if (tab == "Inicio") "Todos" else vm.groupMode
-    val sectionNames = vm.sections
-    // Keep the most recent groups when returning to a tab; new book data clears the cache.
-    val groupingCache = remember(booksSnapshot) {
-        mutableMapOf<List<Any?>, Map<String, List<Book>>>()
-    }
-    val groupingKey = remember(groupMode, sectionNames, sortMode, tab, querySnapshot,
-        statusSnapshot, favoritesSnapshot, sectionSnapshot, qualitySnapshot, reviewSnapshot) {
-        listOf(groupMode, sectionNames, sortMode, tab, querySnapshot, statusSnapshot,
-            favoritesSnapshot, sectionSnapshot, qualitySnapshot, reviewSnapshot)
-    }
-    val groupedBooks by key(groupingKey, visibleBooks) {
-      produceState(
-          if (groupMode == "Todos") mapOf("" to visibleBooks)
-          else groupingCache[groupingKey].orEmpty(),
-          visibleBooks, groupingKey
-      ) {
-        if (groupMode == "Todos") {
-            value = mapOf("" to visibleBooks)
-            return@produceState
-        }
-        groupingCache[groupingKey]?.takeIf { it.isNotEmpty() || visibleBooks.isEmpty() }?.let { cached ->
-            value = cached
-            return@produceState
-        }
-        val booksToGroup = visibleBooks
-        val result: Map<String, List<Book>> = withContext(Dispatchers.Default) {
-        val titles = if (sortMode !in setOf("Autor", "Recientes") || groupMode == "Sagas")
-            booksToGroup.associate { it.uri to displayTitle(it) } else emptyMap()
-        val authors = if (groupMode == "Autores" || sortMode == "Autor")
-            booksToGroup.associate { it.uri to displayAuthor(it) } else emptyMap()
-        val genres = if (sortMode == "Género") booksToGroup.associate { book ->
-            book.uri to normalizeBookGenres(book.genre).firstOrNull().orEmpty().ifBlank { "Sin clasificar" }
-        } else emptyMap()
-        val sagaOrders = if (groupMode == "Sagas" || sortMode == "Saga")
-            booksToGroup.associate { it.uri to sagaNumber(it) } else emptyMap()
-        val sagaDisplayNames = if (groupMode == "Sagas") booksToGroup
-            .map { sagaGroupKey(it) to inferredSaga(it).first }
-            .filter { it.first.isNotBlank() && it.second.isNotBlank() }
-            .groupBy({ it.first }, { it.second })
-            .mapValues { (_, names) -> names.groupingBy { it }.eachCount()
-                .maxByOrNull { it.value }?.key.orEmpty() }
-        else emptyMap()
-        val groups = when (groupMode) {
-            "Autores" -> booksToGroup.groupBy { authors.getValue(it.uri) }
-            "Sagas" -> booksToGroup.groupBy { sagaGroupKey(it).ifBlank { "Sin saga" } }
-            "Géneros" -> {
-                val genreGroups = linkedMapOf<String, MutableList<Book>>()
-                booksToGroup.forEach { book ->
-                    val labels = normalizeBookGenres(book.genre)
-                    if (labels.isEmpty()) {
-                        genreGroups.getOrPut("Sin clasificar") { mutableListOf() }.add(book)
-                    } else {
-                        labels.forEach { name ->
-                            genreGroups.getOrPut(name) { mutableListOf() }.add(book)
-                        }
-                    }
-                }
-                genreGroups
-            }
-            "Secciones" -> booksToGroup.flatMap { book ->
-                bookSections(book).ifEmpty { listOf("Sin sección") }.map { name -> name to book }
-            }.groupBy({ it.first }, { it.second })
-            else -> mapOf("" to booksToGroup)
-        }
-        val rawNames = if (tab == "Secciones")
-            sectionNames.filter(groups::containsKey) +
-                groups.keys.filterNot { it in sectionNames }.sortedWith(String.CASE_INSENSITIVE_ORDER)
-        else groups.keys.sortedWith(String.CASE_INSENSITIVE_ORDER)
-        val groupedResult: Map<String, List<Book>> = rawNames.associate { rawName: String ->
-            val name = if (groupMode == "Sagas" && rawName != "Sin saga")
-                sagaDisplayNames[rawName].orEmpty().ifBlank { rawName } else rawName
-            val group = groups[rawName].orEmpty()
-            val sortedGroup: List<Book> = if (groupMode == "Sagas") group.sortedWith(
-                compareBy<Book> { sagaOrders.getValue(it.uri) }.thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
-            else when (sortMode) {
-                "Autor" -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { authors.getValue(it.uri) })
-                "Saga" -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { value: Book ->
-                    inferredSaga(value).first.ifBlank { "zzzz Sin saga" }
-                }.thenBy { value: Book -> sagaOrders[value.uri] ?: Double.POSITIVE_INFINITY }
-                    .thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
-                "Género" -> group.sortedWith(
-                    compareBy(String.CASE_INSENSITIVE_ORDER) { value: Book -> genres.getValue(value.uri) }
-                        .thenBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
-                "Recientes" -> group.sortedByDescending { it.sourceModified }
-                else -> group.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { titles.getValue(it.uri) })
-            }
-            name to sortedGroup
-        }
-        groupedResult
-        }
-        if (groupingCache.size >= 8) groupingCache.clear()
-        groupingCache[groupingKey] = result
-        value = result
-      }
-    }
-    val genreDisplayGroups = remember(groupedBooks, activeGenres, genreAllSelected, tab) {
-        if (tab == "Géneros" && !genreAllSelected)
-            groupedBooks.filterKeys { it in activeGenres }
-        else groupedBooks
-    }
-    vm.infoCandidate?.let { (uri, found) ->
-        var authorDraft by remember(uri, found) { mutableStateOf(found.author) }
-        var plotDraft by remember(uri, found) { mutableStateOf(found.plot) }
-        var bioDraft by remember(uri, found) { mutableStateOf(found.bio) }
-        AlertDialog(onDismissRequest = vm::dismissCandidate,
-            title = { Text("Revisar datos encontrados") },
-            text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
-                Text("Comprueba que corresponden a este libro antes de guardarlos.")
-                OutlinedTextField(authorDraft, { authorDraft = it }, label = { Text("Autor") })
-                Text("Argumento · " + found.plotSource.ifBlank { "Sin fuente" }, fontSize = 12.sp)
-                OutlinedTextField(plotDraft, { plotDraft = it }, minLines = 3,
-                    label = { Text("Argumento") })
-                Text("Biografía · " + found.bioSource.ifBlank { "Sin fuente" }, fontSize = 12.sp)
-                OutlinedTextField(bioDraft, { bioDraft = it }, minLines = 3,
-                    label = { Text("Sobre el autor") })
-            } },
-            confirmButton = { LibraryTextButton(onClick = {
-                vm.acceptCandidate(uri, found.copy(author = authorDraft.trim(),
-                    plot = plotDraft.trim(), bio = bioDraft.trim(),
-                    plotSource = if (plotDraft.trim() == found.plot) found.plotSource else "Revisado por ti",
-                    bioSource = if (bioDraft.trim() == found.bio) found.bioSource else "Revisado por ti"))
-            }) { Text("Guardar datos") } },
-            dismissButton = { LibraryTextButton(onClick = vm::dismissCandidate) { Text("Cancelar") } })
-    }
-    if (organizeSections) AlertDialog(onDismissRequest = { organizeSections = false },
-        title = { Text("Organizar secciones") },
-        text = { Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
-            vm.sections.forEach { section ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(section, Modifier.weight(1f))
-                    IconButton(onClick = { vm.moveSection(section, -1) }) { AppIcon("Subir", "Subir sección") }
-                    IconButton(onClick = { vm.moveSection(section, 1) }) { AppIcon("Bajar", "Bajar sección") }
-                    IconButton(onClick = {
-                        sectionToRename = section
-                        renameSectionName = section
-                    }) { AppIcon("Editar", "Cambiar nombre de sección") }
-                    IconButton(onClick = { sectionToDelete = section }) { AppIcon("Borrar", "Eliminar sección") }
-                }
-            }
-            if (vm.sections.isEmpty()) Text("Aún no hay secciones.")
-        } },
-        confirmButton = { LibraryTextButton(onClick = { organizeSections = false }) { Text("Cerrar") } })
-    sectionToRename?.let { original -> AlertDialog(
-        onDismissRequest = { sectionToRename = null },
-        title = { Text("Cambiar nombre") },
-        text = { OutlinedTextField(renameSectionName, { renameSectionName = it },
-            label = { Text("Nombre de la sección") }, singleLine = true) },
-        confirmButton = { LibraryTextButton(onClick = {
-            vm.renameSection(original, renameSectionName)
-            sectionToRename = null
-        }) { Text("Guardar") } },
-        dismissButton = { LibraryTextButton(onClick = { sectionToRename = null }) { Text("Cancelar") } }
-    ) }
-    if (duplicateDialog) AlertDialog(onDismissRequest = { duplicateDialog = false },
-        title = { Text("Posibles duplicados") },
-        text = { Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
-            if (!duplicateScanComplete) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Text("Comparando libros…")
-                }
-            } else if (duplicateGroups.isEmpty()) {
-                Text("No se han encontrado posibles duplicados.")
-            } else duplicateGroups.forEach { group ->
-                Text(displayTitle(group.first()), fontFamily = FontFamily.Serif,
-                    fontWeight = FontWeight.Bold, color = Mahogany)
-                group.forEach { copy ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(displayAuthor(copy) + " · " + readableSize(copy.sourceSize),
-                            modifier = Modifier.weight(1f), fontSize = 12.sp)
-                        LibraryTextButton(onClick = { duplicateDialog = false; selected = copy }) {
-                            Text("Revisar")
-                        }
-                    }
-                }
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            }
-        } },
-        confirmButton = { LibraryTextButton(onClick = { duplicateDialog = false }) { Text("Cerrar") } })
-    vm.newBooksNotice?.let { titles ->
-        AlertDialog(onDismissRequest = vm::clearNewBooksNotice,
-            title = { Text("Nuevas incorporaciones") },
-            text = { Column {
-                Text("La sincronización ha encontrado estos libros nuevos:")
-                Spacer(Modifier.height(10.dp))
-                Text(titles, fontWeight = FontWeight.SemiBold)
-            } },
-            confirmButton = {
-                LibraryTextButton(onClick = vm::clearNewBooksNotice) { Text("Aceptar") }
-            })
-    }
-    if (showSyncReport) AlertDialog(onDismissRequest = { showSyncReport = false },
-        title = { Text("Sincronización de Drive") },
-        text = { Column {
-            Text(vm.syncReport)
-            Spacer(Modifier.height(14.dp))
-            Text("Diagnóstico", fontWeight = FontWeight.Bold)
-            Text(vm.driveDiagnosticText(), fontSize = 12.sp)
-            Spacer(Modifier.height(14.dp))
-            Text("Fluidez de esta sesión", fontWeight = FontWeight.Bold)
-            Text((context as? MainActivity)?.performanceReport().orEmpty(), fontSize = 12.sp)
-        } },
-        dismissButton = {
-            LibraryTextButton(onClick = {
-                val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
-                clipboard?.setPrimaryClip(android.content.ClipData.newPlainText(
-                    "Diagnóstico de MiBiblioteca", vm.driveDiagnosticText()))
-                android.widget.Toast.makeText(context, "Diagnóstico copiado", android.widget.Toast.LENGTH_SHORT).show()
-            }) { Text("Copiar diagnóstico") }
-        },
-        confirmButton = { LibraryTextButton(onClick = { showSyncReport = false }) { Text("Cerrar") } })
-    LaunchedEffect(libraryHealthOpen) {
-        if (libraryHealthOpen) vm.runMaintenanceScan()
-    }
-    if (libraryHealthOpen) {
-        val health = remember(vm.books, vm.maintenanceProbes, vm.maintenanceIgnored) {
-            calculateLibraryMaintenance(vm.books, vm.maintenanceProbes, vm.maintenanceIgnored)
-        }
-        val reportText = remember(health) {
-            buildString {
-                appendLine("Estado de MiBiblioteca")
-                appendLine("Salud del catálogo: ${health.healthScore} %")
-                appendLine("Libros analizados: ${health.total}")
-                appendLine("Fichas completas: ${health.healthy}")
-                appendLine("Sin portada: ${health.missingCover}")
-                appendLine("Autor sin identificar: ${health.unknownAuthor}")
-                appendLine("Sin argumento: ${health.missingPlot}")
-                appendLine("Sin biografía: ${health.missingBiography}")
-                appendLine("Archivos vacíos: ${health.emptyFiles}")
-                appendLine("Formatos no compatibles: ${health.unsupportedFiles}")
-                appendLine("Tamaño no confirmado por Drive: ${health.unverifiedSize}")
-                appendLine("Archivos inaccesibles: ${health.inaccessibleFiles}")
-                appendLine("Referencias duplicadas: ${health.duplicateReferences}")
-                appendLine("Copias posiblemente duplicadas: ${health.duplicateCopies}")
-                appendLine("Portadas dañadas: ${health.damagedCovers}")
-                appendLine("Portadas demasiado pequeñas: ${health.smallCovers}")
-                appendLine("Sagas con huecos conocidos: ${health.sagasWithGaps}")
-            }
-        }
-        AlertDialog(onDismissRequest = { libraryHealthOpen = false },
-            title = { Text("Estado de la biblioteca") },
-            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("${health.healthScore} %", fontFamily = FontFamily.Serif,
-                    fontSize = 34.sp, fontWeight = FontWeight.Bold,
-                    color = when {
-                        health.healthScore >= 85 -> Teal
-                        health.healthScore >= 60 -> Brass
-                        else -> Color(0xFF9A4C32)
-                    })
-                Text("Salud del catálogo", fontWeight = FontWeight.SemiBold)
-                LinearProgressIndicator(
-                    progress = { health.healthScore / 100f },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp).semantics {
-                        contentDescription = "Salud de la biblioteca"
-                        stateDescription = percentDescription("Salud", health.healthScore)
-                    },
-                    color = Teal)
-                if (vm.maintenanceRunning) {
-                    Text("Comprobando archivos ${vm.maintenanceDone}/${vm.maintenanceTotal}…",
-                        fontSize = 12.sp, color = Mahogany)
-                    LinearProgressIndicator(
-                        progress = { if (vm.maintenanceTotal == 0) 0f else
-                            vm.maintenanceDone.toFloat() / vm.maintenanceTotal },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).semantics {
-                            contentDescription = "Comprobación de archivos"
-                            stateDescription = "${vm.maintenanceDone} de ${vm.maintenanceTotal}"
-                        }, color = Brass)
-                } else Text("Revisión incremental completada", fontSize = 12.sp, color = Teal)
-                Info("Libros analizados", health.total.toString())
-                Info("Fichas completas", health.healthy.toString())
-                Info("Necesitan atención", health.needsAttention.toString())
-                if (health.ignoredProblems > 0)
-                    Info("Avisos conservados o ignorados", health.ignoredProblems.toString())
-                Spacer(Modifier.height(10.dp))
-                Text("Datos de las fichas", fontWeight = FontWeight.Bold)
-                Info("Sin portada", health.missingCover.toString())
-                Info("Autor sin identificar", health.unknownAuthor.toString())
-                Info("Sin argumento", health.missingPlot.toString())
-                Info("Sin biografía del autor", health.missingBiography.toString())
-                Spacer(Modifier.height(10.dp))
-                Text("Archivos y organización", fontWeight = FontWeight.Bold)
-                Info("Archivos vacíos", health.emptyFiles.toString())
-                Info("Formatos no compatibles", health.unsupportedFiles.toString())
-                Info("Tamaño no confirmado por Drive", health.unverifiedSize.toString())
-                Info("Archivos inaccesibles", health.inaccessibleFiles.toString())
-                Info("Referencias duplicadas", health.duplicateReferences.toString())
-                Info("Copias posiblemente duplicadas", health.duplicateCopies.toString())
-                Info("Portadas dañadas", health.damagedCovers.toString())
-                Info("Portadas demasiado pequeñas", health.smallCovers.toString())
-                Info("Sagas con huecos conocidos", health.sagasWithGaps.toString())
-                Spacer(Modifier.height(10.dp))
-                if (health.fileProblemUris.isNotEmpty()) {
-                    LibraryActionButton(onClick = {
-                        libraryHealthOpen = false
-                        vm.qualityFilter = "Archivo"
-                        switchTab("Libros")
-                    }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Ver archivos con problemas")
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-                LibraryActionButton(onClick = {
-                    libraryHealthOpen = false
-                    vm.qualityFilter = "Todos"
-                    switchTab("Libros")
-                }, modifier = Modifier.fillMaxWidth()) { Text("Revisar fichas incompletas") }
-                Spacer(Modifier.height(8.dp))
-                LibraryActionButton(onClick = { vm.runMaintenanceScan(force = true) },
-                    enabled = !vm.maintenanceRunning, modifier = Modifier.fillMaxWidth()) {
-                    Text("Volver a comprobar")
-                }
-                if (health.coverProblemUris.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
-                    LibraryActionButton(onClick = {
-                        libraryHealthOpen = false
-                        vm.forceMissingCovers()
-                    }, enabled = !vm.coverUpdateRunning, modifier = Modifier.fillMaxWidth()) {
-                        Text("Reparar portadas pendientes")
-                    }
-                }
-                if (health.duplicateCopies + health.duplicateReferences > 0) {
-                    Spacer(Modifier.height(8.dp))
-                    LibraryActionButton(onClick = {
-                        libraryHealthOpen = false
-                        duplicateDialog = true
-                    }, modifier = Modifier.fillMaxWidth()) { Text("Revisar duplicados") }
-                }
-                Spacer(Modifier.height(8.dp))
-                LibraryActionButton(onClick = {
-                    libraryHealthOpen = false
-                    vm.sync()
-                }, enabled = !vm.syncing, modifier = Modifier.fillMaxWidth()) {
-                    Text("Buscar cambios en Drive")
-                }
-                if (health.problemKeys.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
-                    LibraryTextButton(onClick = {
-                        vm.ignoreMaintenanceProblems(health.problemKeys)
-                    }, modifier = Modifier.fillMaxWidth()) { Text("Conservar e ignorar estos avisos") }
-                }
-                if (vm.maintenanceIgnored.isNotEmpty()) {
-                    LibraryTextButton(onClick = vm::restoreMaintenanceWarnings,
-                        modifier = Modifier.fillMaxWidth()) { Text("Restablecer avisos ignorados") }
-                }
-            } },
-            dismissButton = {
-                LibraryTextButton(onClick = {
-                    val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
-                    clipboard?.setPrimaryClip(android.content.ClipData.newPlainText(
-                        "Estado de MiBiblioteca", reportText))
-                    android.widget.Toast.makeText(context, "Informe copiado",
-                        android.widget.Toast.LENGTH_SHORT).show()
-                }) { Text("Copiar informe") }
-            },
-            confirmButton = { LibraryTextButton(onClick = { libraryHealthOpen = false }) {
-                Text("Cerrar")
-            } })
-    }
-    if (readingStatsOpen) {
-        val detailedStats = calculateReadingStats(vm.books.map { book ->
-            ReadingStatsInput(book.status, vm.readingPercent(book.uri), book.finishedDate,
-                book.rating, normalizeBookGenres(book.genre), displayAuthor(book), book.rereadCount)
-        }, annualGoal = vm.annualReadingGoal)
-        AlertDialog(onDismissRequest = { readingStatsOpen = false },
-            title = { Text("Resumen completo") },
-            text = { Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Info("Libros terminados", detailedStats.totalRead.toString())
-                Info("Terminados este año", detailedStats.currentYearRead.toString())
-                Info("Terminados este mes", detailedStats.currentMonthRead.toString())
-                Info("Racha de meses con lecturas", detailedStats.monthStreak.toString())
-                Info("Proyección al final de año", detailedStats.projectedYearTotal.toString())
-                Info("Leyendo ahora", detailedStats.reading.toString())
-                Info("Progreso medio activo", "${detailedStats.averageActiveProgress} %")
-                Info("Pendientes", detailedStats.pending.toString())
-                Info("Relecturas registradas", detailedStats.rereads.toString())
-                Info("Valoración media", detailedStats.averageRating?.let {
-                    String.format(java.util.Locale.getDefault(), "%.1f / 5", it)
-                } ?: "Sin valorar")
-                Info("Libros con citas guardadas", vm.books.count { it.quotes.isNotBlank() }.toString())
-                Info("Leídos sin fecha final válida", detailedStats.readWithoutFinishDate.toString())
-                val completedSagas = vm.sagaCatalogs.count { (name, catalog) ->
-                    val owned = vm.books.filter { it.saga.equals(name, true) }
-                    catalog.isNotEmpty() && catalog.all { volume -> owned.any { b ->
-                        b.sagaOrder == volume.order || displayTitle(b).equals(volume.title, true)
-                    } }
-                }
-                Info("Sagas completas comprobadas", completedSagas.toString())
-                if (detailedStats.topGenres.isNotEmpty()) {
-                    Spacer(Modifier.height(7.dp))
-                    Text("Géneros realmente leídos", fontWeight = FontWeight.Bold)
-                    detailedStats.topGenres.forEach { (name, count) ->
-                        Text("$name: $count", fontSize = 12.sp)
-                    }
-                }
-                if (detailedStats.topAuthors.isNotEmpty()) {
-                    Spacer(Modifier.height(7.dp))
-                    Text("Autores más leídos", fontWeight = FontWeight.Bold)
-                    detailedStats.topAuthors.forEach { (name, count) ->
-                        Text("$name: $count", fontSize = 12.sp)
-                    }
-                }
-            } },
-            confirmButton = { LibraryTextButton(onClick = { readingStatsOpen = false }) {
-                Text("Cerrar")
-            } })
-    }
-    if (releaseCalendarOpen) AlertDialog(onDismissRequest = { releaseCalendarOpen = false },
-        title = { Text("Calendario de publicaciones") },
-        text = { Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
-            Text("Próximos lanzamientos de tus fuentes literarias", fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
-            val dated = vm.launchNews.filter { it.releaseDate.isNotBlank() }
-                .sortedBy { it.releaseDate }
-            if (dated.isEmpty()) Text("Actualiza las noticias para consultar próximas fechas.")
-            dated.forEach { news ->
-                Text(news.releaseDate, color = Teal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                Text(news.title, color = Mahogany, fontSize = 13.sp)
-                Text(news.source, color = Mahogany.copy(alpha = .7f), fontSize = 11.sp)
-                HorizontalDivider(Modifier.padding(vertical = 7.dp))
-            }
-        } },
-        confirmButton = { LibraryTextButton(onClick = { releaseCalendarOpen = false }) { Text("Cerrar") } })
-    if (taskCenterOpen) AlertDialog(onDismissRequest = { taskCenterOpen = false },
-        title = { Text("Centro de tareas") },
-        text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-            Info("Sincronización de Drive", if (vm.syncing)
-                if (vm.syncCount == 0) "Conectando con Drive" else "Revisando ${vm.syncCount} archivos"
-                else vm.syncSummary.ifBlank { "En espera" })
-            Info("Portadas", if (vm.coverUpdateRunning) "${vm.coverUpdateDone}/${vm.coverUpdateTotal}" else
-                "${vm.books.count { it.cover == null }} pendientes")
-            Info("Sagas", if (vm.sagaOrganizing) "${vm.sagaOrganized}/${vm.sagaOrganizeTotal}" else
-                "${vm.books.count { it.saga.isBlank() }} sin identificar")
-            Info("Géneros", if (vm.genreClassifying) "${vm.genreProgress}/${vm.genreTotal}" else
-                "${vm.books.count { normalizeBookGenres(it.genre).isEmpty() }} sin clasificar")
-            Info("Fichas para revisar", vm.reviewPending.size.toString())
-            Spacer(Modifier.height(8.dp))
-            LibraryActionButton(onClick = vm::sync, enabled = !vm.syncing,
-                modifier = Modifier.fillMaxWidth()) { Text("Actualizar Drive") }
-            LibraryActionButton(onClick = vm::forceMissingCovers, enabled = !vm.coverUpdateRunning,
-                modifier = Modifier.fillMaxWidth()) { Text("Buscar portadas pendientes") }
-            LibraryActionButton(onClick = vm::organizeAllSagas, enabled = !vm.sagaOrganizing,
-                modifier = Modifier.fillMaxWidth()) { Text("Identificar sagas pendientes") }
-            LibraryActionButton(onClick = { vm.classifyGenres(true) }, enabled = !vm.genreClassifying,
-                modifier = Modifier.fillMaxWidth()) { Text("Clasificar géneros pendientes") }
-        } },
-        confirmButton = { LibraryTextButton(onClick = { taskCenterOpen = false }) { Text("Cerrar") } })
-    if (activityOpen) AlertDialog(onDismissRequest = { activityOpen = false },
-        title = { Text("Actividad reciente") },
-        text = { Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
-            if (vm.activityLog.isEmpty()) Text("Todavía no hay actividad registrada.")
-            vm.activityLog.forEach { Text(it, modifier = Modifier.padding(vertical = 5.dp),
-                fontSize = 12.sp, color = Mahogany) }
-        } },
-        confirmButton = { LibraryTextButton(onClick = { activityOpen = false }) { Text("Cerrar") } })
-    if (privacyOpen) AlertDialog(onDismissRequest = { privacyOpen = false },
-        title = { Text("Privacidad y datos") },
-        text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
-            Text("Resumen claro de cómo funciona MiBiblioteca.", color = Mahogany)
-            Spacer(Modifier.height(10.dp))
-            privacyDisclosures().forEach { disclosure ->
-                Text(disclosure.title, fontWeight = FontWeight.Bold, color = Teal)
-                Text(disclosure.detail, fontSize = 13.sp, lineHeight = 19.sp,
-                    modifier = Modifier.padding(bottom = 10.dp))
-            }
-            Text("Puedes revisar y exportar tus datos desde Opciones de biblioteca.",
-                fontSize = 12.sp, color = Mahogany.copy(alpha = .75f))
-        } },
-        confirmButton = { LibraryTextButton(onClick = { privacyOpen = false }) { Text("Entendido") } })
-    if (supportOpen) {
-        val diagnostic = supportDiagnosticText()
-        AlertDialog(onDismissRequest = { supportOpen = false },
-            title = { Text("Acerca de y soporte") },
-            text = { Column(Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState())) {
-                Text("Mi Biblioteca", fontFamily = FontFamily.Serif, fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold, color = Mahogany)
-                Text("By Diroka77", color = Teal, fontSize = 12.sp)
-                Spacer(Modifier.height(12.dp))
-                Text(diagnostic, fontSize = 12.sp, lineHeight = 18.sp)
-            } },
-            dismissButton = { LibraryTextButton(onClick = {
-                val send = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "Diagnóstico de MiBiblioteca")
-                    putExtra(Intent.EXTRA_TEXT, diagnostic)
-                }
-                try { context.startActivity(Intent.createChooser(send, "Compartir diagnóstico")) }
+                …17274 tokens truncated…agnóstico")) }
                 catch (_: Exception) {
                     android.widget.Toast.makeText(context, "No se pudo compartir el diagnóstico.",
                         android.widget.Toast.LENGTH_LONG).show()
@@ -4980,7 +3768,7 @@ private fun openCasaDelLibro(context: Context) {
     if (legalOpen) AlertDialog(onDismissRequest = { legalOpen = false },
         title = { Text("Información legal y licencias") },
         text = { Column(Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState())) {
-            Text("MiBiblioteca · By Diroka77", color = Mahogany,
+            Text("BookNook", color = Mahogany,
                 fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
             legalNotices().forEach { notice ->
                 Text(notice.name, fontWeight = FontWeight.Bold, color = Teal,
@@ -5268,9 +4056,8 @@ private fun openCasaDelLibro(context: Context) {
                     Surface(color = Mahogany,
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)) {
                         Column(Modifier.fillMaxWidth().padding(18.dp)) {
-                            Text("Mi Biblioteca", color = Color.White, fontSize = 23.sp,
+                            Text("BookNook", color = Color.White, fontSize = 23.sp,
                                 fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
-                            Text("By Diroka77", color = Color(0xFFE9D8BD), fontSize = 12.sp)
                             Text("Tu espacio de lectura", color = Color(0xFFF4E8D8),
                                 style = MaterialTheme.typography.bodySmall)
                         }
@@ -5441,7 +4228,7 @@ private fun openCasaDelLibro(context: Context) {
                             .semantics { contentDescription = "Abrir menú" }) {
                         Icon(Icons.Outlined.Menu, "Abrir menú", tint = Color.White)
                     }
-                    Text("Mi Biblioteca", modifier = Modifier.align(Alignment.Center),
+                    Text("BookNook", modifier = Modifier.align(Alignment.Center),
                         color = Color.White, fontSize = 26.sp,
                         fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Serif,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -5731,7 +4518,8 @@ private fun openCasaDelLibro(context: Context) {
                             }
                         }
                         Box(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                                ConceptSortButton("Ordenar por: $sortMode", Modifier.fillMaxWidth()) { sortMenu = true }
+                                ConceptSortButton("Ordenar por: $sortMode", sortMode == "Saga",
+                                    Modifier.fillMaxWidth()) { sortMenu = true }
                                 DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                                     listOf("Título", "Autor", "Saga", "Género", "Recientes").forEach { option ->
                                         DropdownMenuItem(text = { Text(option) }, onClick = {
@@ -5883,7 +4671,8 @@ private fun openCasaDelLibro(context: Context) {
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = if (news.source == "Casa del Libro")
                                     ContentScale.Fit else ContentScale.Crop)
-                            else Box(Modifier.fillMaxSize().background(Mahogany))
+                            else Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(
+                                Color(0xFF0B6258), Color(0xFF24344B), Color(0xFF101719)))))
                             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                                 listOf(Color.Transparent, Color.Black.copy(alpha = .15f),
                                     Color.Black.copy(alpha = .92f)))))
@@ -5892,7 +4681,7 @@ private fun openCasaDelLibro(context: Context) {
                                     end = 52.dp, bottom = 17.dp)) {
                                 Text(if (news.source == "Casa del Libro") "PRÓXIMO LANZAMIENTO"
                                     else "ACTUALIDAD LITERARIA",
-                                    color = Brass, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    color = Color(0xFF78D8C6), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 Text(launchBookTitle(news), fontFamily = FontFamily.Serif,
                                     fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White,
                                     lineHeight = 29.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
@@ -6046,18 +4835,9 @@ private fun openCasaDelLibro(context: Context) {
                                     color = if (absent.isEmpty()) Color(0xFF8FE0CE) else Color(0xFFFFC2A7),
                                     style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
                             }
-                            TextButton(onClick = { vm.searchSagaCatalog(name, group.firstOrNull()) },
-                                enabled = !vm.sagaCatalogLoading(name),
-                                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)) {
-                                Text(if (vm.sagaCatalogLoading(name))
-                                    "Comprobando catálogo…" else if (catalog.isEmpty())
-                                    "Comprobar saga completa" else "Actualizar comprobación",
-                                    color = Color.White, fontSize = 11.sp)
-                            }
-                            TextButton(onClick = {
-                                sagaRenameSource = name; sagaRenameTarget = name
-                            }, contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)) {
-                                Text("Unificar o cambiar nombre", color = Color.White, fontSize = 11.sp)
+                            LaunchedEffect(name, group.size) {
+                                if (catalog.isEmpty() && !vm.sagaCatalogLoading(name))
+                                    vm.searchSagaCatalog(name, group.firstOrNull())
                             }
                         }
                     }
@@ -6215,7 +4995,7 @@ private fun openCasaDelLibro(context: Context) {
 @Composable private fun ConceptFilterChip(label: String, icon: String,
     modifier: Modifier = Modifier, selected: Boolean, onClick: () -> Unit) {
     Surface(modifier.height(34.dp).clickable(onClick = onClick),
-        color = if (selected) Color(0xFF9A6843) else Color(0x991D1B19),
+        color = if (selected) Teal else Color(0x991D1B19),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(13.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .42f))) {
         Row(Modifier.fillMaxSize().padding(horizontal = 4.dp),
@@ -6228,10 +5008,13 @@ private fun openCasaDelLibro(context: Context) {
     }
 }
 
-@Composable private fun ConceptSortButton(label: String, modifier: Modifier = Modifier,
+@Composable private fun ConceptSortButton(label: String, selected: Boolean, modifier: Modifier = Modifier,
     onClick: () -> Unit) {
     Surface(modifier.height(34.dp).clickable(onClick = onClick),
-        color = Teal, shape = androidx.compose.foundation.shape.RoundedCornerShape(13.dp)) {
+        color = if (selected) Teal else Color(0x661D1B19),
+        border = androidx.compose.foundation.BorderStroke(1.dp,
+            if (selected) Teal else Color.White.copy(alpha = .42f)),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(13.dp)) {
         Row(Modifier.fillMaxSize().padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center) {
@@ -6251,7 +5034,7 @@ private fun openCasaDelLibro(context: Context) {
         Row {
             listOf("Galería" to onGallery, "Lista" to onList).forEach { (mode, action) ->
                 Box(Modifier.size(44.dp).background(
-                    if (current == mode) Color(0xFF9A6843) else Color.Transparent)
+                    if (current == mode) Teal else Color.Transparent)
                     .clickable(onClick = action), contentAlignment = Alignment.Center) {
                     AppIcon(mode, "Vista $mode", tint = Color.White, size = 21.dp)
                 }
@@ -7742,7 +6525,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     LibraryWallpaper(wallpaperMode, book)
     Scaffold(containerColor = Color.Transparent, topBar = {
         TopAppBar(
-            title = { Text("Mi Biblioteca", fontFamily = FontFamily.Serif, color = Paper,
+            title = { Text("BookNook", fontFamily = FontFamily.Serif, color = Paper,
                 style = MaterialTheme.typography.titleLarge.copy(shadow = WallpaperTextShadow)) },
             navigationIcon = { IconButton(onClick = back) { AppIcon("Volver", "Volver", tint = Paper) } },
             actions = {
@@ -7778,15 +6561,6 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                     }
                 }
             } }
-            if (needsReview) item(key = "review-details") {
-                Card(colors = CardDefaults.cardColors(containerColor = Paper)) {
-                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Datos encontrados: revisa que correspondan a tu libro.",
-                            modifier = Modifier.weight(1f), color = Mahogany, fontSize = 12.sp)
-                        LibraryTextButton(onClick = confirmDetails) { Text("Revisado") }
-                    }
-                }
-            }
             item {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(Modifier.graphicsLayer {
@@ -8006,26 +6780,16 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                             }
                             Spacer(Modifier.height(6.dp))
                             Text(if (sagaMissing.isEmpty())
-                                "Pulsa «Comprobar saga completa» para buscar volúmenes posteriores."
+                                "BookNook está revisando el catálogo completo en segundo plano."
                             else "Faltan entre los números conocidos: ${sagaMissing.joinToString(", ")}.",
                                 fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                                 color = if (sagaMissing.isEmpty()) Mahogany else Color(0xFF9A4C32))
                         }
                     }
-                    Spacer(Modifier.height(8.dp))
-                    LibraryActionButton(onClick = searchSaga, enabled = !sagaSearching,
-                        modifier = Modifier.fillMaxWidth()) {
-                        ActionLabel(if (sagaSearching) "Buscando saga…" else
-                            "Buscar saga y número", "Buscar", 12.sp)
-                    }
-                    if (book.saga.isNotBlank()) {
-                        Spacer(Modifier.height(8.dp))
-                        LibraryActionButton(onClick = searchSagaCatalog,
-                            enabled = !sagaCatalogSearching,
-                            modifier = Modifier.fillMaxWidth()) {
-                            ActionLabel(if (sagaCatalogSearching) "Comprobando catálogo…"
-                                else "Comprobar saga completa", "Sagas", 12.sp)
-                        }
+                    LaunchedEffect(book.uri, book.saga) {
+                        if (book.saga.isBlank() && !sagaSearching) searchSaga()
+                        else if (book.saga.isNotBlank() && sagaCatalog.isEmpty() && !sagaCatalogSearching)
+                            searchSagaCatalog()
                     }
                 }
             }

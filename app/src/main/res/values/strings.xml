@@ -1,9 +1,9 @@
 <resources>
-    <string name="app_name">Mi Biblioteca</string>
+    <string name="app_name">BookNook</string>
     <string name="shortcut_continue_short">Continuar leyendo</string>
     <string name="shortcut_continue_long">Continuar el último libro</string>
     <string name="shortcut_library_short">Abrir biblioteca</string>
-    <string name="shortcut_library_long">Abrir Mi Biblioteca</string>
+    <string name="shortcut_library_long">Abrir BookNook</string>
     <string name="shortcut_import_short">Importar libro</string>
-    <string name="shortcut_import_long">Importar un libro en Mi Biblioteca</string>
+    <string name="shortcut_import_long">Importar un libro en BookNook</string>
 </resources>

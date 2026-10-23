@@ -38,6 +38,11 @@ data class ExternalRecommendationSeed(
 private fun publicIdentity(title: String, author: String): String =
     discoverNormalizeSearchText(title) + "|" + discoverNormalizeSearchText(author)
 
+private fun cleanEditorialText(value: String): String = value
+    .replace(Regex("(?is)(?:compra|consigue|descubre).{0,100}?(?:env[ií]os? gratis|mejores ofertas|casa del libro)[.!]?"), "")
+    .replace(Regex("(?is)el libro .{0,120}? en casa del libro[.:]?"), "")
+    .replace(Regex("\\s+"), " ").trim()
+
 private val discoveryArticles = setOf("a", "al", "de", "del", "el", "la", "las", "los", "the", "un", "una", "y")
 
 private fun discoveryWords(value: String): Set<String> = discoverNormalizeSearchText(value)
@@ -166,7 +171,7 @@ private fun curatedPublicResult(title: String, author: String): PublicBookResult
 }
 
 fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
-    var summary = result.summary
+    var summary = cleanEditorialText(result.summary)
     var bio = ""
     var published = result.year
     var pages = ""
@@ -180,7 +185,7 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
     var review = ""
     val editions = mutableListOf<PublicBookEdition>()
     fetchLaunchBookDetails(result)?.let { catalog ->
-        summary = catalog.summary.ifBlank { summary }
+        summary = cleanEditorialText(catalog.summary).ifBlank { summary }
         published = catalog.published.ifBlank { published }
         pages = catalog.pages
         language = catalog.language
@@ -252,7 +257,7 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
         val selectedVolume = volumeRows.maxByOrNull(::volumeScore)
         val info = selectedVolume?.optJSONObject("volumeInfo")
         if (info != null) {
-            summary = info.optString("description").ifBlank { summary }
+            summary = cleanEditorialText(info.optString("description")).ifBlank { summary }
             published = info.optString("publishedDate").ifBlank { published }
             pages = info.optInt("pageCount", 0).takeIf { it > 0 }?.toString().orEmpty()
             language = info.optString("language")
@@ -316,7 +321,7 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
                 val bookPage = pageKey?.let { pagesJson.optJSONObject(it) }
                 val extract = bookPage?.optString("extract").orEmpty().trim()
                 if (extract.length >= 80) {
-                    summary = extract
+                    summary = cleanEditorialText(extract)
                     source = "$source · Wikipedia en español"
                 }
                 if (coverUrl.isBlank()) {
@@ -341,13 +346,16 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
         }
     }
     if (review.isBlank() && summary.length >= 100) {
-        review = "Una obra de ${result.author.ifBlank { "autoría no indicada" }} cuya propuesta, " +
-            "según la información editorial disponible, gira en torno a " +
-            summary.substringBefore('.').trim().replaceFirstChar { it.lowercase() } + "."
+        val premise = cleanEditorialText(summary).take(420).trim().trimEnd('.', ',', ';')
+        review = "${result.title} parte de ${premise.replaceFirstChar { it.lowercase() }}. " +
+            "La obra se presenta como una lectura en la que importan tanto el desarrollo de la premisa como " +
+            "el tono, el ritmo y la construcción de sus personajes. Esta reseña se ha elaborado con la " +
+            "información editorial y bibliográfica disponible, evitando adelantar giros importantes. " +
+            "La ficha permite comparar ediciones, fecha, editorial y pertenencia a saga antes de decidir si encaja con tus lecturas."
     }
     val videoQuery = java.net.URLEncoder.encode(
         "\"${result.title}\" ${result.author} tráiler libro presentación editorial", "UTF-8")
-    return PublicBookDetails(summary.trim(), bio.trim(), published, pages, language, publisher,
+    return PublicBookDetails(cleanEditorialText(summary), bio.trim(), published, pages, language, publisher,
         source, authorImageUrl, coverUrl, saga, sagaOrder, review, editions,
         "https://www.youtube.com/results?search_query=$videoQuery")
 }

@@ -1235,7 +1235,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         ) {
             Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState())
                 .padding(horizontal = 18.dp, vertical = 22.dp)) {
-                Text("Mi Biblioteca", color = Color(0xFF8A623C),
+                Text("BookNook", color = Color(0xFF8A623C),
                     style = MaterialTheme.typography.labelLarge)
                 val openingTitle = book.customTitle.ifBlank { book.title }
                 Text(openingTitle,
@@ -1533,7 +1533,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 android.widget.Toast.LENGTH_LONG).show()
                         }
                     }) { Text("Abrir con otra aplicación") }
-                    TextButton(onClick = onBack) { Text("Volver a Mi Biblioteca") }
+                    TextButton(onClick = onBack) { Text("Volver a BookNook") }
                 }
             }
             is ReadingDocument.PdfDocument -> {
