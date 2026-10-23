@@ -3791,8 +3791,14 @@ private fun openCasaDelLibro(context: Context) {
                         publicQuery = requested
                         publicSearching = true
                         publicSearchJob?.cancel()
+                        val launchCatalog = vm.launchNews
+                        val owned = vm.books.map { displayTitle(it) to displayAuthor(it) }
                         publicSearchJob = scope.launch(Dispatchers.IO) {
-                            val found = runCatching { searchPublicBooks(requested) }.getOrDefault(emptyList())
+                            val releases = searchLaunchCatalog(requested, launchCatalog, owned)
+                            val public = runCatching { searchPublicBooks(requested) }.getOrDefault(emptyList())
+                            val found = (releases + public).distinctBy {
+                                it.title.lowercase() + "|" + it.author.lowercase()
+                            }
                             withContext(Dispatchers.Main) {
                                 publicResults = found
                                 publicSearching = false
@@ -5534,9 +5540,15 @@ private fun openCasaDelLibro(context: Context) {
                                 publicQuery = requested
                                 publicSearching = true
                                 publicSearchJob?.cancel()
+                                val launchCatalog = vm.launchNews
+                                val owned = vm.books.map { displayTitle(it) to displayAuthor(it) }
                                 publicSearchJob = scope.launch(Dispatchers.IO) {
-                                    val found = runCatching { searchPublicBooks(requested) }
+                                    val releases = searchLaunchCatalog(requested, launchCatalog, owned)
+                                    val public = runCatching { searchPublicBooks(requested) }
                                         .getOrDefault(emptyList())
+                                    val found = (releases + public).distinctBy {
+                                        it.title.lowercase() + "|" + it.author.lowercase()
+                                    }
                                     withContext(Dispatchers.Main) {
                                         publicResults = found
                                         publicSearching = false

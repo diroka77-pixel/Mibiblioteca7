@@ -39,6 +39,14 @@ class ExternalRecommendationsTest {
         assertTrue(result.isEmpty())
     }
 
+    @Test fun discoversUpcomingBookByTitleOrAuthor() {
+        val news = listOf(LaunchNews("Casa del Libro",
+            "Espinas en el aire · Javier Castillo", "https://www.casadellibro.com/libro/1",
+            "https://example.com/cover.jpg", "2026-11-24"))
+        assertTrue(searchLaunchCatalog("espinas en el aire", news).single().author == "Javier Castillo")
+        assertTrue(searchLaunchCatalog("Javier Castillo", news).single().title == "Espinas en el aire")
+    }
+
     @Test fun rejectsWebsiteLogosAsLiteraryNews() {
         assertTrue(isLowQualityFeaturedNews(LaunchNews("Librotea", "Logo Librotea",
             "https://librotea.eldiario.es", "https://example.com/logo.png", "2026-10-23")))

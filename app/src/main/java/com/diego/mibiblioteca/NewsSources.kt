@@ -36,6 +36,26 @@ internal fun launchNewsAsPublicBooks(
         )
     }.distinctBy { it.title.lowercase() + "|" + it.author.lowercase() }.toList()
 
+/** Permite que Descubrir encuentre también libros aún no indexados por las APIs públicas. */
+internal fun searchLaunchCatalog(
+    query: String,
+    news: List<LaunchNews>,
+    ownedBooks: List<Pair<String, String>> = emptyList()
+): List<PublicBookResult> {
+    fun normalize(value: String): String = java.text.Normalizer
+        .normalize(value.lowercase(), java.text.Normalizer.Form.NFD)
+        .replace(Regex("\\p{M}+"), "")
+        .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+        .trim()
+    val wanted = normalize(query)
+    if (wanted.isBlank()) return emptyList()
+    val terms = wanted.split(' ').filter { it.length >= 2 }
+    return launchNewsAsPublicBooks(news, ownedBooks).filter { book ->
+        val searchable = normalize(book.title + " " + book.author)
+        searchable.contains(wanted) || terms.all(searchable::contains)
+    }
+}
+
 internal val featuredNewsSources = linkedMapOf(
     "Fnac" to "https://www.fnac.es/s129487/Proximos-lanzamientos-en-libros",
     "Librotea" to "https://librotea.eldiario.es/estanterias",
