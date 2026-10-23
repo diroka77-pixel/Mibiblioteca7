@@ -4130,7 +4130,7 @@ private fun openCasaDelLibro(context: Context) {
                     displayTitle(book), displayAuthor(book), normalizeBookGenres(book.genre)
                 ) },
                 snapshot.map { displayTitle(it) to displayAuthor(it) },
-                limit = 12
+                limit = 30
             )
         }
     }
@@ -6381,6 +6381,10 @@ private fun HomeExternalRecommendations(
     onViewAll: () -> Unit,
     onOpen: (PublicBookResult) -> Unit
 ) {
+    val currentYear = java.time.LocalDate.now().year
+    val upcoming = books.filter { it.publishDates.take(4).toIntOrNull()?.let { year -> year > currentYear } == true }
+    val newReleases = books.filter { it.publishDates.take(4).toIntOrNull()?.let { year -> year in (currentYear - 1)..currentYear } == true }
+    val suggestions = books.filterNot { it in upcoming || it in newReleases }
     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -6390,34 +6394,70 @@ private fun HomeExternalRecommendations(
                 style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
             TextButton(onClick = onViewAll) { Text("Explorar", color = Color.White) }
         }
-        LazyRow(Modifier.fillMaxWidth().padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp)) {
-            items(books, key = { "external:" + it.sourceUrl }) { result ->
-                val cover by rememberPublicCover(result.coverUrl)
-                Card(
-                    modifier = Modifier.width(126.dp).clickable { onOpen(result) },
-                    colors = CardDefaults.cardColors(containerColor = Paper.copy(alpha = .97f)),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-                ) {
-                    if (cover != null) Image(cover!!.asImageBitmap(),
-                        contentDescription = "Portada de ${result.title}",
-                        modifier = Modifier.fillMaxWidth().height(178.dp),
-                        contentScale = ContentScale.Fit)
-                    else Box(Modifier.fillMaxWidth().height(178.dp),
-                        contentAlignment = Alignment.Center) {
-                        AppIcon("Libros", tint = Mahogany.copy(alpha = .5f), size = 42.dp)
-                    }
-                    Column(Modifier.padding(9.dp)) {
-                        Text(result.title, color = Ink, fontFamily = FontFamily.Serif,
-                            fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 2,
-                            overflow = TextOverflow.Ellipsis)
-                        Text(result.author, color = Mahogany.copy(alpha = .78f),
-                            fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
+        ExternalBooksRow(if (suggestions.isEmpty()) books.take(12) else suggestions.take(12), "recomendada", onOpen)
+        if (newReleases.isNotEmpty()) {
+            ExternalSectionTitle("Novedades")
+            ExternalBooksRow(newReleases, "novedad", onOpen)
+        }
+        if (upcoming.isNotEmpty()) {
+            ExternalSectionTitle("Próximos lanzamientos")
+            ExternalBooksRow(upcoming, "proximo", onOpen)
+        }
+    }
+}
+
+@Composable
+private fun ExternalSectionTitle(title: String) {
+    Text(title, modifier = Modifier.padding(start = 12.dp, top = 18.dp, bottom = 2.dp),
+        color = Color.White, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+        fontSize = 20.sp, style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+}
+
+@Composable
+private fun ExternalBooksRow(books: List<PublicBookResult>, keyPrefix: String,
+    onOpen: (PublicBookResult) -> Unit) {
+    LazyRow(Modifier.fillMaxWidth().padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp)) {
+        items(books, key = { "$keyPrefix:${it.sourceUrl}" }) { result ->
+            ExternalBookCard(result, onOpen)
+        }
+    }
+}
+
+@Composable
+private fun ExternalBookCard(result: PublicBookResult, onOpen: (PublicBookResult) -> Unit) {
+    val cover by rememberPublicCover(result.coverUrl)
+    Card(
+        modifier = Modifier.width(174.dp).clickable { onOpen(result) },
+        colors = CardDefaults.cardColors(containerColor = Paper.copy(alpha = .98f)),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+    ) {
+        Box(Modifier.fillMaxWidth().height(238.dp).background(Color(0xFFF0EBE3)),
+            contentAlignment = Alignment.Center) {
+            if (cover != null) Image(cover!!.asImageBitmap(),
+                contentDescription = "Portada de ${result.title}",
+                modifier = Modifier.fillMaxSize().padding(8.dp), contentScale = ContentScale.Fit)
+            else AppIcon("Libros", tint = Mahogany.copy(alpha = .5f), size = 48.dp)
+            val date = result.publishDates.ifBlank { result.year }
+            if (date.isNotBlank()) Surface(Modifier.align(Alignment.TopStart).padding(9.dp),
+                color = Ink.copy(alpha = .86f), shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
+                Text(date, color = Color.White, fontSize = 9.sp,
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp), maxLines = 1)
             }
+        }
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(result.title, color = Ink, fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Bold, fontSize = 15.sp, lineHeight = 18.sp,
+                minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(result.author, color = Mahogany.copy(alpha = .82f), fontSize = 12.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val extra = result.categories.firstOrNull().orEmpty().ifBlank { result.publisher }
+            if (extra.isNotBlank()) Text(extra, color = Teal, fontSize = 10.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (result.summary.isNotBlank()) Text(result.summary, color = Ink.copy(alpha = .72f),
+                fontSize = 10.sp, lineHeight = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -7581,7 +7621,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                     displayTitle(book), displayAuthor(book), normalizeBookGenres(book.genre)
                 )),
                 libraryBooks.map { displayTitle(it) to displayAuthor(it) },
-                limit = 10
+                limit = 18
             )
         }
     }
@@ -7942,36 +7982,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                     } else {
                         Text("Sugerencias externas según la temática, el género y el autor.",
                             color = Mahogany.copy(alpha = .76f), fontSize = 12.sp)
-                        LazyRow(Modifier.fillMaxWidth().padding(top = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            items(similarBooks, key = { "similar:" + it.sourceUrl }) { result ->
-                                val publicCover by rememberPublicCover(result.coverUrl)
-                                Card(
-                                    modifier = Modifier.width(118.dp).clickable {
-                                        selectedSimilar = result
-                                    },
-                                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-                                ) {
-                                    if (publicCover != null) Image(publicCover!!.asImageBitmap(),
-                                        contentDescription = "Portada de ${result.title}",
-                                        modifier = Modifier.fillMaxWidth().height(164.dp),
-                                        contentScale = ContentScale.Fit)
-                                    else Box(Modifier.fillMaxWidth().height(164.dp),
-                                        contentAlignment = Alignment.Center) {
-                                        AppIcon("Libros", tint = Mahogany.copy(alpha = .5f), size = 38.dp)
-                                    }
-                                    Column(Modifier.padding(8.dp)) {
-                                        Text(result.title, color = Ink, fontWeight = FontWeight.Bold,
-                                            fontFamily = FontFamily.Serif, fontSize = 11.sp,
-                                            maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        Text(result.author, color = Mahogany.copy(alpha = .74f),
-                                            fontSize = 9.sp, maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis)
-                                    }
-                                }
-                            }
-                        }
+                        ExternalBooksRow(similarBooks, "similar") { selectedSimilar = it }
                     }
                 }
             }

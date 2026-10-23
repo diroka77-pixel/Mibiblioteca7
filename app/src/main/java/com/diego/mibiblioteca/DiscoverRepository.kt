@@ -11,7 +11,8 @@ data class PublicBookResult(
     val isbn: String, val coverUrl: String, val sourceUrl: String,
     val summary: String = "", val authorKey: String = "",
     val publishDates: String = "", val confidence: Int = 0,
-    val source: String = ""
+    val source: String = "", val categories: List<String> = emptyList(),
+    val publisher: String = "", val language: String = ""
 )
 
 data class PublicBookDetails(
@@ -29,6 +30,34 @@ data class ExternalRecommendationSeed(
 private fun publicIdentity(title: String, author: String): String =
     discoverNormalizeSearchText(title) + "|" + discoverNormalizeSearchText(author)
 
+private val discoveryArticles = setOf("a", "al", "de", "del", "el", "la", "las", "los", "the", "un", "una", "y")
+
+private fun discoveryWords(value: String): Set<String> = discoverNormalizeSearchText(value)
+    .split(' ').filter { it.length >= 2 && it !in discoveryArticles }.toSet()
+
+internal fun isLikelyOwnedRecommendation(
+    title: String,
+    author: String,
+    ownedBooks: List<Pair<String, String>>
+): Boolean {
+    val candidateTitle = discoverNormalizeSearchText(title)
+    val candidateAuthor = discoverNormalizeSearchText(author)
+    val candidateWords = discoveryWords(title)
+    return ownedBooks.any { (ownedTitleRaw, ownedAuthorRaw) ->
+        val ownedTitle = discoverNormalizeSearchText(ownedTitleRaw)
+        val ownedAuthor = discoverNormalizeSearchText(ownedAuthorRaw)
+        val ownedWords = discoveryWords(ownedTitleRaw)
+        val sameAuthor = candidateAuthor.isNotBlank() && ownedAuthor.isNotBlank() &&
+            (candidateAuthor == ownedAuthor || candidateAuthor.contains(ownedAuthor) || ownedAuthor.contains(candidateAuthor))
+        val intersection = candidateWords.intersect(ownedWords).size
+        val smallest = minOf(candidateWords.size, ownedWords.size).coerceAtLeast(1)
+        val sameWork = candidateTitle == ownedTitle ||
+            candidateTitle.startsWith("$ownedTitle ") || ownedTitle.startsWith("$candidateTitle ") ||
+            (intersection >= 2 && intersection.toDouble() / smallest >= .72)
+        sameWork && (sameAuthor || candidateWords.size >= 3)
+    }
+}
+
 /**
  * Recomendaciones públicas y gratuitas. Combina Google Books y Open Library,
  * y descarta los libros que ya forman parte de la biblioteca local.
@@ -39,25 +68,22 @@ fun externalBookRecommendations(
     limit: Int = 12
 ): List<PublicBookResult> {
     if (limit <= 0 || seeds.isEmpty()) return emptyList()
-    val owned = ownedBooks.map { publicIdentity(it.first, it.second) }.toSet()
-    val ownedTitles = ownedBooks.map { discoverNormalizeSearchText(it.first) }.toSet()
+    val ownedAuthors = ownedBooks.map { discoverNormalizeSearchText(it.second) }
+        .filter(String::isNotBlank).toSet()
     val queries = buildList {
-        seeds.take(3).forEach { seed ->
-            seed.genres.map(String::trim).filter { it.length >= 3 }.take(2).forEach {
-                add("subject:$it")
-            }
-            if (seed.author.isNotBlank() && seed.author != "Autor desconocido") {
-                add("inauthor:${seed.author}")
-            }
-            if (seed.title.isNotBlank()) add(seed.title)
+        seeds.take(6).forEach { seed ->
+            seed.genres.map(String::trim).filter { it.length >= 3 }.take(3).forEach { add("subject:$it") }
         }
-    }.distinct().take(6)
+        // Garantiza variedad incluso si los EPUB aún no tienen género bien clasificado.
+        addAll(listOf("subject:fantasía", "subject:terror", "subject:aventuras",
+            "subject:romántica", "subject:drama", "subject:autoayuda"))
+    }.distinct().take(10)
     val results = mutableListOf<PublicBookResult>()
     queries.forEach { query ->
         runCatching {
             val encoded = java.net.URLEncoder.encode(query, "UTF-8")
             val items = getJson(
-                "https://www.googleapis.com/books/v1/volumes?q=$encoded&maxResults=20&printType=books"
+                "https://www.googleapis.com/books/v1/volumes?q=$encoded&maxResults=30&printType=books&langRestrict=es&orderBy=newest"
             ).optJSONArray("items")
             for (index in 0 until (items?.length() ?: 0)) {
                 val row = items?.optJSONObject(index) ?: continue
@@ -67,8 +93,11 @@ fun externalBookRecommendations(
                 val author = (0 until (authors?.length() ?: 0))
                     .joinToString(", ") { authors!!.optString(it) }.trim()
                 if (title.isBlank() || author.isBlank()) continue
-                if (publicIdentity(title, author) in owned ||
-                    discoverNormalizeSearchText(title) in ownedTitles) continue
+                if (info.optString("language") != "es") continue
+                if (isLikelyOwnedRecommendation(title, author, ownedBooks)) continue
+                // No propone otras ediciones/traducciones de los autores usados como semilla.
+                if (discoverNormalizeSearchText(author) in ownedAuthors &&
+                    seeds.any { discoverNormalizeSearchText(it.author) == discoverNormalizeSearchText(author) }) continue
                 val identifiers = info.optJSONArray("industryIdentifiers")
                 val isbn = (0 until (identifiers?.length() ?: 0)).mapNotNull { item ->
                     identifiers?.optJSONObject(item)?.optString("identifier")
@@ -92,71 +121,23 @@ fun externalBookRecommendations(
                         "https://books.google.com/books?id=" + row.optString("id")
                     },
                     summary = info.optString("description"),
+                    publishDates = info.optString("publishedDate"),
                     confidence = 70,
-                    source = "Google Books"
-                )
-            }
-        }
-    }
-    // Open Library aporta una segunda fuente sin clave y evita que una respuesta
-    // vacía o limitada de Google Books deje sin sugerencias la pantalla.
-    val openLibraryQueries = buildList {
-        seeds.take(4).forEach { seed ->
-            seed.genres.map(String::trim).filter { it.length >= 3 }.take(2).forEach {
-                add("subject:" + discoverNormalizeSearchText(it).replace(' ', '_'))
-            }
-            if (seed.author.isNotBlank() && seed.author != "Autor desconocido") {
-                add("author:\"${seed.author}\"")
-            }
-            if (seed.title.isNotBlank()) {
-                val significant = discoverNormalizeSearchText(seed.title).split(' ')
-                    .filter { it.length >= 4 }.take(3).joinToString(" ")
-                if (significant.isNotBlank()) add(significant)
-            }
-        }
-    }.distinct().take(8)
-    openLibraryQueries.forEach { rawQuery ->
-        runCatching {
-            val encoded = java.net.URLEncoder.encode(rawQuery, "UTF-8")
-            val docs = getJson(
-                "https://openlibrary.org/search.json?q=$encoded&limit=24&fields=key,title,author_name,author_key,isbn,cover_i,first_publish_year,first_sentence,subject,publisher,language"
-            ).optJSONArray("docs")
-            for (index in 0 until (docs?.length() ?: 0)) {
-                val row = docs?.optJSONObject(index) ?: continue
-                val title = row.optString("title").trim()
-                val names = row.optJSONArray("author_name")
-                val author = (0 until (names?.length() ?: 0))
-                    .joinToString(", ") { names!!.optString(it) }.trim()
-                if (title.isBlank() || author.isBlank()) continue
-                if (publicIdentity(title, author) in owned ||
-                    discoverNormalizeSearchText(title) in ownedTitles) continue
-                val coverId = row.optInt("cover_i", 0)
-                if (coverId <= 0) continue
-                val isbns = row.optJSONArray("isbn")
-                val isbn = (0 until (isbns?.length() ?: 0)).map {
-                    isbns!!.optString(it).filter(Char::isDigit)
-                }.firstOrNull { it.length == 13 }.orEmpty()
-                val workKey = row.optString("key").removePrefix("/works/")
-                results += PublicBookResult(
-                    title = title,
-                    author = author,
-                    year = row.optInt("first_publish_year", 0)
-                        .takeIf { it > 0 }?.toString().orEmpty(),
-                    isbn = isbn,
-                    coverUrl = "https://covers.openlibrary.org/b/id/$coverId-L.jpg",
-                    sourceUrl = "https://openlibrary.org/works/$workKey",
-                    summary = row.optJSONArray("first_sentence")?.optString(0).orEmpty(),
-                    authorKey = row.optJSONArray("author_key")?.optString(0).orEmpty(),
-                    confidence = 65,
-                    source = "Open Library"
+                    source = "Google Books ES",
+                    categories = info.optJSONArray("categories")?.let { array ->
+                        (0 until array.length()).map { array.optString(it) }.filter(String::isNotBlank)
+                    }.orEmpty(),
+                    publisher = info.optString("publisher"),
+                    language = "es"
                 )
             }
         }
     }
     return results.distinctBy { publicIdentity(it.title, it.author) }
-        .filter { it.coverUrl.isNotBlank() }
-        .sortedWith(compareByDescending<PublicBookResult> { it.summary.length }
-            .thenByDescending { it.year })
+        .filter { it.coverUrl.isNotBlank() && it.language == "es" &&
+            !isLikelyOwnedRecommendation(it.title, it.author, ownedBooks) }
+        .sortedWith(compareByDescending<PublicBookResult> { it.publishDates }
+            .thenByDescending { it.summary.length })
         .take(limit)
 }
 
