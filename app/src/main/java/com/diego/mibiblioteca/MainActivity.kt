@@ -68,6 +68,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.viewinterop.AndroidView
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebChromeClient
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.AnimatedVisibility
@@ -368,22 +369,6 @@ private fun PublicBookCard(result: PublicBookResult, onOpen: () -> Unit, onWish:
 
 @Composable
 private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDetails?, wishListed: Boolean, onBack: () -> Unit, onWish: () -> Unit) {
-    var showPromotionalVideo by remember(result.sourceUrl) { mutableStateOf(false) }
-    if (showPromotionalVideo) AlertDialog(
-        onDismissRequest = { showPromotionalVideo = false },
-        title = { Text("Vídeo promocional o presentación") },
-        text = {
-            AndroidView(factory = { context ->
-                WebView(context).apply {
-                    webViewClient = WebViewClient()
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    loadUrl(details?.promotionalVideoUrl.orEmpty())
-                }
-            }, modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f))
-        },
-        confirmButton = { TextButton(onClick = { showPromotionalVideo = false }) { Text("Cerrar") } }
-    )
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
         TextButton(onClick = onBack) { Text("← Volver a resultados", color = Brass) }
         Surface(Modifier.fillMaxWidth(), color = Paper.copy(alpha = .98f), shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp)) {
@@ -451,13 +436,29 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                     }
                 }
                 if (!details?.promotionalVideoUrl.isNullOrBlank()) {
-                    Spacer(Modifier.height(16.dp))
-                    Button(onClick = { showPromotionalVideo = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Teal)) {
-                        Icon(Icons.Outlined.PlayCircle, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Tráilers y presentaciones")
+                    Spacer(Modifier.height(20.dp))
+                    Text("Tráileres y presentaciones", fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
+                    Text("Reproduce el vídeo sin salir de BookNook", color = Mahogany.copy(alpha = .72f),
+                        fontSize = 12.sp)
+                    Spacer(Modifier.height(10.dp))
+                    Surface(Modifier.fillMaxWidth(), color = Color(0xFF111318),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Teal.copy(alpha = .55f))) {
+                        AndroidView(factory = { context ->
+                            WebView(context).apply {
+                                webViewClient = WebViewClient()
+                                webChromeClient = WebChromeClient()
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                settings.mediaPlaybackRequiresUserGesture = true
+                                setBackgroundColor(android.graphics.Color.BLACK)
+                                loadUrl(details!!.promotionalVideoUrl)
+                            }
+                        }, update = { webView ->
+                            if (webView.url != details!!.promotionalVideoUrl)
+                                webView.loadUrl(details.promotionalVideoUrl)
+                        }, modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f))
                     }
                 }
                 Spacer(Modifier.height(6.dp))
@@ -5867,55 +5868,97 @@ private fun openCasaDelLibro(context: Context) {
                             style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
                     }
                 }
-                items(visibleNews, key = { "news:" + it.url }, contentType = { "news" }) { news ->
-                    val picture by rememberNewsImage(news)
-                    Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp).clickable {
-                        if (news.source == "Casa del Libro" && launchBookAuthor(news).isNotBlank()) {
-                            selectedPublicResult = launchNewsAsPublicBooks(listOf(news),
-                                vm.books.map { displayTitle(it) to displayAuthor(it) }).firstOrNull()
-                            if (selectedPublicResult != null) switchTab("Descubrir")
-                        } else {
-                            try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url))) }
-                            catch (_: Exception) {
-                                android.widget.Toast.makeText(context, "No se pudo abrir la noticia",
-                                    android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }, shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = Ink),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) {
-                        Box(Modifier.fillMaxWidth().height(255.dp)) {
-                            if (picture != null) Image(picture!!.asImageBitmap(),
-                                contentDescription = "Imagen de la noticia: ${news.title}",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = if (news.source == "Casa del Libro")
-                                    ContentScale.Fit else ContentScale.Crop)
-                            else Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(
-                                Color(0xFF0B6258), Color(0xFF24344B), Color(0xFF101719)))))
-                            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Black.copy(alpha = .15f),
-                                    Color.Black.copy(alpha = .92f)))))
-                            Column(Modifier.align(Alignment.BottomStart)
-                                .fillMaxWidth().padding(start = 18.dp, top = 16.dp,
-                                    end = 52.dp, bottom = 17.dp)) {
-                                Text(if (news.source == "Casa del Libro") "PRÓXIMO LANZAMIENTO"
-                                    else "ACTUALIDAD LITERARIA",
-                                    color = Color(0xFF78D8C6), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                Text(launchBookTitle(news), fontFamily = FontFamily.Serif,
-                                    fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White,
-                                    lineHeight = 29.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
-                                    style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
-                                if (launchBookAuthor(news).isNotBlank()) Text(launchBookAuthor(news),
-                                    color = Color.White.copy(alpha = .88f), fontSize = 14.sp,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(if (news.source == "Casa del Libro")
-                                    formatLaunchDate(news.releaseDate) else news.source,
-                                    color = Color.White.copy(alpha = .72f), fontSize = 11.sp)
-                            }
-                            IconButton(onClick = { vm.hideNews(news.url) },
-                                modifier = Modifier.align(Alignment.TopEnd)
-                                    .semantics { contentDescription = "Ocultar noticia" }) {
-                                AppIcon("Cerrar", "Ocultar noticia", tint = Color.White)
+                item(key = "immersive-news-carousel", contentType = "news") {
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(visibleNews, key = { "news:" + it.url }) { news ->
+                            val picture by rememberNewsImage(news)
+                            Card(
+                                modifier = Modifier.width(330.dp).height(365.dp).clickable {
+                                    if (news.source == "Casa del Libro" && launchBookAuthor(news).isNotBlank()) {
+                                        selectedPublicResult = launchNewsAsPublicBooks(listOf(news),
+                                            vm.books.map { displayTitle(it) to displayAuthor(it) }).firstOrNull()
+                                        if (selectedPublicResult != null) switchTab("Descubrir")
+                                    } else {
+                                        try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url))) }
+                                        catch (_: Exception) {
+                                            android.widget.Toast.makeText(context, "No se pudo abrir la noticia",
+                                                android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF101719)),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                            ) {
+                                Box(Modifier.fillMaxSize()) {
+                                    Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(
+                                        Color(0xFF0B6258), Color(0xFF24344B), Color(0xFF101719)))))
+                                    if (picture != null) Image(
+                                        picture!!.asImageBitmap(),
+                                        contentDescription = "Imagen de la noticia: ${news.title}",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = if (news.source == "Casa del Libro")
+                                            ContentScale.Fit else ContentScale.Crop
+                                    )
+                                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
+                                        Color.Black.copy(alpha = .08f), Color.Transparent,
+                                        Color.Black.copy(alpha = .35f), Color.Black.copy(alpha = .96f)))))
+                                    Surface(
+                                        modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
+                                        color = Teal.copy(alpha = .92f),
+                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(50)
+                                    ) {
+                                        Text(
+                                            if (news.source == "Casa del Libro") "PRÓXIMO LANZAMIENTO"
+                                            else "ACTUALIDAD LITERARIA",
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                            color = Color.White, fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Column(
+                                        Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                                            .padding(start = 18.dp, end = 18.dp, bottom = 20.dp)
+                                    ) {
+                                        Text(
+                                            launchBookTitle(news), fontFamily = FontFamily.Serif,
+                                            fontSize = 26.sp, fontWeight = FontWeight.Bold,
+                                            color = Color.White, lineHeight = 30.sp, maxLines = 4,
+                                            overflow = TextOverflow.Ellipsis,
+                                            style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow)
+                                        )
+                                        if (launchBookAuthor(news).isNotBlank()) Text(
+                                            launchBookAuthor(news), color = Color.White.copy(alpha = .92f),
+                                            fontSize = 15.sp, maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(Modifier.height(9.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                if (news.source == "Casa del Libro")
+                                                    formatLaunchDate(news.releaseDate) else news.source,
+                                                color = Color.White.copy(alpha = .78f), fontSize = 12.sp,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            Surface(color = Color.White, shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
+                                                Text(
+                                                    if (news.source == "Casa del Libro") "Ver ficha" else "Leer",
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                                    color = Ink, fontWeight = FontWeight.Bold, fontSize = 12.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                    IconButton(
+                                        onClick = { vm.hideNews(news.url) },
+                                        modifier = Modifier.align(Alignment.TopEnd)
+                                            .semantics { contentDescription = "Ocultar noticia" }
+                                    ) { AppIcon("Cerrar", "Ocultar noticia", tint = Color.White) }
+                                }
                             }
                         }
                     }

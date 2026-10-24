@@ -38,10 +38,40 @@ data class ExternalRecommendationSeed(
 private fun publicIdentity(title: String, author: String): String =
     discoverNormalizeSearchText(title) + "|" + discoverNormalizeSearchText(author)
 
-private fun cleanEditorialText(value: String): String = value
-    .replace(Regex("(?is)(?:compra|consigue|descubre).{0,100}?(?:env[ií]os? gratis|mejores ofertas|casa del libro)[.!]?"), "")
-    .replace(Regex("(?is)el libro .{0,120}? en casa del libro[.:]?"), "")
-    .replace(Regex("\\s+"), " ").trim()
+private fun cleanEditorialText(value: String): String {
+    val normalized = org.jsoup.Jsoup.parse(value).text()
+        .replace(Regex("(?i)\\s*[|·•]\\s*"), ". ")
+        .replace(Regex("\\s+"), " ").trim()
+    val commercial = Regex(
+        "(?i)(casa del libro|env[ií]os? gratis|mejores ofertas|compr[ae]|c[oó]mpralo|" +
+            "cons[ií]guelo|hazte con|precio|descuento|promoci[oó]n|stock|tienda online|" +
+            "entrega(?:s)?|pedido|gastos de env[iío]|a la venta)"
+    )
+    return normalized.split(Regex("(?<=[.!?])\\s+|\\n+"))
+        .map { it.trim().trimStart('-', '·', '•', ':', ';') }
+        .filter { sentence -> sentence.length >= 24 && !commercial.containsMatchIn(sentence) }
+        .joinToString(" ")
+        .replace(Regex("(?i)^(?:descripci[oó]n|sinopsis|resumen)\\s*:?\\s*"), "")
+        .replace(Regex("\\s+"), " ").trim()
+}
+
+private fun findPromotionalVideo(title: String, author: String): String {
+    val query = java.net.URLEncoder.encode("$title $author trailer libro presentación editorial", "UTF-8")
+    return runCatching {
+        val connection = (java.net.URL("https://www.youtube.com/results?search_query=$query")
+            .openConnection() as java.net.HttpURLConnection).apply {
+            connectTimeout = 6500
+            readTimeout = 8000
+            setRequestProperty("User-Agent", "Mozilla/5.0 (Android; BookNook)")
+            setRequestProperty("Accept-Language", "es-ES,es;q=0.9")
+        }
+        val html = try { connection.inputStream.bufferedReader().use { it.readText() } }
+            finally { connection.disconnect() }
+        val ids = Regex("\\\"videoId\\\":\\\"([A-Za-z0-9_-]{11})\\\"")
+            .findAll(html).map { it.groupValues[1] }.distinct().toList()
+        ids.firstOrNull()?.let { "https://www.youtube-nocookie.com/embed/$it?playsinline=1&rel=0&modestbranding=1" }.orEmpty()
+    }.getOrDefault("")
+}
 
 private val discoveryArticles = setOf("a", "al", "de", "del", "el", "la", "las", "los", "the", "un", "una", "y")
 
@@ -353,11 +383,10 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
             "información editorial y bibliográfica disponible, evitando adelantar giros importantes. " +
             "La ficha permite comparar ediciones, fecha, editorial y pertenencia a saga antes de decidir si encaja con tus lecturas."
     }
-    val videoQuery = java.net.URLEncoder.encode(
-        "\"${result.title}\" ${result.author} tráiler libro presentación editorial", "UTF-8")
+    val promotionalVideo = findPromotionalVideo(result.title, result.author)
     return PublicBookDetails(cleanEditorialText(summary), bio.trim(), published, pages, language, publisher,
         source, authorImageUrl, coverUrl, saga, sagaOrder, review, editions,
-        "https://www.youtube.com/results?search_query=$videoQuery")
+        promotionalVideo)
 }
 
 fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<PublicBookResult> {
