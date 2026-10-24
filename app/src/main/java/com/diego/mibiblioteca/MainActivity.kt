@@ -231,51 +231,6 @@ private fun sagaDisplayName(value: String): String = when {
     else -> value
 }
 
-private val newsImageCache = object : LruCache<String, Bitmap>(12 * 1024) {
-    override fun sizeOf(key: String, value: Bitmap): Int =
-        (value.byteCount / 1024).coerceAtLeast(1)
-}
-
-@Composable private fun rememberNewsImage(news: LaunchNews): State<Bitmap?> {
-    val url = news.imageUrl
-    val imageUrl = when {
-        url.startsWith("https://www.bing.com/th?") && !url.contains("&w=") -> "$url&w=800&h=450"
-        url.contains("casadellibro.com/a/l/s5/") -> url.replace("/s5/", "/s7/")
-        else -> url
-    }
-    return produceState<Bitmap?>(initialValue = newsImageCache.get(imageUrl), news.url, imageUrl) {
-        if (value == null) value = withContext(Dispatchers.IO) {
-            fun load(candidate: String): Bitmap? {
-                return try {
-                if (!candidate.startsWith("https://")) return null
-                val conn = URL(candidate).openConnection() as HttpURLConnection
-                conn.connectTimeout = 5000
-                conn.readTimeout = 6000
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
-                conn.setRequestProperty("Referer", news.url)
-                conn.setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
-                try {
-                    if (conn.contentLengthLong > 4_000_000) return null
-                    val bytes = conn.inputStream.use { it.readNBytes(4_000_001) }
-                    if (bytes.size > 4_000_000) return null
-                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                    if (bounds.outWidth < 100 || bounds.outHeight < 100) return null
-                    var sample = 1
-                    while (bounds.outWidth / sample > 1400 || bounds.outHeight / sample > 1400) sample *= 2
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
-                        BitmapFactory.Options().apply { inSampleSize = sample })?.also {
-                        newsImageCache.put(imageUrl, it)
-                    }
-                } finally { conn.disconnect() }
-                } catch (_: Exception) { null }
-            }
-            load(imageUrl) ?: if (news.source in featuredNewsSources)
-                articleImageUrl(news.url)?.let(::load) else null
-        }
-    }
-}
-
 private val publicImageCache = object : LruCache<String, Bitmap>(16 * 1024) {
     override fun sizeOf(key: String, value: Bitmap): Int =
         (value.byteCount / 1024).coerceAtLeast(1)
@@ -488,7 +443,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var query by mutableStateOf("")
     var groupMode by mutableStateOf("Todos")
     var viewMode by mutableStateOf("Lista"); private set
-    var showHomeNews by mutableStateOf(true); private set
     var readingFirst by mutableStateOf(true); private set
     var wallpaperMode by mutableStateOf("Automático"); private set
     var animationMode by mutableStateOf("Equilibrada"); private set
@@ -608,9 +562,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun clearNewBooksNotice() { newBooksNotice = null }
     var launchNews by mutableStateOf<List<LaunchNews>>(emptyList()); private set
     var newsRefreshing by mutableStateOf(false); private set
-    var hiddenNewsSources by mutableStateOf<Set<String>>(emptySet()); private set
-    var hiddenNewsUrls by mutableStateOf<Set<String>>(emptySet()); private set
-    var newsLastChecked by mutableStateOf(0L); private set
     var folderName by mutableStateOf<String?>(null); private set
     val folderLinked: Boolean
         get() = !prefs.getString(folderKey, null).isNullOrBlank()
@@ -679,7 +630,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         reviewPending = safeSavedArray(prefs.getString("review_pending", "[]")).let { arr ->
             (0 until arr.length()).map { Uri.parse(arr.optString(it)) }.toSet()
         }
-        showHomeNews = prefs.getBoolean("show_home_news", true)
         readingFirst = prefs.getBoolean("reading_first", true)
         loadWishList()
         activityLog = safeSavedArray(prefs.getString("activity_log", "[]")).let { arr ->
@@ -705,13 +655,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         folderName = prefs.getString("folder_name", null)?.takeIf(String::isNotBlank)
         if (folderLinked && folderName == null) folderName = "Carpeta de libros"
         restoreLaunchNews()
-        hiddenNewsSources = safeSavedArray(prefs.getString("hidden_news_sources", "[]")).let { arr ->
-            (0 until arr.length()).map { arr.optString(it) }.toSet()
-        }
-        hiddenNewsUrls = safeSavedArray(prefs.getString("hidden_news_urls", "[]")).let { arr ->
-            (0 until arr.length()).map { arr.optString(it) }.toSet()
-        }
-        newsLastChecked = prefs.getLong("literary_news_v4_checked", 0L)
         refreshLaunchNews()
         syncReport = prefs.getString("sync_report", "Todavía no se ha sincronizado.") ?: ""
     }
@@ -725,28 +668,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     it.getString("image"), it.getString("date"))
             } } catch (_: Exception) { null }
         }
-        launchNews = cached.filterNot(::isLowQualityFeaturedNews).ifEmpty { starterNews }
-    }
-
-    fun isNewsVisible(news: LaunchNews) = news.source !in hiddenNewsSources &&
-        news.url !in hiddenNewsUrls
-
-    fun toggleNewsSource(source: String) {
-        hiddenNewsSources = if (source in hiddenNewsSources) hiddenNewsSources - source
-            else hiddenNewsSources + source
-        prefs.edit().putString("hidden_news_sources",
-            org.json.JSONArray(hiddenNewsSources.toList()).toString()).apply()
-    }
-
-    fun hideNews(url: String) {
-        hiddenNewsUrls = hiddenNewsUrls + url
-        prefs.edit().putString("hidden_news_urls",
-            org.json.JSONArray(hiddenNewsUrls.toList()).toString()).apply()
-    }
-
-    fun showAllNews() {
-        hiddenNewsUrls = emptySet()
-        prefs.edit().remove("hidden_news_urls").apply()
+        launchNews = cached.filter { it.source == "Casa del Libro" }
     }
 
     fun refreshLaunchNews(force: Boolean = false) {
@@ -755,17 +677,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         newsRefreshing = true
         viewModelScope.launch {
             try {
-                val queries = newsQueries(includeLatest = force).map { query ->
-                    async(Dispatchers.IO) { fetchLiteraryNews(query) }
-                }
                 val books = async(Dispatchers.IO) { fetchCasaUpcomingBooks() }
-                val publishers = featuredNewsSources.map { (source, address) ->
-                    async(Dispatchers.IO) { fetchFeaturedNews(source, address).take(1) }
-                }
-                val results = queries.awaitAll().flatten() + books.await() +
-                    publishers.awaitAll().flatten()
+                val results = books.await()
                 val sorted = results.distinctBy { cleanCatalogText(it.title).lowercase() }
-                    .sortedByDescending { it.releaseDate }.take(12)
+                    .sortedByDescending { it.releaseDate }.take(8)
                 if (sorted.isNotEmpty()) launchNews = sorted
                 val array = org.json.JSONArray()
                 launchNews.forEach { array.put(JSONObject().put("source", it.source)
@@ -773,9 +688,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     .put("image", it.imageUrl).put("date", it.releaseDate)) }
                 prefs.edit().putString("literary_news", array.toString())
                     .putLong("literary_news_v4_checked", System.currentTimeMillis()).apply()
-                newsLastChecked = System.currentTimeMillis()
             } catch (_: Exception) {
-                // Se muestran las noticias guardadas si alguna fuente falla.
+                // Se conservan los próximos lanzamientos guardados si la fuente falla.
             } finally { newsRefreshing = false }
         }
     }
@@ -2311,9 +2225,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun viewModeFor(section: String?): String =
         scopedViewModes[section ?: "general"] ?: viewMode
-    fun setHomeNews(show: Boolean) {
-        showHomeNews = show; prefs.edit().putBoolean("show_home_news", show).apply()
-    }
     fun updateReadingFirst(first: Boolean) {
         readingFirst = first; prefs.edit().putBoolean("reading_first", first).apply()
     }
@@ -4106,13 +4017,9 @@ private fun openCasaDelLibro(context: Context) {
     // Require a deliberate horizontal gesture. A low threshold made vertical scrolling and
     // taps on cards feel as if the whole screen was trying to change tab.
     val swipeThreshold = with(LocalDensity.current) { 56.dp.toPx() }
-    val pullRefreshTopInset = with(LocalDensity.current) { 148.dp.toPx() }
-    val pullRefreshBottomInset = with(LocalDensity.current) { 80.dp.toPx() }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var showSyncReport by remember { mutableStateOf(false) }
-    var homeSettings by remember { mutableStateOf(false) }
-    var newsSettings by remember { mutableStateOf(false) }
     var organizeSections by remember { mutableStateOf(false) }
     var backupMenu by remember { mutableStateOf(false) }
     var duplicateDialog by remember { mutableStateOf(false) }
@@ -4263,9 +4170,6 @@ private fun openCasaDelLibro(context: Context) {
             kotlinx.coroutines.delay(4000)
             vm.clearMessage()
         }
-    }
-    val visibleNews = remember(vm.launchNews, vm.hiddenNewsSources, vm.hiddenNewsUrls) {
-        vm.launchNews.filter(vm::isNewsVisible)
     }
     val duplicateSnapshot = vm.books
     var duplicateScanComplete by remember { mutableStateOf(false) }
@@ -4897,7 +4801,7 @@ private fun openCasaDelLibro(context: Context) {
             Spacer(Modifier.height(8.dp))
             val dated = vm.launchNews.filter { it.releaseDate.isNotBlank() }
                 .sortedBy { it.releaseDate }
-            if (dated.isEmpty()) Text("Actualiza las noticias para consultar próximas fechas.")
+            if (dated.isEmpty()) Text("No hay próximos lanzamientos disponibles.")
             dated.forEach { news ->
                 Text(news.releaseDate, color = Teal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 Text(news.title, color = Mahogany, fontSize = 13.sp)
@@ -5010,29 +4914,6 @@ private fun openCasaDelLibro(context: Context) {
                 fontSize = 11.sp, color = Mahogany.copy(alpha = .75f))
         } },
         confirmButton = { LibraryTextButton(onClick = { legalOpen = false }) { Text("Cerrar") } })
-    if (homeSettings) AlertDialog(onDismissRequest = { homeSettings = false },
-        title = { Text("Organizar Inicio") },
-        text = { Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Mostrar noticias", Modifier.weight(1f))
-                Switch(vm.showHomeNews, vm::setHomeNews)
-            }
-        } },
-        confirmButton = { LibraryTextButton(onClick = { homeSettings = false }) { Text("Cerrar") } })
-    if (newsSettings) AlertDialog(onDismissRequest = { newsSettings = false },
-        title = { Text("Fuentes de noticias") },
-        text = { Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
-            (vm.launchNews.map { it.source } + featuredNewsSources.keys).distinct().forEach { source ->
-                Row(Modifier.fillMaxWidth().clickable { vm.toggleNewsSource(source) },
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(source !in vm.hiddenNewsSources,
-                        onCheckedChange = { vm.toggleNewsSource(source) })
-                    Text(source)
-                }
-            }
-            LibraryTextButton(onClick = vm::showAllNews) { Text("Recuperar noticias ocultas") }
-        } },
-        confirmButton = { LibraryTextButton(onClick = { newsSettings = false }) { Text("Cerrar") } })
     val shown = current
     LaunchedEffect(tab, shown?.uri) {
         (context as? MainActivity)?.setMetricScreen(if (shown != null) "Ficha" else tab)
@@ -5162,13 +5043,6 @@ private fun openCasaDelLibro(context: Context) {
                 val next = index + if (horizontal < 0) 1 else -1
                 if (next in tabs.indices) currentSwitch(tabs[next])
                 else settlePage()
-            } else if (!draggingPage && currentTab == "Inicio" &&
-                !startedOnCarousel &&
-                start.y > pullRefreshTopInset && start.y < size.height - pullRefreshBottomInset &&
-                vertical > swipeThreshold * 1.8f &&
-                listState.firstVisibleItemIndex == 0 &&
-                listState.firstVisibleItemScrollOffset == 0 && !vm.newsRefreshing) {
-                vm.refreshLaunchNews(true)
             } else if (draggingPage) {
                 settlePage()
             }
@@ -5259,20 +5133,6 @@ private fun openCasaDelLibro(context: Context) {
                         Text("Automático sigue el género del último libro abierto.",
                             color = Mahogany, fontSize = 12.sp,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
-                        HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                        Text("Inicio y noticias", color = Teal, fontWeight = FontWeight.Bold)
-                        NavigationDrawerItem(label = { Text("Organizar Inicio") }, selected = false,
-                            icon = { AppIcon("Ajustes") }, onClick = {
-                                scope.launch { drawerState.close() }; homeSettings = true
-                            })
-                        NavigationDrawerItem(label = { Text("Fuentes de noticias") }, selected = false,
-                            icon = { AppIcon("Noticias") }, onClick = {
-                                scope.launch { drawerState.close() }; newsSettings = true
-                            })
-                        NavigationDrawerItem(label = { Text("Actualizar noticias") }, selected = false,
-                            icon = { AppIcon("Noticias") }, onClick = {
-                                if (!vm.newsRefreshing) vm.refreshLaunchNews(true)
-                            })
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         NavigationDrawerItem(label = { Text("Opciones de biblioteca") }, selected = false,
                             icon = { AppIcon("Opciones") }, onClick = {
@@ -5694,18 +5554,6 @@ private fun openCasaDelLibro(context: Context) {
             }
             if (tab != "Estadísticas" && tab != "Descubrir") item(key = "controls") {
                 Column(Modifier.padding(horizontal = 12.dp)) {
-                    if (tab == "Inicio") {
-                    Spacer(Modifier.height(12.dp))
-                    Text("✦  ENTRE ESTANTERÍAS  ✦", color = Brass, fontFamily = FontFamily.Serif,
-                        style = MaterialTheme.typography.labelMedium.copy(shadow = WallpaperTextShadow))
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Historias por descubrir", fontFamily = FontFamily.Serif,
-                            style = MaterialTheme.typography.headlineSmall.copy(shadow = WallpaperTextShadow),
-                            color = Color.White,
-                            modifier = Modifier.weight(1f))
-                    }
-                    HorizontalDivider(color = Brass.copy(alpha = 0.4f), thickness = 1.dp)
-                    }
                     if (tab == "Secciones") Text("Tus secciones",
                         fontFamily = FontFamily.Serif,
                         style = MaterialTheme.typography.headlineSmall.copy(shadow = WallpaperTextShadow),
@@ -5862,103 +5710,6 @@ private fun openCasaDelLibro(context: Context) {
                 }
             }
             if (tab == "Inicio") {
-                if (vm.showHomeNews) {
-                item(key = "launch-news") {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 16.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Actualidad literaria en España", fontFamily = FontFamily.Serif,
-                                fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Color.White,
-                                modifier = Modifier.weight(1f),
-                                style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
-                        }
-                        if (vm.newsRefreshing && vm.launchNews.isEmpty())
-                            WallpaperLabel("Buscando noticias literarias…", fontSize = 12.sp)
-                        if (vm.newsLastChecked > 0L) Text("Actualizado " +
-                            java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale("es", "ES"))
-                                .format(java.util.Date(vm.newsLastChecked)), fontSize = 11.sp,
-                            color = Color.White,
-                            style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
-                    }
-                }
-                items(visibleNews, key = { "news:" + it.url }, contentType = { "news" }) { news ->
-                            val picture by rememberNewsImage(news)
-                            Card(
-                                modifier = Modifier.fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 7.dp)
-                                    .height(390.dp).clickable {
-                                    try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url))) }
-                                    catch (_: Exception) {
-                                        android.widget.Toast.makeText(context, "No se pudo abrir la noticia",
-                                            android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF101719)),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-                            ) {
-                                Box(Modifier.fillMaxSize()) {
-                                    Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(
-                                        Color(0xFF0B6258), Color(0xFF24344B), Color(0xFF101719)))))
-                                    if (picture != null) Image(
-                                        picture!!.asImageBitmap(),
-                                        contentDescription = "Imagen de la noticia: ${news.title}",
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
-                                        Color.Black.copy(alpha = .08f), Color.Transparent,
-                                        Color.Black.copy(alpha = .35f), Color.Black.copy(alpha = .96f)))))
-                                    Surface(
-                                        modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
-                                        color = Teal.copy(alpha = .92f),
-                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(50)
-                                    ) {
-                                        Text(
-                                            if (news.source == "Casa del Libro") "PRÓXIMO LANZAMIENTO"
-                                            else "ACTUALIDAD LITERARIA",
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                                            color = Color.White, fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    Column(
-                                        Modifier.align(Alignment.BottomStart).fillMaxWidth()
-                                            .padding(start = 18.dp, end = 18.dp, bottom = 20.dp)
-                                    ) {
-                                        Text(
-                                            launchBookTitle(news), fontFamily = FontFamily.Serif,
-                                            fontSize = 26.sp, fontWeight = FontWeight.Bold,
-                                            color = Color.White, lineHeight = 30.sp, maxLines = 4,
-                                            overflow = TextOverflow.Ellipsis,
-                                            style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow)
-                                        )
-                                        if (launchBookAuthor(news).isNotBlank()) Text(
-                                            launchBookAuthor(news), color = Color.White.copy(alpha = .92f),
-                                            fontSize = 15.sp, maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Spacer(Modifier.height(9.dp))
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                if (news.source == "Casa del Libro")
-                                                    formatLaunchDate(news.releaseDate) else news.source,
-                                                color = Color.White.copy(alpha = .78f), fontSize = 12.sp,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            Surface(color = Color.White, shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
-                                                Text(
-                                                    "Abrir artículo",
-                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                                                    color = Ink, fontWeight = FontWeight.Bold, fontSize = 12.sp
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                }
-                }
                 if (vm.books.isEmpty() && !vm.syncing && !vm.folderLinked) item(key = "empty-home") {
                     Surface(Modifier.fillMaxWidth().padding(16.dp), color = Paper,
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)) {
