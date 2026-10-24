@@ -38,6 +38,12 @@ data class ExternalRecommendationSeed(
 private fun publicIdentity(title: String, author: String): String =
     discoverNormalizeSearchText(title) + "|" + discoverNormalizeSearchText(author)
 
+private fun cleanPublicAuthor(value: String): String = value
+    .replace(Regex("[()\\[\\]{}]+"), " ")
+    .replace(Regex("\\s*[,;/]\\s*"), ", ")
+    .replace(Regex("\\s+"), " ")
+    .trim(' ', ',', ';')
+
 private fun cleanEditorialText(value: String): String {
     val normalized = org.jsoup.Jsoup.parse(value).text()
         .replace(Regex("(?i)\\s*[|·•]\\s*"), ". ")
@@ -400,18 +406,24 @@ fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<Public
     fun confidence(title: String, author: String, isbn: String = "") =
         CatalogQuality.confidenceForIdentity(wantedTitle, wantedAuthor, title, author, wantedIsbn, isbn)
 
+    val localeLanguage = java.util.Locale.getDefault().language.takeIf {
+        it.matches(Regex("[a-z]{2}"))
+    } ?: "es"
     val googleQueries = listOf(
         wantedIsbn.takeIf(String::isNotBlank)?.let { "isbn:$it" },
         listOf("intitle:$wantedTitle", wantedAuthor.takeIf(String::isNotBlank)?.let { "inauthor:$it" })
             .filterNotNull().joinToString(" "),
-        listOf(wantedTitle, wantedAuthor).filter(String::isNotBlank).joinToString(" ")
+        listOf(wantedTitle, wantedAuthor).filter(String::isNotBlank).joinToString(" "),
+        "\"$wantedTitle\" saga",
+        "\"$wantedTitle\" cómic novela gráfica",
+        "\"$wantedTitle\" universo"
     ).filterNotNull().distinct()
     googleQueries.forEachIndexed { queryIndex, raw ->
         runCatching {
             val query = java.net.URLEncoder.encode(raw, "UTF-8")
-            val language = if (queryIndex == 0) "&langRestrict=es" else ""
+            val language = "&langRestrict=$localeLanguage"
             val items = getJson(
-                "https://www.googleapis.com/books/v1/volumes?q=$query&maxResults=20&printType=books$language"
+                "https://www.googleapis.com/books/v1/volumes?q=$query&maxResults=40&printType=books$language&orderBy=relevance"
             ).optJSONArray("items")
             for (index in 0 until (items?.length() ?: 0)) {
                 val row = items?.optJSONObject(index) ?: continue
@@ -419,8 +431,8 @@ fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<Public
                 val title = info.optString("title").trim()
                 if (title.isBlank()) continue
                 val authors = info.optJSONArray("authors")
-                val author = (0 until (authors?.length() ?: 0))
-                    .joinToString(", ") { authors!!.optString(it) }.trim()
+                val author = cleanPublicAuthor((0 until (authors?.length() ?: 0))
+                    .joinToString(", ") { authors!!.optString(it) })
                 val identifiers = info.optJSONArray("industryIdentifiers")
                 val allIdentifiers = (0 until (identifiers?.length() ?: 0)).mapNotNull { item ->
                     identifiers?.optJSONObject(item)?.optString("identifier")
@@ -428,8 +440,17 @@ fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<Public
                 }
                 val isbn = allIdentifiers.firstOrNull { it.length == 13 }
                     ?: allIdentifiers.firstOrNull().orEmpty()
-                val score = confidence(title, author, isbn)
-                if (score < 42) continue
+                val categories = info.optJSONArray("categories")?.let { array ->
+                    (0 until array.length()).map { array.optString(it) }.filter(String::isNotBlank)
+                }.orEmpty()
+                val searchable = discoverNormalizeSearchText(listOf(title, info.optString("subtitle"),
+                    info.optString("description"), categories.joinToString(" ")).joinToString(" "))
+                val relatedUniverse = discoveryWords(wantedTitle).let { words ->
+                    words.size >= 2 && words.all(searchable::contains)
+                }
+                val score = maxOf(confidence(title, author, isbn), if (relatedUniverse) 44 else 0)
+                if (score < 42 || (info.optString("language").isNotBlank() &&
+                        info.optString("language") != localeLanguage)) continue
                 val image = info.optJSONObject("imageLinks")?.let { links ->
                     listOf("extraLarge", "large", "medium", "thumbnail", "smallThumbnail")
                         .firstNotNullOfOrNull { key ->
@@ -451,32 +472,46 @@ fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<Public
                     },
                     summary = info.optString("description"),
                     confidence = score,
-                    source = if (queryIndex == 0) "Google Books ES" else "Google Books"
+                    source = "Google Books ${localeLanguage.uppercase()}",
+                    categories = categories,
+                    publisher = info.optString("publisher"),
+                    language = info.optString("language")
                 )
             }
         }
     }
 
     runCatching {
-        val combined = listOf(wantedTitle, wantedAuthor).filter(String::isNotBlank).joinToString(" ")
+        val combined = listOf(wantedTitle, wantedAuthor, if (localeLanguage == "es") "language:spa" else "")
+            .filter(String::isNotBlank).joinToString(" ")
         val encoded = java.net.URLEncoder.encode(combined, "UTF-8")
         val docs = getJson(
-            "https://openlibrary.org/search.json?q=$encoded&mode=everything&limit=35&fields=key,title,author_name,author_key,isbn,cover_i,first_publish_year,first_sentence,subject,publish_date"
+            "https://openlibrary.org/search.json?q=$encoded&mode=everything&limit=100&fields=key,title,subtitle,author_name,author_key,isbn,cover_i,first_publish_year,first_sentence,subject,publish_date,language,publisher"
         ).optJSONArray("docs")
         for (index in 0 until docs.length()) {
             val row = docs.optJSONObject(index) ?: continue
             val title = row.optString("title").trim()
             if (title.isBlank()) continue
             val authors = row.optJSONArray("author_name")
-            val author = (0 until (authors?.length() ?: 0))
-                .joinToString(", ") { authors!!.optString(it) }.trim()
+            val author = cleanPublicAuthor((0 until (authors?.length() ?: 0))
+                .joinToString(", ") { authors!!.optString(it) })
             val isbns = row.optJSONArray("isbn")
             val isbnValues = (0 until (isbns?.length() ?: 0)).map {
                 isbns!!.optString(it).filter(Char::isDigit)
             }
             val isbn = isbnValues.firstOrNull { it.length == 13 }
                 ?: isbnValues.firstOrNull { it.length == 10 }.orEmpty()
-            val score = confidence(title, author, isbn)
+            val subjects = row.optJSONArray("subject")?.let { values ->
+                (0 until minOf(values.length(), 8)).map { values.optString(it) }
+                    .filter(String::isNotBlank)
+            }.orEmpty()
+            val searchable = discoverNormalizeSearchText(listOf(title, row.optString("subtitle"),
+                subjects.joinToString(" "), row.optJSONArray("first_sentence")?.optString(0).orEmpty())
+                .joinToString(" "))
+            val relatedUniverse = discoveryWords(wantedTitle).let { words ->
+                words.size >= 2 && words.all(searchable::contains)
+            }
+            val score = maxOf(confidence(title, author, isbn), if (relatedUniverse) 44 else 0)
             if (score < 42) continue
             val coverId = row.optInt("cover_i", 0)
             val summary = row.optJSONArray("first_sentence")?.optString(0).orEmpty()
@@ -501,7 +536,10 @@ fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<Public
                 authorKey = authorKey,
                 publishDates = dates,
                 confidence = score,
-                source = "Open Library"
+                source = "Open Library",
+                categories = subjects,
+                publisher = row.optJSONArray("publisher")?.optString(0).orEmpty(),
+                language = if (localeLanguage == "es") "es" else localeLanguage
             )
         }
     }
@@ -520,5 +558,5 @@ fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<Public
         compareByDescending<PublicBookResult> { it.confidence }
             .thenByDescending { if (it.coverUrl.isNotBlank()) 1 else 0 }
             .thenBy { discoverNormalizeSearchText(it.title) }
-    ).take(20)
+    ).take(60)
 }

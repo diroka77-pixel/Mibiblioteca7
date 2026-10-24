@@ -351,6 +351,10 @@ private fun PublicBookCard(result: PublicBookResult, onOpen: () -> Unit, onWish:
                     fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (result.year.isNotBlank()) Text("Publicación: ${result.year}",
                     color = Mahogany.copy(alpha = .72f), fontSize = 12.sp)
+                if (result.categories.isNotEmpty()) Text(
+                    result.categories.take(2).joinToString(" · "),
+                    color = Mahogany.copy(alpha = .72f), fontSize = 11.sp,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (result.publisher.isNotBlank()) Text("Editorial: ${result.publisher}",
                     color = Mahogany.copy(alpha = .7f), fontSize = 11.sp, maxLines = 2)
                 if (result.summary.isNotBlank()) Text(result.summary, color = Ink.copy(alpha = .82f),
@@ -409,6 +413,8 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 val rows = listOf("Publicación" to (details?.published ?: result.year),
                     "Páginas" to (details?.pages ?: ""), "Idioma" to (details?.language ?: ""),
                     "Editorial" to (details?.publisher ?: ""), "Saga" to sagaLabel,
+                    "Tipo y temas" to result.categories.take(4).joinToString(" · "),
+                    "Ediciones localizadas" to details?.editions?.size?.takeIf { it > 0 }?.toString().orEmpty(),
                     "ISBN" to result.isbn).filter { it.second.isNotBlank() }
                 rows.forEach { (label, value) -> Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) { Text("$label: ", fontWeight = FontWeight.Bold, color = Ink); Text(value, color = Ink) } }
                 if (!details?.editions.isNullOrEmpty()) {
@@ -3904,8 +3910,12 @@ private fun openCasaDelLibro(context: Context) {
                     }
                 } else {
                     val result = selectedPublicResult!!
-                    val details by produceState<PublicBookDetails?>(initialValue = null, result.sourceUrl) {
-                        value = withContext(Dispatchers.IO) { loadPublicBookDetails(result) }
+                    val details by produceState<PublicBookDetails?>(
+                        initialValue = PublicBookDetails(result.summary, "", published = result.year,
+                            publisher = result.publisher, coverUrl = result.coverUrl), result.sourceUrl
+                    ) {
+                        value = runCatching { localizedPublicBookDetails(result) }
+                            .getOrElse { value }
                     }
                     LazyColumn(Modifier.heightIn(max = 470.dp)) {
                         item {
@@ -5664,8 +5674,11 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                     selectedPublicResult?.let { result ->
-                        val details by produceState<PublicBookDetails?>(initialValue = null, result.sourceUrl) {
-                            value = localizedPublicBookDetails(result)
+                        val details by produceState<PublicBookDetails?>(
+                            initialValue = PublicBookDetails(result.summary, "", published = result.year,
+                                publisher = result.publisher, coverUrl = result.coverUrl), result.sourceUrl
+                        ) {
+                            value = runCatching { localizedPublicBookDetails(result) }.getOrElse { value }
                         }
                         PublicBookDetailPage(result, details, wishListed = vm.wishList.any { it.first.equals(result.title, true) && it.second == result.sourceUrl }, onBack = { selectedPublicResult = null }, onWish = {
                             if (vm.wishList.any { it.first.equals(result.title, true) && it.second == result.sourceUrl }) {
@@ -5868,26 +5881,16 @@ private fun openCasaDelLibro(context: Context) {
                             style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
                     }
                 }
-                item(key = "immersive-news-carousel", contentType = "news") {
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(visibleNews, key = { "news:" + it.url }) { news ->
+                items(visibleNews, key = { "news:" + it.url }, contentType = { "news" }) { news ->
                             val picture by rememberNewsImage(news)
                             Card(
-                                modifier = Modifier.width(330.dp).height(365.dp).clickable {
-                                    if (news.source == "Casa del Libro" && launchBookAuthor(news).isNotBlank()) {
-                                        selectedPublicResult = launchNewsAsPublicBooks(listOf(news),
-                                            vm.books.map { displayTitle(it) to displayAuthor(it) }).firstOrNull()
-                                        if (selectedPublicResult != null) switchTab("Descubrir")
-                                    } else {
-                                        try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url))) }
-                                        catch (_: Exception) {
-                                            android.widget.Toast.makeText(context, "No se pudo abrir la noticia",
-                                                android.widget.Toast.LENGTH_SHORT).show()
-                                        }
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 7.dp)
+                                    .height(390.dp).clickable {
+                                    try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(news.url))) }
+                                    catch (_: Exception) {
+                                        android.widget.Toast.makeText(context, "No se pudo abrir la noticia",
+                                            android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp),
@@ -5901,8 +5904,7 @@ private fun openCasaDelLibro(context: Context) {
                                         picture!!.asImageBitmap(),
                                         contentDescription = "Imagen de la noticia: ${news.title}",
                                         modifier = Modifier.fillMaxSize(),
-                                        contentScale = if (news.source == "Casa del Libro")
-                                            ContentScale.Fit else ContentScale.Crop
+                                        contentScale = ContentScale.Crop
                                     )
                                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
                                         Color.Black.copy(alpha = .08f), Color.Transparent,
@@ -5946,22 +5948,15 @@ private fun openCasaDelLibro(context: Context) {
                                             )
                                             Surface(color = Color.White, shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
                                                 Text(
-                                                    if (news.source == "Casa del Libro") "Ver ficha" else "Leer",
+                                                    "Abrir artículo",
                                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                                                     color = Ink, fontWeight = FontWeight.Bold, fontSize = 12.sp
                                                 )
                                             }
                                         }
                                     }
-                                    IconButton(
-                                        onClick = { vm.hideNews(news.url) },
-                                        modifier = Modifier.align(Alignment.TopEnd)
-                                            .semantics { contentDescription = "Ocultar noticia" }
-                                    ) { AppIcon("Cerrar", "Ocultar noticia", tint = Color.White) }
                                 }
                             }
-                        }
-                    }
                 }
                 }
                 if (vm.books.isEmpty() && !vm.syncing && !vm.folderLinked) item(key = "empty-home") {
