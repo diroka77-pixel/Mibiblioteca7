@@ -409,6 +409,23 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                     Text(tr("Buscar tráileres y presentaciones en YouTube"), color = Teal, textAlign = TextAlign.Center)
                 }
+                // Las condiciones de Google Books piden atribución y un enlace a la ficha del libro.
+                if (result.sourceUrl.contains("books.google")) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = {
+                        try {
+                            videoContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.sourceUrl)))
+                        } catch (_: Exception) {
+                            android.widget.Toast.makeText(videoContext,
+                                tr("No hay ninguna aplicación para abrir el enlace"),
+                                android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                        Text(tr("Ver en Google Books"), color = Teal, textAlign = TextAlign.Center)
+                    }
+                    Text(tr("Información de Google Books"), fontSize = 11.sp,
+                        color = Mahogany.copy(alpha = .8f), modifier = Modifier.padding(top = 4.dp))
+                }
                 Spacer(Modifier.height(6.dp))
             }
         }
@@ -549,6 +566,34 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun clearNewBooksNotice() { newBooksNotice = null }
     var launchNews by mutableStateOf<List<LaunchNews>>(emptyList()); private set
     var newsRefreshing by mutableStateOf(false); private set
+    /** Lista completa de novedades («Ver más»): todas las editoriales del país, bajo demanda. */
+    var allReleases by mutableStateOf<List<LaunchNews>>(emptyList()); private set
+    var allReleasesLoading by mutableStateOf(false); private set
+    private var allReleasesKey = ""
+    private var allReleasesTime = 0L
+
+    fun loadAllReleases() {
+        val market = currentReleaseMarket()
+        val key = market.country + "_" + market.language
+        if (allReleasesLoading) return
+        if (key == allReleasesKey && allReleases.isNotEmpty() &&
+            System.currentTimeMillis() - allReleasesTime < 6L * 60 * 60 * 1000) return
+        allReleasesLoading = true
+        viewModelScope.launch {
+            try {
+                val found = withContext(Dispatchers.IO) {
+                    fetchGoogleBooksReleases(market, publishers = market.publishers, perPublisher = 40)
+                }
+                // Si la consulta falla, se muestran al menos las novedades de Inicio.
+                allReleases = (found + launchNews)
+                    .distinctBy { cleanCatalogText(it.title).lowercase() }
+                    .sortedByDescending { it.releaseDate }
+                if (found.isNotEmpty()) { allReleasesKey = key; allReleasesTime = System.currentTimeMillis() }
+            } catch (_: Exception) {
+                if (allReleases.isEmpty()) allReleases = launchNews
+            } finally { allReleasesLoading = false }
+        }
+    }
     var folderName by mutableStateOf<String?>(null); private set
     val folderLinked: Boolean
         get() = !prefs.getString(folderKey, null).isNullOrBlank()
@@ -659,19 +704,21 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     it.getString("image"), it.getString("date"))
             } } catch (_: Exception) { null }
         }
-        launchNews = cached.filter { it.source == LAUNCH_SOURCE }
+        launchNews = cached.filter { it.source == LAUNCH_SOURCE && it.imageUrl.isNotBlank() }
     }
 
     fun refreshLaunchNews(force: Boolean = false) {
+        val market = currentReleaseMarket()
+        val checkedKey = "literary_news_v6_checked_" + market.country + "_" + market.language
         if (newsRefreshing || (!force &&
-            System.currentTimeMillis() - prefs.getLong("literary_news_v5_checked_" + I18n.currentLanguage(), 0L) < 12L * 60 * 60 * 1000)) return
+            System.currentTimeMillis() - prefs.getLong(checkedKey, 0L) < 12L * 60 * 60 * 1000)) return
         newsRefreshing = true
         viewModelScope.launch {
             try {
-                val books = async(Dispatchers.IO) { fetchGoogleBooksReleases() }
+                val books = async(Dispatchers.IO) { fetchGoogleBooksReleases(market) }
                 val results = books.await()
-                val sorted = results.distinctBy { cleanCatalogText(it.title).lowercase() }
-                    .sortedByDescending { it.releaseDate }.take(12)
+                // Se conserva el reparto entre editoriales que hace fetchGoogleBooksReleases.
+                val sorted = results.distinctBy { cleanCatalogText(it.title).lowercase() }.take(18)
                 // Si las fuentes no devuelven nada, no se marca como consultado:
                 // se vuelve a intentar la próxima vez que se abra la app.
                 if (sorted.isEmpty()) return@launch
@@ -681,7 +728,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     .put("title", it.title).put("url", it.url)
                     .put("image", it.imageUrl).put("date", it.releaseDate)) }
                 prefs.edit().putString("literary_news", array.toString())
-                    .putLong("literary_news_v5_checked_" + I18n.currentLanguage(), System.currentTimeMillis()).apply()
+                    .putLong(checkedKey, System.currentTimeMillis()).apply()
             } catch (_: Exception) {
                 // Se conservan los próximos lanzamientos guardados si la fuente falla.
             } finally { newsRefreshing = false }
@@ -2833,10 +2880,12 @@ private fun fetchCover(book: Book): ByteArray? {
 internal fun getJson(url: String): JSONObject {
     if (url.contains("www.googleapis.com/books") && System.currentTimeMillis() < googleBooksRetryAt)
         throw IllegalStateException("Google Libros ha agotado su cuota temporalmente")
-    val connection = URL(url).openConnection() as HttpURLConnection
+    val isGoogleBooks = url.contains("www.googleapis.com/books")
+    val connection = URL(if (isGoogleBooks) GoogleBooksKey.withKey(url) else url).openConnection() as HttpURLConnection
     connection.connectTimeout = 10000
     connection.readTimeout = 12000
     connection.setRequestProperty("User-Agent", AppBrand.API_USER_AGENT)
+    if (isGoogleBooks) GoogleBooksKey.addHeaders(connection)
     return try {
         if (connection.responseCode == 429 && url.contains("www.googleapis.com/books")) {
             googleBooksRetryAt = System.currentTimeMillis() + 60 * 60 * 1000L
@@ -3309,6 +3358,8 @@ class MainActivity : ComponentActivity() {
         // Si cambia el modo oscuro del sistema, Android recrea la actividad y se recalcula.
         AppThemeState.load(this)
         AppLanguage.load(this)
+        DeviceRegion.detect(this)
+        GoogleBooksKey.init(this)
         libraryVm = ViewModelProvider(this)[LibraryViewModel::class.java]
         handleSharedBook(intent)
         setContent {
@@ -4057,6 +4108,7 @@ private fun openCasaDelLibro(context: Context) {
     var libraryHealthOpen by remember { mutableStateOf(false) }
     var readingStatsOpen by remember { mutableStateOf(false) }
     var releaseCalendarOpen by remember { mutableStateOf(false) }
+    var allReleasesOpen by remember { mutableStateOf(false) }
     var taskCenterOpen by remember { mutableStateOf(false) }
     var activityOpen by remember { mutableStateOf(false) }
     var privacyOpen by remember { mutableStateOf(false) }
@@ -4831,6 +4883,19 @@ private fun openCasaDelLibro(context: Context) {
                 Text(tr("Cerrar"))
             } })
     }
+    if (allReleasesOpen) {
+        val owned = remember(vm.books) { vm.books.map { displayTitle(it) to displayAuthor(it) } }
+        val releases = remember(vm.allReleases, owned) {
+            launchNewsAsPublicBooks(vm.allReleases, owned).filter { it.coverUrl.isNotBlank() }
+        }
+        AllReleasesScreen(releases, vm.allReleasesLoading,
+            onDismiss = { allReleasesOpen = false },
+            onOpen = {
+                allReleasesOpen = false
+                selectedPublicResult = it
+                switchTab("Descubrir")
+            })
+    }
     if (releaseCalendarOpen) AlertDialog(onDismissRequest = { releaseCalendarOpen = false },
         title = { Text(tr("Calendario de publicaciones")) },
         text = { Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
@@ -5526,7 +5591,10 @@ private fun openCasaDelLibro(context: Context) {
             if (tab == "Inicio" && homeRecommendations.isNotEmpty())
                 item(key = "external-recommendations") {
                     HomeExternalRecommendations(homeRecommendations,
-                        onViewAll = { switchTab("Descubrir") },
+                        onSeeAllReleases = {
+                            allReleasesOpen = true
+                            vm.loadAllReleases()
+                        },
                         onOpen = {
                             selectedPublicResult = it
                             switchTab("Descubrir")
@@ -6354,10 +6422,13 @@ private fun HomeMetricCard(label: String, value: String, accent: Color, modifier
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HomeExternalRecommendations(
-    books: List<PublicBookResult>,
-    onViewAll: () -> Unit,
+    allBooks: List<PublicBookResult>,
+    onSeeAllReleases: () -> Unit,
     onOpen: (PublicBookResult) -> Unit
 ) {
+    // Sin portada no se muestran: una tarjeta vacía no invita a descubrir nada.
+    val books = allBooks.filter { it.coverUrl.isNotBlank() }
+    if (books.isEmpty()) return
     val currentYear = java.time.LocalDate.now().year
     val upcoming = books.filter { it.source == "Catálogo editorial" ||
         it.publishDates.take(4).toIntOrNull()?.let { year -> year > currentYear } == true }
@@ -6365,31 +6436,108 @@ private fun HomeExternalRecommendations(
         it.publishDates.take(4).toIntOrNull()?.let { year -> year in (currentYear - 1)..currentYear } == true }
     val suggestions = books.filterNot { it in upcoming || it in newReleases }
     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            Text(tr("Descubre tu próxima lectura"), fontFamily = FontFamily.Serif,
-                fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Color.White,
-                modifier = Modifier.weight(1f),
-                style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
-            TextButton(onClick = onViewAll) { Text(tr("Explorar"), color = Color.White) }
-        }
+        Text(tr("Descubre tu próxima lectura"), fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Color.White,
+            modifier = Modifier.padding(horizontal = 12.dp),
+            style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
         if (suggestions.isNotEmpty()) ExternalBooksRow(suggestions.take(12), "recomendada", onOpen)
         if (newReleases.isNotEmpty()) {
-            ExternalSectionTitle(tr("Novedades", "sección"))
+            ExternalSectionTitle(tr("Novedades", "sección"), onSeeAllReleases)
             ExternalBooksRow(newReleases, "novedad", onOpen)
         }
         if (upcoming.isNotEmpty()) {
-            ExternalSectionTitle(tr("Novedades y próximos lanzamientos"))
+            ExternalSectionTitle(tr("Novedades y próximos lanzamientos"),
+                onSeeAllReleases.takeIf { newReleases.isEmpty() })
             ExternalBooksRow(upcoming, "proximo", onOpen)
         }
     }
 }
 
 @Composable
-private fun ExternalSectionTitle(title: String) {
-    Text(title, modifier = Modifier.padding(start = 12.dp, top = 18.dp, bottom = 2.dp),
-        color = Color.White, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-        fontSize = 20.sp, style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+private fun ExternalSectionTitle(title: String, onSeeAll: (() -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(title, modifier = Modifier.weight(1f).padding(top = 6.dp, bottom = 2.dp),
+            color = Color.White, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+            fontSize = 20.sp, style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+        if (onSeeAll != null) TextButton(onClick = onSeeAll) {
+            Text(tr("Ver más"), color = Color.White, fontWeight = FontWeight.SemiBold,
+                style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+        }
+    }
+}
+
+/**
+ * Lista completa de novedades: todas las grandes editoriales del país, con filtros
+ * «A la venta» y «Próximamente», en una cuadrícula que se adapta al ancho.
+ */
+@Composable
+private fun AllReleasesScreen(releases: List<PublicBookResult>, loading: Boolean,
+    onDismiss: () -> Unit, onOpen: (PublicBookResult) -> Unit) {
+    val today = remember { java.time.LocalDate.now().toString() }
+    var filter by rememberSaveable { mutableStateOf("all") }
+    val shown = remember(releases, filter) {
+        when (filter) {
+            // Fecha completa posterior a hoy, o solo un año posterior al actual.
+            "upcoming" -> releases.filter { isUpcomingRelease(it.publishDates, today) }
+            "out" -> releases.filterNot { isUpcomingRelease(it.publishDates, today) }
+            else -> releases
+        }
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxSize(), color = Parchment) {
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onDismiss) { AppIcon("Volver", tr("Volver"), tint = Ink) }
+                    Text(tr("Novedades", "sección"), fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Ink,
+                        modifier = Modifier.weight(1f))
+                    if (!loading) Text(trf("{0} libros", shown.size), color = Mahogany,
+                        fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
+                }
+                Text(tr("Información de Google Books"), fontSize = 11.sp, color = Mahogany,
+                    modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
+                Row(Modifier.padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("all" to tr("Todas"), "out" to tr("A la venta"),
+                        "upcoming" to tr("Próximamente")).forEach { (value, label) ->
+                        FilterChip(selected = filter == value, onClick = { filter = value },
+                            label = { Text(label) })
+                    }
+                }
+                when {
+                    loading && shown.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Teal)
+                    }
+                    shown.isEmpty() -> Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                        Text(tr("No hay novedades disponibles ahora mismo. Inténtalo más tarde."),
+                            color = Ink, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
+                    else -> {
+                        val columns = galleryColumnsFor(LocalConfiguration.current.screenWidthDp)
+                        val rows = remember(shown, columns) { shown.chunked(columns) }
+                        LazyColumn(Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 24.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (loading) item(key = "loading") {
+                                LinearProgressIndicator(Modifier.fillMaxWidth(), color = Teal)
+                            }
+                            items(rows.size, key = { "releases:$columns:" + rows[it].first().sourceUrl }) { index ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    rows[index].forEach { book ->
+                                        ExternalBookCard(book, onOpen, Modifier.weight(1f))
+                                    }
+                                    repeat(columns - rows[index].size) { Spacer(Modifier.weight(1f)) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -6405,10 +6553,11 @@ private fun ExternalBooksRow(books: List<PublicBookResult>, keyPrefix: String,
 }
 
 @Composable
-private fun ExternalBookCard(result: PublicBookResult, onOpen: (PublicBookResult) -> Unit) {
+private fun ExternalBookCard(result: PublicBookResult, onOpen: (PublicBookResult) -> Unit,
+    modifier: Modifier = Modifier.width(174.dp)) {
     val cover by rememberPublicCover(result.coverUrl)
     Card(
-        modifier = Modifier.width(174.dp).clickable { onOpen(result) },
+        modifier = modifier.clickable { onOpen(result) },
         colors = CardDefaults.cardColors(containerColor = Paper.copy(alpha = .98f)),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)

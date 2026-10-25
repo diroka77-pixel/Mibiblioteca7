@@ -26,6 +26,8 @@ Este documento sirve para completar el formulario de seguridad de datos de una t
 
 Las búsquedas de metadatos, portadas, noticias, diccionario o traducción pueden enviar los términos necesarios al proveedor consultado. No deben enviarse notas, subrayados ni el contenido completo de la biblioteca. Los proveedores se identifican en «Información legal» dentro de la aplicación.
 
+Desde la 1.0.86, las novedades se piden a Google Books con el **código del país** (por ejemplo, «ES»), sacado de la tarjeta SIM o de la región del sistema, para mostrar libros de las editoriales de ese país. No se usa la ubicación precisa ni el permiso de ubicación. Al rellenar el formulario, valora si Google Play lo considera «Ubicación aproximada»: el país es mucho menos preciso que la ubicación aproximada que define Google (unos 3 km²), pero si hay dudas es más prudente declararlo como «Ubicación aproximada · funcionalidad de la app · no se comparte · no obligatorio».
+
 ## Google ML Kit
 
 La app incluye Google ML Kit para el escáner ISBN, la traducción y la identificación de idioma. Según la documentación de Google, estas bibliotecas pueden enviar a Google datos técnicos (información del dispositivo y de la app, métricas de rendimiento y uso de la API) para su mantenimiento. No envían el contenido de los libros ni las notas. Antes de publicar, consulta la página de divulgación de datos de ML Kit y decláralo en el formulario («Información y rendimiento de la app» / «Diagnóstico»). Por este motivo los textos de la app ya no dicen «sin seguimiento», sino «sin publicidad ni analítica propia».

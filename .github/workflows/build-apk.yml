@@ -46,6 +46,8 @@ jobs:
         env:
           MIBIBLIOTECA_KEYSTORE_PATH: ${{ runner.temp }}/mibiblioteca.p12
           MIBIBLIOTECA_KEYSTORE_PASSWORD: ${{ secrets.MIBIBLIOTECA_KEYSTORE_PASSWORD }}
+          # Opcional: si el secreto no existe, la variable llega vacía y la app compila igual.
+          GOOGLE_BOOKS_API_KEY: ${{ secrets.GOOGLE_BOOKS_API_KEY }}
         run: gradle :app:assembleRelease :app:bundleRelease --no-daemon
       - name: Verificar firma y alineación de la APK
         run: |

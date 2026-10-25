@@ -13,6 +13,7 @@ internal fun currentReleaseNotes(): List<String> = listOf(
     "Modo oscuro en Ajustes → Tema.",
     "Cinco clásicos gratuitos de dominio público en tu idioma para empezar a leer.",
     "Wikipedia y diccionario en el idioma de la app, y galería adaptada a tablets.",
+    "Novedades de las grandes editoriales de tu país, siempre con portada.",
     "Disponible en español, inglés, portugués, francés, alemán e italiano.",
     "Solo fuentes abiertas y oficiales para portadas, fichas y novedades."
 )

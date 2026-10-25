@@ -10,9 +10,10 @@ data class LaunchNews(
 internal fun launchBookTitle(news: LaunchNews): String = news.title.substringBefore(" · ").trim()
 internal fun launchBookAuthor(news: LaunchNews): String = news.title.substringAfter(" · ", "").trim()
 internal fun formatLaunchDate(value: String): String = try {
-    java.time.LocalDate.parse(value).format(java.time.format.DateTimeFormatter.ofPattern(
-        "d 'de' MMMM 'de' yyyy", java.util.Locale("es", "ES")))
-} catch (_: Exception) { value.ifBlank { "Próximamente" } }
+    java.time.LocalDate.parse(value).format(java.time.format.DateTimeFormatter
+        .ofLocalizedDate(java.time.format.FormatStyle.LONG)
+        .withLocale(java.util.Locale.forLanguageTag(I18n.currentLanguage())))
+} catch (_: Exception) { value.ifBlank { tr("Próximamente") } }
 
 internal fun launchNewsAsPublicBooks(
     news: List<LaunchNews>,
@@ -29,7 +30,7 @@ internal fun launchNewsAsPublicBooks(
             year = item.releaseDate.take(4), isbn = "",
             coverUrl = item.imageUrl, sourceUrl = item.url,
             publishDates = item.releaseDate,
-            confidence = 90, source = LAUNCH_SOURCE, language = "es"
+            confidence = 90, source = LAUNCH_SOURCE, language = I18n.currentLanguage()
         )
     }.distinctBy { it.title.lowercase() + "|" + it.author.lowercase() }.toList()
 
@@ -54,22 +55,15 @@ internal fun searchLaunchCatalog(
 }
 
 /**
- * Novedades y próximos lanzamientos en español.
+ * Novedades y próximos lanzamientos del país del usuario.
  *
  * Proceden de la API pública y oficial de Google Books. Antes se leía la web de
  * Casa del Libro y de varias librerías por detrás, algo que sus condiciones no
- * permiten y que se rompía cada vez que cambiaban su diseño.
+ * permiten y que se rompía cada vez que cambiaban su diseño. Desde la 1.0.86 se
+ * consultan las novedades de las grandes editoriales de cada país (ver
+ * ReleaseMarkets.kt) y solo se muestran libros con portada.
  */
 internal const val LAUNCH_SOURCE = "Google Books"
-
-/** Novedades en el idioma de la interfaz y, si se conoce, del país del teléfono. */
-internal fun releasesUrl(language: String = I18n.currentLanguage(),
-    country: String = java.util.Locale.getDefault().country): String {
-    val countryParam = country.uppercase().takeIf { it.matches(Regex("[A-Z]{2}")) }
-        ?.let { "&country=$it" }.orEmpty()
-    return "https://www.googleapis.com/books/v1/volumes" +
-        "?q=subject:fiction&orderBy=newest&langRestrict=$language&printType=books&maxResults=40$countryParam"
-}
 
 /**
  * Fecha de publicación aceptada: "2026-11-12", "2026-11" (se toma el día 1) o solo el
@@ -95,7 +89,9 @@ private fun isRecentRelease(date: String, today: java.time.LocalDate): Boolean =
 /** Extrae las novedades de una respuesta de Google Books (sin red: se puede probar). */
 internal fun launchNewsFromGoogleBooks(
     response: JSONObject,
-    today: java.time.LocalDate = java.time.LocalDate.now()
+    today: java.time.LocalDate = java.time.LocalDate.now(),
+    publisher: String? = null,
+    language: String? = null
 ): List<LaunchNews> {
     val items = response.optJSONArray("items") ?: return emptyList()
     return (0 until items.length()).mapNotNull { index ->
@@ -106,52 +102,44 @@ internal fun launchNewsFromGoogleBooks(
         val cover = info.optJSONObject("imageLinks")?.optString("thumbnail").orEmpty()
             .replace("http://", "https://").replace("&edge=curl", "")
         val link = info.optString("infoLink").replace("http://", "https://")
+        // Google Books busca la editorial de forma aproximada: se comprueba que coincide.
+        val publisherMatches = publisher == null ||
+            publisherKey(info.optString("publisher")).contains(publisherKey(publisher))
+        val languageMatches = language == null || info.optString("language").isBlank() ||
+            info.optString("language").substringBefore('-') == language
         if (title.isBlank() || author.isBlank() || !link.startsWith("https://") ||
-            !isRecentRelease(date, today)) null
+            cover.isBlank() || !publisherMatches || !languageMatches ||
+            !isLikelyNovelty(title) || !isRecentRelease(date, today)) null
         else LaunchNews(LAUNCH_SOURCE, "$title · $author", link, cover, date)
     }.distinctBy { (launchBookTitle(it) + "|" + launchBookAuthor(it)).lowercase() }
 }
 
-/** Código de idioma de Open Library (ISO 639-2) para cada idioma de la app. */
-private val openLibraryLanguages = mapOf("es" to "spa", "en" to "eng", "pt" to "por",
-    "fr" to "fre", "de" to "ger", "it" to "ita")
-
-internal fun openLibraryReleasesUrl(language: String = I18n.currentLanguage()): String {
-    val lang = openLibraryLanguages[language] ?: "eng"
-    // sort=new ordena del más reciente al más antiguo; los años se filtran en la app.
-    return "https://openlibrary.org/search.json?q=subject%3Afiction&language=$lang&sort=new&limit=60" +
-        "&fields=key,title,author_name,cover_i,first_publish_year"
-}
-
-/** Segunda fuente de novedades: Open Library (abierta y sin cupo diario). */
-internal fun launchNewsFromOpenLibrary(
-    response: JSONObject,
-    today: java.time.LocalDate = java.time.LocalDate.now()
-): List<LaunchNews> {
-    val docs = response.optJSONArray("docs") ?: return emptyList()
-    return (0 until docs.length()).mapNotNull { index ->
-        val doc = docs.optJSONObject(index) ?: return@mapNotNull null
-        val title = doc.optString("title").trim()
-        val author = doc.optJSONArray("author_name")?.optString(0).orEmpty().trim()
-        val year = doc.optInt("first_publish_year", 0)
-        val key = doc.optString("key")
-        val coverId = doc.optInt("cover_i", 0)
-        if (title.isBlank() || author.isBlank() || !key.startsWith("/works/") ||
-            year !in (today.year - 1)..(today.year + 1)) null
-        else LaunchNews(LAUNCH_SOURCE, "$title · $author", "https://openlibrary.org$key",
-            if (coverId > 0) "https://covers.openlibrary.org/b/id/$coverId-M.jpg" else "", year.toString())
-    }.distinctBy { (launchBookTitle(it) + "|" + launchBookAuthor(it)).lowercase() }
-}
-
 /**
- * Descarga las novedades. Primero Google Books; si no responde (por ejemplo, porque
- * se ha agotado su cupo diario gratuito) o trae pocas, se completa con Open Library.
+ * Descarga las novedades del mercado del usuario: las más recientes de varias grandes
+ * editoriales de su país, en su idioma y con portada, repartidas entre editoriales.
  * Se ejecuta fuera del hilo principal.
  */
-internal fun fetchGoogleBooksReleases(): List<LaunchNews> {
-    val google = runCatching { launchNewsFromGoogleBooks(getJson(releasesUrl())) }.getOrDefault(emptyList())
-    if (google.size >= 6) return google
-    val openLibrary = runCatching { launchNewsFromOpenLibrary(getJson(openLibraryReleasesUrl())) }
-        .getOrDefault(emptyList())
-    return (google + openLibrary).distinctBy { (launchBookTitle(it) + "|" + launchBookAuthor(it)).lowercase() }
+internal fun fetchGoogleBooksReleases(
+    market: ReleaseMarket = currentReleaseMarket(),
+    today: java.time.LocalDate = java.time.LocalDate.now(),
+    publishers: List<String> = publishersForToday(market, today.dayOfYear),
+    perPublisher: Int = 20
+): List<LaunchNews> {
+    val responses = publishers.mapNotNull { publisher ->
+        runCatching { publisher to getJson(publisherReleasesUrl(publisher, market, perPublisher)) }.getOrNull()
+    }
+    fun collect(checkPublisher: Boolean) = interleave(responses.map { (publisher, json) ->
+        launchNewsFromGoogleBooks(json, today, publisher.takeIf { checkPublisher }, market.language)
+            .sortedByDescending { it.releaseDate }
+    }).distinctBy { (launchBookTitle(it) + "|" + launchBookAuthor(it)).lowercase() }
+    // Si la comprobación de editorial deja muy pocos libros (Google escribe a veces el
+    // sello de otra forma), se aceptan los resultados de la búsqueda, siempre con portada.
+    return collect(checkPublisher = true).takeIf { it.size >= 4 } ?: collect(checkPublisher = false)
+}
+
+/** ¿Aún no ha salido? Fecha completa posterior a [today] (AAAA-MM-DD) o un año posterior. */
+internal fun isUpcomingRelease(date: String, today: String): Boolean = when {
+    date.length >= 10 -> date.take(10) > today
+    date.length == 4 -> date > today.take(4)
+    else -> false
 }

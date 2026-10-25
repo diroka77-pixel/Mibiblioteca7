@@ -1230,7 +1230,13 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     }
     val document = state
     BackHandler { if (drawer.isOpen) scope.launch { drawer.close() } else confirmExit = true }
+    // El lector tiene sus propios colores (día, sepia, noche), independientes del tema de la
+    // app. Sin esto, con la app en modo oscuro los menús del lector heredaban textos claros
+    // sobre fondos claros y apenas se leían.
+    MaterialTheme(colorScheme = readerColorScheme(dark, background, foreground)) {
     ModalNavigationDrawer(drawerState = drawer, gesturesEnabled = drawer.isOpen, drawerContent = {
+        // El panel lateral siempre es claro (crema), así que usa la paleta clara del lector.
+        MaterialTheme(colorScheme = readerColorScheme(false, Color(0xFFF8F3E9), Color(0xFF392A24))) {
         ModalDrawerSheet(
             modifier = Modifier.width(320.dp),
             drawerContainerColor = Color(0xFFF8F3E9),
@@ -1449,6 +1455,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 } }) { Text(tr("Compartir libro")) }
             }
         }
+        }
     }) {
     Scaffold(containerColor = background, contentWindowInsets = WindowInsets.safeDrawing, topBar = {
         TopAppBar(title = { Text(book.customTitle.ifBlank { book.title },
@@ -1629,7 +1636,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         val pages by produceState<List<ReadingPage>>(emptyList(), document,
                             width, height, fontSize, readerMargin, lineSpacing) {
                             ready = false
-                            value = emptyList()
+                            // No se vacían las páginas mientras se recalculan: si se vaciaban,
+                            // desaparecía todo lo que cuelga de ellas, incluida la hoja de ajustes.
                             value = withContext(Dispatchers.Default) {
                                 paginateText(paragraphs, width, height.coerceAtLeast(1), textSizePx, gap, lineSpacing)
                             }
@@ -2025,8 +2033,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                         listOf(0, 5, 10, 15, 20, 30, 45, 60, -1).forEach { minutes ->
                                             val label = when (minutes) {
-                                                0 -> "Sistema"
-                                                -1 -> "Siempre"
+                                                0 -> tr("Sistema")
+                                                -1 -> tr("Siempre")
                                                 else -> "$minutes min"
                                             }
                                             FilterChip(selected = keepScreenAwakeMinutes == minutes,
@@ -2037,19 +2045,26 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                 }, label = { Text(label, fontSize = 12.sp) })
                                         }
                                     }
-                                    Text(trf("Márgenes · {0} dp", readerMargin.toInt()),
-                                        color = foreground.copy(alpha = 0.78f))
-                                    Slider(value = readerMargin, onValueChange = {
-                                        readerMargin = it
-                                        prefs.edit().putFloat("reader_margin", it).apply()
-                                    }, valueRange = 12f..42f,
+                                    // Mientras se arrastra solo cambia el valor mostrado; el texto se vuelve
+                                    // a paginar al soltar. Antes se repaginaba en cada movimiento y la
+                                    // hoja se cerraba sola mientras el libro se recalculaba.
+                                    var marginDraft by remember { mutableFloatStateOf(readerMargin) }
+                                    var spacingDraft by remember { mutableFloatStateOf(lineSpacing) }
+                                    Text(trf("Márgenes · {0} dp", marginDraft.toInt()),
+                                        fontWeight = FontWeight.SemiBold)
+                                    Slider(value = marginDraft, onValueChange = { marginDraft = it },
+                                        onValueChangeFinished = {
+                                            readerMargin = marginDraft
+                                            prefs.edit().putFloat("reader_margin", marginDraft).apply()
+                                        }, valueRange = 12f..42f,
                                         modifier = Modifier.semantics { contentDescription = tr("Márgenes de lectura") })
-                                    Text(trf("Espaciado entre líneas · {0}", String.format(java.util.Locale.ROOT, "%.2f", lineSpacing)),
-                                        color = foreground.copy(alpha = 0.78f))
-                                    Slider(value = lineSpacing, onValueChange = {
-                                        lineSpacing = it
-                                        prefs.edit().putFloat("line_spacing", it).apply()
-                                    }, valueRange = 1.15f..1.8f,
+                                    Text(trf("Espaciado entre líneas · {0}", String.format(java.util.Locale.ROOT, "%.2f", spacingDraft)),
+                                        fontWeight = FontWeight.SemiBold)
+                                    Slider(value = spacingDraft, onValueChange = { spacingDraft = it },
+                                        onValueChangeFinished = {
+                                            lineSpacing = spacingDraft
+                                            prefs.edit().putFloat("line_spacing", spacingDraft).apply()
+                                        }, valueRange = 1.15f..1.8f,
                                         modifier = Modifier.semantics { contentDescription = tr("Espaciado entre líneas") })
                                     HorizontalDivider()
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2509,6 +2524,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             }
         }
     }
+    }
 }
 
 @Composable
@@ -2531,3 +2547,35 @@ private fun hasDavefxEngine(context: Context): Boolean = try {
 } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
     false
 }
+
+/**
+ * Paleta de Material para los menús, hojas y diálogos del lector, a partir de sus colores
+ * de fondo y texto. Así los botones, deslizadores y opciones contrastan siempre con el
+ * fondo, tanto en modo día o sepia como en modo noche, sea cual sea el tema de la app.
+ */
+internal fun readerColorScheme(dark: Boolean, background: Color, foreground: Color) =
+    if (dark) darkColorScheme(
+        primary = Color(0xFF7FC8B8), onPrimary = Color(0xFF10201C),
+        primaryContainer = Color(0xFF2E4A44), onPrimaryContainer = foreground,
+        secondary = Color(0xFFD7B98E), onSecondary = Color(0xFF2A2018),
+        secondaryContainer = Color(0xFF3A4A45), onSecondaryContainer = foreground,
+        background = background, onBackground = foreground,
+        surface = background, onSurface = foreground,
+        surfaceVariant = Color(0xFF3A322B), onSurfaceVariant = foreground.copy(alpha = 0.82f),
+        surfaceContainerLowest = background, surfaceContainerLow = Color(0xFF221E1A),
+        surfaceContainer = Color(0xFF26211D), surfaceContainerHigh = Color(0xFF2E2823),
+        surfaceContainerHighest = Color(0xFF38312B),
+        outline = Color(0xFF9A8B7E), outlineVariant = Color(0xFF5A4E44)
+    ) else lightColorScheme(
+        primary = Color(0xFF2F7F73), onPrimary = Color.White,
+        primaryContainer = Color(0xFFCFE8E1), onPrimaryContainer = Color(0xFF10302A),
+        secondary = Color(0xFF8A623C), onSecondary = Color.White,
+        secondaryContainer = Color(0xFFE7DCC8), onSecondaryContainer = Color(0xFF392A24),
+        background = background, onBackground = foreground,
+        surface = background, onSurface = foreground,
+        surfaceVariant = Color(0xFFECE0C8), onSurfaceVariant = Color(0xFF5A4A3E),
+        surfaceContainerLowest = background, surfaceContainerLow = background,
+        surfaceContainer = Color(0xFFF3ECDF), surfaceContainerHigh = Color(0xFFEFE6D6),
+        surfaceContainerHighest = Color(0xFFE9DFCC),
+        outline = Color(0xFF8A7B6E), outlineVariant = Color(0xFFD5C8B6)
+    )

@@ -10,11 +10,16 @@ android { namespace = "com.diego.mibiblioteca"; compileSdk = 36
     // Se siguen generando los informes (app/build/reports/lint-results-*.html), pero
     // un aviso nuevo no debe bloquear la compilación de la APK firmada.
     lint { abortOnError = false; checkReleaseBuilds = true }
-    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 36; versionCode = 185; versionName = "1.0.85"
+    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 36; versionCode = 186; versionName = "1.0.86"
         // Solo procesadores de móviles reales (ARM). Se descartan x86/x86_64,
         // que solo usan emuladores de PC: la APK pasa de ~94 MB a unos 45-50 MB.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        // Clave opcional de Google Books: la pasa GitHub desde el secreto GOOGLE_BOOKS_API_KEY.
+        // Sin secreto queda vacía y la app usa el cupo anónimo, como hasta ahora.
+        val booksKey = (System.getenv("GOOGLE_BOOKS_API_KEY") ?: "").filter { it.isLetterOrDigit() || it == '-' || it == '_' }
+        buildConfigField("String", "GOOGLE_BOOKS_API_KEY", "\"$booksKey\"")
     }
+    buildFeatures { buildConfig = true }
     val persistentKeyPath = System.getenv("MIBIBLIOTECA_KEYSTORE_PATH")
     val persistentSigning = if (!persistentKeyPath.isNullOrBlank()) signingConfigs.create("persistent") {
         storeFile = file(persistentKeyPath)
@@ -56,7 +61,8 @@ dependencies {
     implementation("androidx.metrics:metrics-performance:1.0.0")
     implementation("com.google.mlkit:translate:17.0.3")
     implementation("com.google.mlkit:language-id:17.0.6")
-    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    // Versión que usa el modelo de Google Play services en lugar de incluirlo en la app (~8 MB menos).
+    implementation("com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1")
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     implementation("org.jsoup:jsoup:1.23.2")
     implementation("com.google.code.gson:gson:2.11.0")

@@ -75,5 +75,4 @@ internal object WikiLanguage {
 }
 
 /** País del dispositivo para Google Books (disponibilidad y precios); antes era siempre ES. */
-internal fun deviceCountry(): String = java.util.Locale.getDefault().country.uppercase()
-    .takeIf { it.matches(Regex("[A-Z]{2}")) } ?: "US"
+internal fun deviceCountry(): String = DeviceRegion.current() ?: "US"

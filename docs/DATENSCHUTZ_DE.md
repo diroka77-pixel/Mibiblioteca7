@@ -12,7 +12,7 @@ Bookhollow deaktiviert die automatischen Datensicherungen von Android. Sicherung
 
 ## Internetnutzung
 
-Die Verbindung dient der Synchronisierung mit dem gewählten Dateianbieter und Funktionen, die öffentliche Informationen abrufen, wenn der Nutzer sie verwendet: Open Library, Wikipedia, Wikidata und Wiktionary (Buchdaten, Biografien, Definitionen), die Google-Books-API (Buchdaten und Neuerscheinungen) und Project Gutenberg (kostenlose Klassiker). Dabei werden nur die nötigen Suchbegriffe wie Titel oder Autor übertragen. Bookhollow betreibt keinen eigenen Server, der die Bibliothek des Nutzers empfängt.
+Die Verbindung dient der Synchronisierung mit dem gewählten Dateianbieter und Funktionen, die öffentliche Informationen abrufen, wenn der Nutzer sie verwendet: Open Library, Wikipedia, Wikidata und Wiktionary (Buchdaten, Biografien, Definitionen), die Google-Books-API (Buchdaten und Neuerscheinungen) und Project Gutenberg (kostenlose Klassiker). Dabei werden nur die nötigen Suchbegriffe wie Titel oder Autor übertragen. Um Neuerscheinungen deines Landes anzuzeigen, enthält die Anfrage an Google Books den Ländercode (zum Beispiel „DE“), der aus der SIM-Karte oder der Systemregion stammt; der genaue Standort wird nie verwendet. Bookhollow betreibt keinen eigenen Server, der die Bibliothek des Nutzers empfängt.
 
 ## Berechtigungen
 

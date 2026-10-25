@@ -1,5 +1,8 @@
 # Bookhollow (antes MiBiblioteca)
 
+## Versión 1.0.86
+- Ajustes de márgenes y espaciado que ya no se cierran, menús del lector legibles en modo oscuro, «Ver más» novedades, clave opcional de Google Books, sin botón «Explorar» y novedades de las grandes editoriales del país, siempre con portada. Detalles en `docs/CAMBIOS_1.0.86.md`.
+
 ## Versión 1.0.85
 - Wikipedia, diccionario y clásicos gratuitos en el idioma de la app, y galería adaptada a tablets. Detalles en `docs/CAMBIOS_1.0.85.md`.
 

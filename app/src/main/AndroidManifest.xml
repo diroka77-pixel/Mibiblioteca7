@@ -13,7 +13,7 @@
     </queries>
     <application android:theme="@style/Theme.MiBiblioteca" android:label="@string/app_name" android:localeConfig="@xml/locales_config" android:icon="@mipmap/ic_launcher" android:allowBackup="false" android:fullBackupContent="@xml/backup_rules" android:dataExtractionRules="@xml/data_extraction_rules" android:usesCleartextTraffic="false">
         <!-- Descarga el escáner de códigos de Google Play services al instalar la app. -->
-        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode_ui"/>
+        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode_ui,barcode"/>
         <activity android:name=".MainActivity" android:exported="true">
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
             <intent-filter>

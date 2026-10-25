@@ -45,13 +45,6 @@ class I18nTest {
         assertEquals("Start", I18n.translate("Inicio", "en"))
     }
 
-    @Test fun releasesFollowTheLanguage() {
-        val url = releasesUrl("fr", "FR")
-        assertTrue(url.contains("langRestrict=fr"))
-        assertTrue(url.contains("country=FR"))
-        assertTrue(!releasesUrl("en", "").contains("country="))
-    }
-
     @Test fun trailingSpacesAreRestoredFromSpanish() {
         val parsed = I18n.parse(listOf("es\ten\tpt\tfr\tde\tit",
             "Fondo: \tBackground:\tFundo:\tFond :\tHintergrund:\tSfondo:"))

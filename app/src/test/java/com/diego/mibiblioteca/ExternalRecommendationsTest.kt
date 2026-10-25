@@ -80,19 +80,27 @@ class ExternalRecommendationsTest {
         assertTrue(news.single().url.startsWith("https://"))
     }
 
-    @Test fun readsReleasesFromOpenLibraryAsFallback() {
+    @Test fun releasesNeedCoverPublisherAndLanguage() {
         val response = org.json.JSONObject("""
-            {"docs": [
-              {"key": "/works/OL1W", "title": "Novela nueva", "author_name": ["Ana Autora"],
-               "first_publish_year": 2026, "cover_i": 123},
-              {"key": "/works/OL2W", "title": "Novela vieja", "author_name": ["Otro"],
-               "first_publish_year": 1990}
+            {"items": [
+              {"volumeInfo": {"title": "Con portada", "authors": ["Autora"], "publisher": "Seix Barral",
+                "language": "es", "publishedDate": "2026-10-01", "infoLink": "https://books.google.com/books?id=1",
+                "imageLinks": {"thumbnail": "https://books.google.com/cover?id=1"}}},
+              {"volumeInfo": {"title": "Sin portada", "authors": ["Autor"], "publisher": "Seix Barral",
+                "language": "es", "publishedDate": "2026-10-01", "infoLink": "https://books.google.com/books?id=2"}},
+              {"volumeInfo": {"title": "Otra editorial", "authors": ["Autor"], "publisher": "Autoedición",
+                "language": "es", "publishedDate": "2026-10-01", "infoLink": "https://books.google.com/books?id=3",
+                "imageLinks": {"thumbnail": "https://books.google.com/cover?id=3"}}},
+              {"volumeInfo": {"title": "In English", "authors": ["Writer"], "publisher": "Seix Barral",
+                "language": "en", "publishedDate": "2026-10-01", "infoLink": "https://books.google.com/books?id=4",
+                "imageLinks": {"thumbnail": "https://books.google.com/cover?id=4"}}},
+              {"volumeInfo": {"title": "Resumen de una novela", "authors": ["Alguien"], "publisher": "Seix Barral",
+                "language": "es", "publishedDate": "2026-10-01", "infoLink": "https://books.google.com/books?id=5",
+                "imageLinks": {"thumbnail": "https://books.google.com/cover?id=5"}}}
             ]}
         """.trimIndent())
-        val news = launchNewsFromOpenLibrary(response, java.time.LocalDate.of(2026, 10, 25))
-        assertEquals(1, news.size)
-        assertEquals("Novela nueva", launchBookTitle(news.single()))
-        assertEquals("https://covers.openlibrary.org/b/id/123-M.jpg", news.single().imageUrl)
-        assertEquals("2026", news.single().releaseDate)
+        val news = launchNewsFromGoogleBooks(response, java.time.LocalDate.of(2026, 10, 25),
+            publisher = "Seix Barral", language = "es")
+        assertEquals(listOf("Con portada"), news.map(::launchBookTitle))
     }
 }
