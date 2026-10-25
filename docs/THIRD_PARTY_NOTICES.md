@@ -1,6 +1,6 @@
-# Avisos de terceros de MiBiblioteca
+# Avisos de terceros de Bookhollow
 
-MiBiblioteca utiliza componentes de software y consulta servicios externos. Este documento identifica los principales elementos necesarios para la distribución pública. No sustituye los textos de licencia incluidos por cada proyecto.
+Bookhollow utiliza componentes de software y consulta servicios externos. Este documento identifica los principales elementos necesarios para la distribución pública. No sustituye los textos de licencia incluidos por cada proyecto.
 
 ## Componentes incluidos
 
@@ -15,6 +15,6 @@ MiBiblioteca utiliza componentes de software y consulta servicios externos. Este
 - Wikipedia y Wikcionario: biografías, argumentos y definiciones.
 - DLE de la Real Academia Española: consulta mediante enlace al sitio oficial.
 - Sitios de editoriales, librerías y catálogos literarios: noticias, reseñas y referencias públicas.
-- Davefx/sherpa-onnx: motor TTS opcional, descargado fuera de MiBiblioteca y sujeto a su propia licencia.
+- Davefx/sherpa-onnx: motor TTS opcional, descargado fuera de Bookhollow y sujeto a su propia licencia.
 
 Los nombres, logotipos, contenidos, imágenes y marcas pertenecen a sus respectivos titulares. Su mención identifica la fuente o compatibilidad y no implica patrocinio ni afiliación.

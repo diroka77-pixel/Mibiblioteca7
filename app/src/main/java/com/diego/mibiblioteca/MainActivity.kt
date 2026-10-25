@@ -585,7 +585,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     @Volatile private var saveVersion = 0
     private val folderKey = "folder_uri"
     private val cloudMutex = Mutex()
-    private val cloudName = "MiBiblioteca_Diroka77.json"
+    // Archivo de datos que la app guarda en la carpeta de Drive del usuario.
+    // Es un nombre fijo: no debe cambiar aunque cambie el nombre comercial.
+    private val cloudName = "Bookhollow_biblioteca.json"
+    // Nombre usado hasta la 1.0.74; solo se lee para recuperar datos antiguos.
+    private val legacyCloudName = "MiBiblioteca_Diroka77.json"
 
     init {
         sections = safeSavedArray(prefs.getString("sections", "[]")).let { arr ->
@@ -1084,10 +1088,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             var currentFailure: Exception? = null
-            val current = try { readSnapshot(cloudName) }
+            val current = try { readSnapshot(cloudName) ?: readSnapshot(legacyCloudName) }
                 catch (failure: Exception) { currentFailure = failure; null }
-            val previous = try { readSnapshot(cloudName + ".previous") }
-                catch (_: Exception) { null }
+            val previous = try {
+                readSnapshot(cloudName + ".previous") ?: readSnapshot(legacyCloudName + ".previous")
+            } catch (_: Exception) { null }
             when {
                 current == null -> previous ?: currentFailure?.let { throw it }
                 previous == null -> current

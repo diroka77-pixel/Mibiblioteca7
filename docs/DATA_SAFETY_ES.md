@@ -4,7 +4,7 @@ Este documento sirve para completar el formulario de seguridad de datos de una t
 
 ## Tratamiento general
 
-- MiBiblioteca no incorpora publicidad ni analítica de uso.
+- Bookhollow no incorpora publicidad ni analítica propia (ver la sección de Google ML Kit).
 - No requiere una cuenta propia.
 - El catálogo, el progreso, las notas, los subrayados y las preferencias se guardan en el dispositivo.
 - El usuario elige la carpeta a la que concede acceso mediante el selector de documentos de Android.
@@ -32,7 +32,7 @@ La app incluye Google ML Kit para el escáner ISBN, la traducción y la identifi
 
 ## Respuestas previstas para la ficha pública
 
-- Recopilación por un servidor propio de MiBiblioteca: no.
+- Recopilación por un servidor propio de Bookhollow: no.
 - Venta de datos: no.
 - Publicidad personalizada: no.
 - Analítica de uso propia: no. Diagnóstico técnico de Google ML Kit: declarar según su documentación.

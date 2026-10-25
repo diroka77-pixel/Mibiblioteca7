@@ -2,6 +2,16 @@
 
 ## Hecho en esta versión
 
+- **Nuevo nombre: Bookhollow.** Sustituye a «Mi Biblioteca» y «BookNook» (este último
+  ya existe en las tiendas y «Nook» es marca de Barnes & Noble). Cambia el nombre bajo
+  el icono, las pantallas, el widget, los accesos directos, la ficha de Google Play
+  (`fastlane/`), la política de privacidad y los nombres de los archivos que genera
+  GitHub Actions. El identificador interno `com.diego.mibiblioteca` se mantiene:
+  Google Play no lo muestra y no permite cambiarlo después de publicar.
+- **Archivo de datos en Drive renombrado.** El archivo que la app guarda en tu carpeta
+  pasa de `MiBiblioteca_Diroka77.json` a `Bookhollow_biblioteca.json`. Si solo existe
+  el antiguo, se lee igualmente y la siguiente copia ya se guarda con el nombre nuevo.
+  El antiguo puede borrarse a mano cuando se haya creado el nuevo.
 - **Nombre en un solo sitio.** El nombre de la app está en `AppBrand.NAME`
   (`app/src/main/java/com/diego/mibiblioteca/AppBrand.kt`) y en `app_name`
   (`app/src/main/res/values/strings.xml`, más dos accesos directos en ese mismo
@@ -35,9 +45,8 @@
 
 ## Pendiente (requiere más trabajo)
 
-1. Elegir un nombre definitivo distinto de «BookNook» (ya existen apps con ese nombre).
-2. Pasar los textos de las pantallas a `strings.xml` para poder traducir la app (inglés primero).
-3. Permitir probar la app sin conectar Google Drive (libros de ejemplo de dominio público).
-4. Revisar las otras fuentes que se leen como páginas web (Casa del Libro, Goodreads,
+1. Pasar los textos de las pantallas a `strings.xml` para poder traducir la app (inglés primero).
+2. Permitir probar la app sin conectar Google Drive (libros de ejemplo de dominio público).
+3. Revisar las otras fuentes que se leen como páginas web (Casa del Libro, Goodreads,
    editoriales) y sustituirlas por fuentes con API o enlaces que abra el usuario.
-5. Dividir `MainActivity.kt` (unas 8.000 líneas) en archivos por pantalla.
+4. Dividir `MainActivity.kt` (unas 8.000 líneas) en archivos por pantalla.

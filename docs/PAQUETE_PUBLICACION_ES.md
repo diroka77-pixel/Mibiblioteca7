@@ -1,4 +1,4 @@
-# Paquete de publicación de MiBiblioteca
+# Paquete de publicación de Bookhollow
 
 ## Archivos preparados
 

@@ -1,10 +1,10 @@
-# Soporte de MiBiblioteca
+# Soporte de Bookhollow
 
 ## Informe técnico
 
 La pantalla «Acerca de y soporte» genera un informe que el usuario puede revisar antes de compartir. Incluye:
 
-- versión de MiBiblioteca y versión de Android;
+- versión de Bookhollow y versión de Android;
 - modelo del dispositivo;
 - cifras generales del catálogo y copias sin conexión;
 - estado de los permisos opcionales;
@@ -21,4 +21,4 @@ El informe no debe incluir títulos, autores, notas, subrayados, contenido de lo
 
 ## Permisos opcionales
 
-La cámara, el micrófono y las notificaciones pueden permanecer denegados. El informe los marca como «No concedido» para distinguir una función desactivada de un fallo de la aplicación. MiBiblioteca no solicita esos permisos desde la pantalla de soporte.
+La cámara, el micrófono y las notificaciones pueden permanecer denegados. El informe los marca como «No concedido» para distinguir una función desactivada de un fallo de la aplicación. Bookhollow no solicita esos permisos desde la pantalla de soporte.

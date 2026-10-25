@@ -1,4 +1,4 @@
-Mi Biblioteca reúne tus libros digitales en un catálogo personal, claro y fácil de consultar.
+Bookhollow reúne tus libros digitales en un catálogo personal, claro y fácil de consultar.
 
 Puedes vincular una carpeta mediante el selector de documentos de Android, importar libros individuales y mantener el catálogo disponible en el dispositivo. La sincronización conserva el progreso, las notas y las correcciones realizadas manualmente.
 
@@ -16,6 +16,6 @@ Funciones principales:
 
 Privacidad:
 
-Mi Biblioteca no incluye anuncios, rastreadores ni analítica de uso. No exige crear una cuenta propia. La cámara y el micrófono solo se solicitan al usar el escáner ISBN o la búsqueda por voz. La aplicación no elimina libros automáticamente durante sus tareas de mantenimiento.
+Bookhollow no incluye anuncios ni analítica propia y no exige crear una cuenta. El escáner ISBN y la traducción usan Google ML Kit, que puede enviar a Google datos técnicos de uso, nunca el contenido de tus libros. La cámara y el micrófono solo se solicitan al usar el escáner ISBN o la búsqueda por voz. La aplicación no elimina libros automáticamente durante sus tareas de mantenimiento.
 
 Algunas funciones consultan fuentes externas para obtener portadas, metadatos, noticias, definiciones o traducciones. El usuario puede revisar dentro de la aplicación la información de privacidad, los permisos, las atribuciones y un diagnóstico técnico antes de compartirlo.

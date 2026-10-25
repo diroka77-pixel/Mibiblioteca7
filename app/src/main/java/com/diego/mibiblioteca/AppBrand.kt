@@ -8,7 +8,7 @@ package com.diego.mibiblioteca
  * El identificador interno `com.diego.mibiblioteca` no depende de este valor.
  */
 internal object AppBrand {
-    const val NAME = "BookNook"
+    const val NAME = "Bookhollow"
 
     /** Página de contacto que se envía a los servicios públicos (Wikipedia, Open Library). */
     const val SUPPORT_URL = "https://github.com/diroka77-pixel/Mibiblioteca7"

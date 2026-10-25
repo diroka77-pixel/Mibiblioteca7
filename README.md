@@ -1,3 +1,9 @@
+# Bookhollow (antes MiBiblioteca)
+
+## Versión 1.0.75
+- Nuevo nombre comercial: Bookhollow. Detalles en `docs/CAMBIOS_1.0.75.md`.
+- Sin datos personales ni contenidos fijos en el código, sin lectura oculta de buscadores, textos de privacidad corregidos, APK más ligera y paquete AAB para Google Play.
+
 ## Versión 1.0.63
 - TalkBack identifica las zonas para avanzar y retroceder página, los controles de voz y los ajustes del lector.
 - El progreso de lectura, las descargas, la sincronización y el mantenimiento anuncian su estado.

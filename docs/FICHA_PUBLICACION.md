@@ -1,8 +1,8 @@
-# Ficha de publicación — MiBiblioteca 1.0.62
+# Ficha de publicación — Bookhollow 1.0.62
 
 ## Nombre
 
-Mi Biblioteca
+Bookhollow
 
 ## Descripción breve
 
@@ -10,7 +10,7 @@ Organiza, lee y cuida tu biblioteca digital desde un único espacio privado.
 
 ## Descripción completa
 
-Mi Biblioteca reúne tus libros EPUB, PDF, MOBI, AZW y FB2 en un catálogo personal. Permite leer, escuchar libros mediante las voces instaladas en Android, guardar notas y subrayados, organizar sagas, géneros y secciones, revisar estadísticas y mantener la salud de los archivos y portadas.
+Bookhollow reúne tus libros EPUB, PDF, MOBI, AZW y FB2 en un catálogo personal. Permite leer, escuchar libros mediante las voces instaladas en Android, guardar notas y subrayados, organizar sagas, géneros y secciones, revisar estadísticas y mantener la salud de los archivos y portadas.
 
 La sincronización utiliza la carpeta que el usuario elige mediante el selector de documentos de Android. La aplicación no incluye anuncios, no exige una cuenta propia y muestra dentro de la app cómo utiliza los datos y permisos.
 
