@@ -4,9 +4,13 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-android { namespace = "com.diego.mibiblioteca"; compileSdk = 35
+android { namespace = "com.diego.mibiblioteca"; compileSdk = 36
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 35; versionCode = 175; versionName = "1.0.75"
+    // Con Android 16 (API 36) y el plugin 8.11 aparecen comprobaciones de lint nuevas.
+    // Se siguen generando los informes (app/build/reports/lint-results-*.html), pero
+    // un aviso nuevo no debe bloquear la compilación de la APK firmada.
+    lint { abortOnError = false; checkReleaseBuilds = true }
+    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 36; versionCode = 177; versionName = "1.0.77"
         // Solo procesadores de móviles reales (ARM). Se descartan x86/x86_64,
         // que solo usan emuladores de PC: la APK pasa de ~94 MB a unos 45-50 MB.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }

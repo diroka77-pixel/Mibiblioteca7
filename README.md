@@ -1,5 +1,11 @@
 # Bookhollow (antes MiBiblioteca)
 
+## Versión 1.0.77
+- Modo oscuro (Automático / Claro / Oscuro) en Ajustes. Detalles en `docs/CAMBIOS_1.0.77.md`.
+
+## Versión 1.0.76
+- Preparada para Android 16 (API 36), requisito actual de Google Play. Detalles en `docs/CAMBIOS_1.0.76.md`.
+
 ## Versión 1.0.75
 - Nuevo nombre comercial: Bookhollow. Detalles en `docs/CAMBIOS_1.0.75.md`.
 - Sin datos personales ni contenidos fijos en el código, sin lectura oculta de buscadores, textos de privacidad corregidos, APK más ligera y paquete AAB para Google Play.

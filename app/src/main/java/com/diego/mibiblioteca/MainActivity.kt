@@ -3268,16 +3268,34 @@ private fun normalizePath(path: String): String {
     return parts.joinToString("/")
 }
 
-private val Ink = Color(0xFF31271F)
-private val Mahogany = Color(0xFF49352A)
+// Paleta de la biblioteca. Los colores de texto y superficie cambian con el modo
+// oscuro (AppThemeState); los "Fixed" son siempre iguales porque se usan como
+// fondo de textos blancos.
+private val InkFixed = Color(0xFF31271F)
+private val MahoganyFixed = Color(0xFF49352A)
+private val Ink: Color get() = if (AppThemeState.dark) Color(0xFFEFE6DA) else InkFixed
+private val Mahogany: Color get() = if (AppThemeState.dark) Color(0xFFD8C4B0) else MahoganyFixed
 private val HeaderBrown = Color(0xFF765B50)
 private val Brass = Color(0xFFAD8248)
-private val Parchment = Color(0xFFF7F6F2)
-private val Paper = Color.White
+private val Parchment: Color get() = if (AppThemeState.dark) Color(0xFF14110F) else Color(0xFFF7F6F2)
+private val Paper: Color get() = if (AppThemeState.dark) Color(0xFF231E1A) else Color.White
 private val Teal = Color(0xFF5C9F94)
+/** Fondo de las portadas que aún no tienen imagen. */
+private val CoverPlaceholder: Color get() = if (AppThemeState.dark) Color(0xFF2E2722) else Color(0xFFF0EBE3)
+/** Texto de aviso (huecos en sagas, datos que faltan). */
+private val WarningText: Color get() = if (AppThemeState.dark) Color(0xFFE8A184) else Color(0xFF9A4C32)
+/** Acciones de riesgo, como borrar un archivo. */
+private val DangerText: Color get() = if (AppThemeState.dark) Color(0xFFF0928A) else Color(0xFF9D332D)
+private val DangerBorder: Color get() = if (AppThemeState.dark) Color(0xFFE07A70) else Color(0xFFB54A42)
 
-private val libraryColors = lightColorScheme(
-    primary = Teal, onPrimary = Ink, secondary = Brass,
+private fun libraryColors(dark: Boolean) = if (dark) darkColorScheme(
+    primary = Teal, onPrimary = InkFixed, secondary = Brass, onSecondary = InkFixed,
+    background = Parchment, onBackground = Ink, surface = Paper, onSurface = Ink,
+    surfaceVariant = Color(0xFF3A322B), onSurfaceVariant = Mahogany,
+    surfaceContainer = Paper, surfaceContainerHigh = Color(0xFF2B2520),
+    surfaceContainerLow = Color(0xFF1C1815), outline = Color(0xFF7A6B5E)
+) else lightColorScheme(
+    primary = Teal, onPrimary = InkFixed, secondary = Brass,
     background = Parchment, onBackground = Ink, surface = Paper, onSurface = Ink,
     surfaceVariant = Color(0xFFECE0C8)
 )
@@ -3295,6 +3313,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // El tema se lee antes de dibujar para que no haya un parpadeo claro/oscuro.
+        // Si cambia el modo oscuro del sistema, Android recrea la actividad y se recalcula.
+        AppThemeState.load(this)
         libraryVm = ViewModelProvider(this)[LibraryViewModel::class.java]
         handleSharedBook(intent)
         setContent {
@@ -3303,7 +3324,7 @@ class MainActivity : ComponentActivity() {
                 Density(systemDensity.density, systemDensity.fontScale * libraryVm.interfaceTextScale)
             }
             CompositionLocalProvider(LocalDensity provides accessibleDensity) {
-                MaterialTheme(colorScheme = libraryColors) { LibraryApp(libraryVm) }
+                MaterialTheme(colorScheme = libraryColors(AppThemeState.dark)) { LibraryApp(libraryVm) }
             }
         }
         jankStats = JankStats.createAndTrack(window) { frame ->
@@ -4621,7 +4642,7 @@ private fun openCasaDelLibro(context: Context) {
                     color = when {
                         health.healthScore >= 85 -> Teal
                         health.healthScore >= 60 -> Brass
-                        else -> Color(0xFF9A4C32)
+                        else -> WarningText
                     })
                 Text("Salud del catálogo", fontWeight = FontWeight.SemiBold)
                 LinearProgressIndicator(
@@ -5110,6 +5131,10 @@ private fun openCasaDelLibro(context: Context) {
                             else -> "Normal"
                         }) }, selected = false, icon = { Icon(Icons.Outlined.FormatSize, null) },
                             onClick = { textSizePickerOpen = true })
+                        // Cada pulsación pasa a la siguiente opción: Automático → Claro → Oscuro.
+                        NavigationDrawerItem(label = { Text("Tema: " + AppThemeState.preference.label) },
+                            selected = false, icon = { Icon(Icons.Outlined.DarkMode, null) },
+                            onClick = { AppThemeState.cycle(context) })
                         val accessibleMode = vm.interfaceTextScale >= 1.29f &&
                             vm.animationMode == "Sin animaciones"
                         NavigationDrawerItem(
@@ -5130,7 +5155,7 @@ private fun openCasaDelLibro(context: Context) {
                                 scope.launch { drawerState.close() }; privacyOpen = true
                             })
                     } else {
-                    Surface(color = Mahogany,
+                    Surface(color = MahoganyFixed,
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)) {
                         Column(Modifier.fillMaxWidth().padding(18.dp)) {
                             Text(AppBrand.NAME, color = Color.White, fontSize = 23.sp,
@@ -6221,7 +6246,7 @@ private fun ReadingStatisticsPage(
         if (stats.topAuthors.isNotEmpty())
             StatsRankingCard("Autores leídos", stats.topAuthors, Modifier.fillMaxWidth())
         if (stats.readWithoutFinishDate > 0) {
-            Surface(Modifier.fillMaxWidth(), color = Ink.copy(alpha = .82f),
+            Surface(Modifier.fillMaxWidth(), color = InkFixed.copy(alpha = .82f),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
                 Text("${stats.readWithoutFinishDate} libros marcados como leídos no tienen una fecha final válida y no cuentan en el reto anual.",
                     Modifier.padding(14.dp), color = Color.White, fontSize = 12.sp)
@@ -6327,7 +6352,7 @@ private fun ExternalBookCard(result: PublicBookResult, onOpen: (PublicBookResult
         shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {
-        Box(Modifier.fillMaxWidth().height(238.dp).background(Color(0xFFF0EBE3)),
+        Box(Modifier.fillMaxWidth().height(238.dp).background(CoverPlaceholder),
             contentAlignment = Alignment.Center) {
             if (cover != null) Image(cover!!.asImageBitmap(),
                 contentDescription = "Portada de ${result.title}",
@@ -6678,7 +6703,7 @@ private fun FlatCover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.co
             val fallbackTitle = displayTitle(book).trim().ifBlank { "Sin título" }
             val initials = fallbackTitle.split(Regex("\\s+"))
                 .filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1) }.uppercase()
-            Box(Modifier.fillMaxSize().background(Color(0xFFF0E8DC)).padding(10.dp),
+            Box(Modifier.fillMaxSize().background(CoverPlaceholder).padding(10.dp),
                 contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(initials.ifBlank { "·" }, fontFamily = FontFamily.Serif,
@@ -6844,7 +6869,7 @@ private fun Cover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.compos
                 if (bmp != null)
                     Image(bmp!!.asImageBitmap(), book.title, Modifier.fillMaxSize(),
                         contentScale = ContentScale.FillBounds)
-                else Column(Modifier.fillMaxSize().background(Mahogany).padding(6.dp),
+                else Column(Modifier.fillMaxSize().background(MahoganyFixed).padding(6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center) {
                     Text("✦", color = Brass, fontSize = 15.sp)
@@ -7752,7 +7777,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                                 "Saga completa según el catálogo consultado."
                             else "Te faltan ${missingCatalogVolumes.size} volúmenes:",
                                 fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                                color = if (missingCatalogVolumes.isEmpty()) Teal else Color(0xFF9A4C32))
+                                color = if (missingCatalogVolumes.isEmpty()) Teal else WarningText)
                             sagaCatalog.forEach { volume ->
                                 val titleKey = volume.title.lowercase()
                                     .replace(Regex("[^\\p{L}\\p{N}]"), "")
@@ -7762,7 +7787,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                                     volume.title,
                                     fontSize = 12.sp,
                                     fontWeight = if (owned) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (owned) Teal else Color(0xFF9A4C32))
+                                    color = if (owned) Teal else WarningText)
                             }
                         } else {
                             sagaBooks.forEach { sagaBook ->
@@ -7778,7 +7803,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                                 "${AppBrand.NAME} está revisando el catálogo completo en segundo plano."
                             else "Faltan entre los números conocidos: ${sagaMissing.joinToString(", ")}.",
                                 fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                                color = if (sagaMissing.isEmpty()) Mahogany else Color(0xFF9A4C32))
+                                color = if (sagaMissing.isEmpty()) Mahogany else WarningText)
                         }
                     }
                     LaunchedEffect(book.uri, book.saga) {
@@ -7978,10 +8003,10 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                     OutlinedButton(onClick = { confirmDelete = true },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFB54A42)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, DangerBorder),
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = Paper.copy(alpha = .94f),
-                            contentColor = Color(0xFF9D332D))) {
+                            contentColor = DangerText)) {
                         ActionLabel("Borrar este archivo de Drive", "Borrar")
                     }
                 }
