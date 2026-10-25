@@ -1,5 +1,8 @@
 # Bookhollow (antes MiBiblioteca)
 
+## Versión 1.0.82
+- Escáner de ISBN nuevo (Google Play services) y búsqueda del libro escaneado. Detalles en `docs/CAMBIOS_1.0.82.md`.
+
 ## Versión 1.0.81
 - App y ficha de Google Play en seis idiomas. Detalles en `docs/CAMBIOS_1.0.81.md`.
 

@@ -3663,6 +3663,34 @@ private fun openCasaDelLibro(context: Context) {
     var publicSearching by remember { mutableStateOf(false) }
     var publicSearchJob by remember { mutableStateOf<Job?>(null) }
     var selectedPublicResult by remember { mutableStateOf<PublicBookResult?>(null) }
+    /** Búsqueda pública reutilizable (por ejemplo, tras escanear un ISBN). */
+    fun runPublicSearch(requested: String) {
+        publicQuery = requested
+        publicSearching = true
+        publicSearchJob?.cancel()
+        val launchCatalog = vm.launchNews
+        val owned = vm.books.map { displayTitle(it) to displayAuthor(it) }
+        publicSearchJob = scope.launch(Dispatchers.IO) {
+            val releases = searchLaunchCatalog(requested, launchCatalog, owned)
+            val public = runCatching { searchPublicBooks(requested) }.getOrDefault(emptyList())
+            val found = (releases + public).distinctBy { it.title.lowercase() + "|" + it.author.lowercase() }
+            withContext(Dispatchers.Main) {
+                publicResults = found
+                publicSearching = false
+                selectedPublicResult = null
+            }
+        }
+    }
+    /** Tras leer un ISBN: abre la ficha si el libro ya está en la biblioteca; si no, lo busca en Descubrir. */
+    fun handleScannedIsbn(isbn: String) {
+        val wanted = isbnVariants(isbn)
+        val owned = vm.books.firstOrNull { book -> isbnVariants(book.isbn).any(wanted::contains) }
+        if (owned != null) selected = owned
+        else {
+            switchTab("Descubrir")
+            runPublicSearch(isbn)
+        }
+    }
     var wallpaperPickerOpen by remember { mutableStateOf(false) }
     var animationPickerOpen by remember { mutableStateOf(false) }
     var textSizePickerOpen by remember { mutableStateOf(false) }
@@ -4017,14 +4045,18 @@ private fun openCasaDelLibro(context: Context) {
         ActivityResultContracts.CreateDocument("text/csv")) { uri -> uri?.let(vm::exportCatalogCsv) }
     val notebookExport = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain")) { uri -> uri?.let(vm::exportReadingNotebook) }
+    // Alternativa si el escáner de Google Play services no está disponible: foto de la cámara.
     val isbnCamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
         if (bitmap != null) BarcodeScanning.getClient().process(InputImage.fromBitmap(bitmap, 0))
             .addOnSuccessListener { codes ->
-                val isbn = codes.asSequence().filter { it.valueType == Barcode.TYPE_ISBN ||
-                    it.format == Barcode.FORMAT_EAN_13 || it.format == Barcode.FORMAT_EAN_8 }
-                    .mapNotNull { it.rawValue }.firstOrNull()
-                if (isbn != null) { vm.query = isbn; switchTab("Biblioteca") }
+                val isbn = codes.asSequence().mapNotNull { it.rawValue }
+                    .mapNotNull(::normalizeIsbn).firstOrNull()
+                if (isbn != null) handleScannedIsbn(isbn)
                 else android.widget.Toast.makeText(context, tr("No se ha detectado un ISBN. Acerca más la cámara."),
+                    android.widget.Toast.LENGTH_LONG).show()
+            }
+            .addOnFailureListener {
+                android.widget.Toast.makeText(context, tr("No se ha detectado un ISBN. Acerca más la cámara."),
                     android.widget.Toast.LENGTH_LONG).show()
             }
     }
@@ -5263,11 +5295,20 @@ private fun openCasaDelLibro(context: Context) {
                     NavigationDrawerItem(label = { Text(tr("Escanear ISBN")) }, selected = false,
                         icon = { Icon(Icons.Outlined.QrCodeScanner, null) }, onClick = {
                             scope.launch { drawerState.close() }
-                            launchIsbnCamera = true
-                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                                PackageManager.PERMISSION_GRANTED) {
-                                launchIsbnCamera = false; isbnCamera.launch(null)
-                            } else cameraPermission.launch(Manifest.permission.CAMERA)
+                            scanIsbnWithGoogle(context,
+                                onIsbn = { isbn -> handleScannedIsbn(isbn) },
+                                onNotIsbn = {
+                                    android.widget.Toast.makeText(context,
+                                        tr("Ese código no es el ISBN de un libro. Busca el código de barras que empieza por 978 o 979."),
+                                        android.widget.Toast.LENGTH_LONG).show()
+                                },
+                                onUnavailable = {
+                                    launchIsbnCamera = true
+                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                                        PackageManager.PERMISSION_GRANTED) {
+                                        launchIsbnCamera = false; isbnCamera.launch(null)
+                                    } else cameraPermission.launch(Manifest.permission.CAMERA)
+                                })
                         })
                     NavigationDrawerItem(label = { Text(tr("Exportar catálogo para Excel")) }, selected = false,
                         icon = { Icon(Icons.Outlined.TableView, null) }, onClick = {
