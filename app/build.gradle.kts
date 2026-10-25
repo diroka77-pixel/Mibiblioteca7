@@ -10,7 +10,7 @@ android { namespace = "com.diego.mibiblioteca"; compileSdk = 36
     // Se siguen generando los informes (app/build/reports/lint-results-*.html), pero
     // un aviso nuevo no debe bloquear la compilación de la APK firmada.
     lint { abortOnError = false; checkReleaseBuilds = true }
-    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 36; versionCode = 178; versionName = "1.0.78"
+    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 36; versionCode = 179; versionName = "1.0.79"
         // Solo procesadores de móviles reales (ARM). Se descartan x86/x86_64,
         // que solo usan emuladores de PC: la APK pasa de ~94 MB a unos 45-50 MB.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }

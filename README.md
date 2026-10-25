@@ -1,5 +1,8 @@
 # Bookhollow (antes MiBiblioteca)
 
+## Versión 1.0.79
+- Icono nuevo y cinco clásicos gratuitos de dominio público. Detalles en `docs/CAMBIOS_1.0.79.md`.
+
 ## Versión 1.0.78
 - Corrección del modo oscuro (fondos blancos fijos) y letra más legible en la barra inferior. Detalles en `docs/CAMBIOS_1.0.78.md`.
 

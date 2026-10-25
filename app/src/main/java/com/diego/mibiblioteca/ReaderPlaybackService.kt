@@ -161,7 +161,7 @@ class ReaderPlaybackService : Service() {
         val toggleAction = if (playing) ACTION_PAUSE else ACTION_PLAY
         val toggleIcon = if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(author)
             .setContentIntent(openApp)

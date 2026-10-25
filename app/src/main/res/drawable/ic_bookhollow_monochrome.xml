@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Versión de un solo color para los iconos temáticos de Android 13+ y las notificaciones. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <group android:pivotX="54" android:pivotY="55" android:scaleX="0.8" android:scaleY="0.8">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M31,80 V50 A23,23 0 0 1 77,50 V80 H72 V50.5 A18,18 0 0 0 36,50.5 V80 Z"/>
+        <path android:fillColor="#FFFFFFFF" android:pathData="M28,79 H80 V84 H28 Z"/>
+        <path android:fillColor="#FFFFFFFF" android:pathData="M40,79 V57 H45.5 V79 Z M46.5,79 V53 H52 V79 Z M53,79 V59 H58 V79 Z M59,79 L64.5,56.5 L70,57.8 L64.6,80.2 Z"/>
+    </group>
+</vector>

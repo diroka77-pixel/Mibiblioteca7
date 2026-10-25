@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icono pequeño de la notificación de lectura en voz alta (Android lo pinta de un color). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="56" android:viewportHeight="62">
+    <group android:translateX="-26" android:translateY="-24">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M31,80 V50 A23,23 0 0 1 77,50 V80 H72 V50.5 A18,18 0 0 0 36,50.5 V80 Z"/>
+        <path android:fillColor="#FFFFFFFF" android:pathData="M28,79 H80 V84 H28 Z"/>
+        <path android:fillColor="#FFFFFFFF" android:pathData="M40,79 V57 H45.5 V79 Z M46.5,79 V53 H52 V79 Z M53,79 V59 H58 V79 Z M59,79 L64.5,56.5 L70,57.8 L64.6,80.2 Z"/>
+    </group>
+</vector>

@@ -1640,7 +1640,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .thenByDescending { prefs.getLong("opened_" + it.uri.toString().hashCode(), 0L) })
 
     fun importLocalBook(source: Uri) {
-        viewModelScope.launch {
+        viewModelScope.launch { importLocalBookNow(source) }
+    }
+
+    /**
+     * Copia un libro al almacenamiento de la app y lo añade al catálogo.
+     * Con [interactive] se informa al usuario y se abre el libro al terminar;
+     * los clásicos de ejemplo se importan en silencio y sin abrirlos.
+     */
+    private suspend fun importLocalBookNow(source: Uri, interactive: Boolean = true): Boolean {
             try {
                 // Abrir un archivo desde Drive lanza la actividad con ACTION_VIEW.
                 // Cargamos primero el catálogo persistente para no sustituirlo por
@@ -1682,11 +1690,44 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 books = (books.filterNot { it.uri == imported.uri } + imported)
                     .sortedBy { it.title.lowercase() }
                 saveBooks()
-                importedBookUri = imported.uri
-                val format = detectImportedBookFormat(imported.uri.lastPathSegment.orEmpty(), "")
-                message = "${format?.label ?: "Libro"} añadido a ${AppBrand.NAME}"
+                if (interactive) {
+                    importedBookUri = imported.uri
+                    val format = detectImportedBookFormat(imported.uri.lastPathSegment.orEmpty(), "")
+                    message = "${format?.label ?: "Libro"} añadido a ${AppBrand.NAME}"
+                }
+                return true
             } catch (e: Exception) {
-                message = "No se pudo abrir el archivo: ${e.localizedMessage ?: "archivo no válido"}"
+                if (interactive) message = "No se pudo abrir el archivo: ${e.localizedMessage ?: "archivo no válido"}"
+                return false
+            }
+    }
+
+    /** Progreso de la descarga de clásicos: null cuando no hay descarga en curso. */
+    var sampleBooksProgress by mutableStateOf<Pair<Int, Int>?>(null); private set
+
+    /** Descarga e incorpora los clásicos de dominio público de [sampleBooks]. */
+    fun importSampleBooks() {
+        if (sampleBooksProgress != null) return
+        sampleBooksProgress = 0 to sampleBooks.size
+        viewModelScope.launch {
+            val folder = File(getApplication<Application>().cacheDir, "clasicos")
+            var added = 0
+            try {
+                sampleBooks.forEachIndexed { index, sample ->
+                    sampleBooksProgress = index to sampleBooks.size
+                    val file = withContext(Dispatchers.IO) { downloadSampleBook(sample, folder) }
+                    if (file != null) {
+                        if (importLocalBookNow(Uri.fromFile(file), interactive = false)) added++
+                        withContext(Dispatchers.IO) { file.delete() }
+                    }
+                }
+            } finally {
+                sampleBooksProgress = null
+                message = when (added) {
+                    0 -> "No se pudieron descargar los clásicos. Comprueba la conexión e inténtalo de nuevo."
+                    sampleBooks.size -> "Se han añadido $added clásicos gratuitos a tu biblioteca."
+                    else -> "Se han añadido $added de ${sampleBooks.size} clásicos. Puedes volver a intentarlo para los que faltan."
+                }
             }
         }
     }
@@ -5095,6 +5136,13 @@ private fun openCasaDelLibro(context: Context) {
                             icon = { AppIcon("Datos") }, onClick = {
                                 if (vm.bulkInfoLoading) vm.cancelIncomplete() else vm.refreshIncomplete()
                             })
+                        NavigationDrawerItem(
+                            label = { Text(vm.sampleBooksProgress?.let {
+                                "Descargando clásicos ${it.first + 1}/${it.second}…"
+                            } ?: "Añadir clásicos gratuitos") },
+                            selected = vm.sampleBooksProgress != null,
+                            icon = { Icon(Icons.Outlined.AutoStories, null) },
+                            onClick = vm::importSampleBooks)
                         NavigationDrawerItem(label = { Text("Consultar libros públicos") }, selected = false,
                             icon = { Icon(Icons.Outlined.Search, null) }, onClick = {
                                 publicSearchOpen = true
@@ -5737,6 +5785,17 @@ private fun openCasaDelLibro(context: Context) {
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
                                 Text("Elegir carpeta de libros")
                             }
+                            val sampleProgress = vm.sampleBooksProgress
+                            OutlinedButton(onClick = vm::importSampleBooks,
+                                enabled = sampleProgress == null,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+                                Text(if (sampleProgress == null) "Probar con ${sampleBooks.size} clásicos gratuitos"
+                                    else "Descargando clásicos ${sampleProgress.first + 1}/${sampleProgress.second}…",
+                                    color = Teal, textAlign = TextAlign.Center)
+                            }
+                            Text("Don Quijote, Lazarillo de Tormes, Marianela, Pepita Jiménez y Niebla. " +
+                                "Son de dominio público y se descargan de Project Gutenberg.",
+                                color = Mahogany.copy(alpha = .8f), fontSize = 12.sp, textAlign = TextAlign.Center)
                         }
                     }
                 }
