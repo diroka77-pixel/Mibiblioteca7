@@ -374,7 +374,7 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                         fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(details!!.editions, key = { it.isbn.ifBlank { it.label + it.coverUrl } }) { edition ->
-                            Surface(Modifier.width(150.dp), color = Color.White,
+                            Surface(Modifier.width(150.dp), color = Paper,
                                 shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = .3f))) {
                                 Column(Modifier.padding(9.dp)) {
@@ -3274,7 +3274,7 @@ private fun normalizePath(path: String): String {
 private val InkFixed = Color(0xFF31271F)
 private val MahoganyFixed = Color(0xFF49352A)
 private val Ink: Color get() = if (AppThemeState.dark) Color(0xFFEFE6DA) else InkFixed
-private val Mahogany: Color get() = if (AppThemeState.dark) Color(0xFFD8C4B0) else MahoganyFixed
+private val Mahogany: Color get() = if (AppThemeState.dark) Color(0xFFE2D0BE) else MahoganyFixed
 private val HeaderBrown = Color(0xFF765B50)
 private val Brass = Color(0xFFAD8248)
 private val Parchment: Color get() = if (AppThemeState.dark) Color(0xFF14110F) else Color(0xFFF7F6F2)
@@ -5353,7 +5353,8 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                 }
-                if (tab != "Descubrir" && tab != "Inicio") LibrarySearchField(
+                // En Estadísticas no hay nada que buscar: el buscador solo ocupaba espacio.
+                if (tab != "Descubrir" && tab != "Inicio" && tab != "Estadísticas") LibrarySearchField(
                     query = vm.query,
                     voiceListening = voiceListening,
                     onQueryCommit = { value ->
@@ -5383,7 +5384,7 @@ private fun openCasaDelLibro(context: Context) {
             }
         },
         bottomBar = {
-            NavigationBar(containerColor = Color.White.copy(alpha = 0.96f),
+            NavigationBar(containerColor = Paper.copy(alpha = 0.96f),
                 contentColor = LibraryVisualTokens.onDark,
                 tonalElevation = 0.dp) {
                 listOf(
@@ -5398,13 +5399,13 @@ private fun openCasaDelLibro(context: Context) {
                         onClick = { switchTab(targetTab) },
                         icon = { AppIcon(icon, description = label, size = 22.dp) },
                         label = { Text(label, maxLines = 1, softWrap = false,
-                            fontSize = 9.sp) },
+                            fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = Mahogany,
                             selectedTextColor = Mahogany,
                             indicatorColor = Brass.copy(alpha = 0.28f),
-                            unselectedIconColor = Mahogany.copy(alpha = 0.72f),
-                            unselectedTextColor = Mahogany.copy(alpha = 0.72f))
+                            unselectedIconColor = Mahogany.copy(alpha = 0.80f),
+                            unselectedTextColor = Mahogany.copy(alpha = 0.80f))
                     )
                 }
             }
@@ -6081,7 +6082,7 @@ private fun HomeReadingSummary(books: List<Book>, progress: (Uri) -> Int) {
             HomeMetricCard("Pendientes", pending.toString(), Color(0xFFD6A0C8), Modifier.weight(1f))
         }
         Card(Modifier.fillMaxWidth().padding(top = 8.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .94f)),
+            colors = CardDefaults.cardColors(containerColor = Paper.copy(alpha = .94f)),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -6281,11 +6282,11 @@ private fun StatsRankingCard(title: String, values: List<Pair<String, Int>>, mod
 
 @Composable
 private fun HomeMetricCard(label: String, value: String, accent: Color, modifier: Modifier) {
-    Card(modifier, colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = .94f)),
+    Card(modifier, colors = CardDefaults.cardColors(containerColor = Paper.copy(alpha = .94f)),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
         Column(Modifier.padding(11.dp)) {
             Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = accent)
-            Text(label, fontSize = 11.sp, color = Ink, maxLines = 1)
+            Text(label, fontSize = 12.sp, color = Ink, maxLines = 1)
         }
     }
 }
@@ -6360,7 +6361,7 @@ private fun ExternalBookCard(result: PublicBookResult, onOpen: (PublicBookResult
             else AppIcon("Libros", tint = Mahogany.copy(alpha = .5f), size = 48.dp)
             val date = result.publishDates.ifBlank { result.year }
             if (date.isNotBlank()) Surface(Modifier.align(Alignment.TopStart).padding(9.dp),
-                color = Ink.copy(alpha = .86f), shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
+                color = InkFixed.copy(alpha = .86f), shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)) {
                 Text(date, color = Color.White, fontSize = 9.sp,
                     modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp), maxLines = 1)
             }
@@ -6461,7 +6462,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
                     .combinedClickable(onClick = { onOpen(book) },
                         onLongClickLabel = "Más opciones", onLongClick = { onLongPress(book) }),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = Paper),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                     Box {
                         FlatCover(book, coverWidth, coverWidth * 1.50f)
@@ -6498,7 +6499,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
         .semantics { contentDescription = "$title, $author. ${book.status.label}"; role = Role.Button }
         .combinedClickable(onClick = onClick, onLongClickLabel = "Más opciones", onLongClick = onLongPress),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = Paper),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box {
@@ -6533,7 +6534,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
     Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp)
         .semantics { contentDescription = "$title, $author. ${book.status.label}"; role = Role.Button }
         .combinedClickable(onClick = onClick, onLongClickLabel = "Más opciones", onLongClick = onLongPress),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = Paper),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box {
@@ -6567,14 +6568,14 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
             .semantics { contentDescription = "$title, $author. ${book.status.label}"; role = Role.Button }
             .combinedClickable(onClick = onClick, onLongClickLabel = "Más opciones", onLongClick = onLongPress),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
+            colors = CardDefaults.cardColors(containerColor = Paper),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White)) {
+            border = androidx.compose.foundation.BorderStroke(1.dp, Paper)) {
             Box(Modifier.fillMaxWidth()) {
                 FlatCover(book, coverWidth, coverWidth * 1.50f)
                 Surface(Modifier.align(Alignment.TopEnd).padding(6.dp),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-                    color = Ink.copy(alpha = 0.70f)) {
+                    color = InkFixed.copy(alpha = 0.70f)) {
                     Row {
                         if (onToggleFavorite != null) IconButton(onClick = onToggleFavorite,
                             modifier = Modifier.size(48.dp)) {
@@ -6694,7 +6695,7 @@ private fun FlatCover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.co
         }
     }
     val shape = androidx.compose.foundation.shape.RoundedCornerShape(0.dp)
-    Surface(Modifier.width(w).height(h), color = Color.White, shape = shape) {
+    Surface(Modifier.width(w).height(h), color = Paper, shape = shape) {
         val bitmap = bmp
         if (bitmap != null) {
             Image(bitmap.asImageBitmap(), contentDescription = "Portada de ${displayTitle(book)}",
@@ -7569,7 +7570,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                     modifier = Modifier.fillMaxWidth().semantics {
                         contentDescription = "Aviso: $notice"
                     },
-                    color = Ink.copy(alpha = 0.82f),
+                    color = InkFixed.copy(alpha = 0.82f),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = 0.55f))
                 ) {

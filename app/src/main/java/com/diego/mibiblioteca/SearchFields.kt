@@ -32,7 +32,7 @@ import kotlinx.coroutines.delay
 // Siguen el modo oscuro de la biblioteca (AppThemeState).
 private val SearchPaper: Color get() = if (AppThemeState.dark) Color(0xFF2B2520) else Color.White
 private val SearchInk: Color get() = if (AppThemeState.dark) Color(0xFFEFE6DA) else Color(0xFF2C221D)
-private val SearchMahogany: Color get() = if (AppThemeState.dark) Color(0xFFD8C4B0) else Color(0xFF49352A)
+private val SearchMahogany: Color get() = if (AppThemeState.dark) Color(0xFFE2D0BE) else Color(0xFF49352A)
 private val SearchBrass = Color(0xFFAD8248)
 private val SearchTeal = Color(0xFF5AA69E)
 
