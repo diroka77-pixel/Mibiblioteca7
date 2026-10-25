@@ -13,9 +13,10 @@ class ReleaseAndLegalTest {
 
     @Test fun releaseNotesDescribeVisibleChanges() {
         val text = currentReleaseNotes().joinToString(" ")
-        assertTrue(text.contains("Centro de ayuda"))
-        assertTrue(text.contains("Diagnóstico privado"))
-        assertTrue(text.contains("sin borrado automático"))
+        assertTrue(text.contains("Modo oscuro"))
+        assertTrue(text.contains("clásicos gratuitos"))
+        assertTrue(text.contains("inglés"))
+        assertTrue(text.contains("fuentes abiertas"))
     }
 
     @Test fun thirdPartyNoticesCoverBundledAndExternalComponents() {

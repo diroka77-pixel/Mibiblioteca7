@@ -9,10 +9,11 @@ internal fun shouldShowReleaseNotes(
 ): Boolean = !firstRunGuideVisible && currentVersion.isNotBlank() && seenVersion != currentVersion
 
 internal fun currentReleaseNotes(): List<String> = listOf(
-    "Centro de ayuda y guía inicial disponibles desde el menú.",
-    "Diagnóstico privado para soporte, sin títulos, notas ni rutas de archivos.",
-    "Pantallas de privacidad, permisos e información legal.",
-    "Mantenimiento de la biblioteca con revisión segura y sin borrado automático."
+    "Nuevo nombre e icono: {app}.",
+    "Modo oscuro en Ajustes → Tema.",
+    "Cinco clásicos gratuitos de dominio público para empezar a leer.",
+    "Disponible en español, inglés, portugués, francés, alemán e italiano.",
+    "Solo fuentes abiertas y oficiales para portadas, fichas y novedades."
 )
 
 internal fun legalNotices(): List<LegalNotice> = listOf(
@@ -23,7 +24,7 @@ internal fun legalNotices(): List<LegalNotice> = listOf(
     LegalNotice("Open Library y Google Books", "Fuentes externas de metadatos y portadas. Los datos y las imágenes pertenecen a sus respectivos proveedores y titulares."),
     LegalNotice("Project Gutenberg", "Los clásicos de ejemplo son obras de dominio público descargadas de gutenberg.org a petición del usuario. Project Gutenberg es una marca de la Project Gutenberg Literary Archive Foundation, que no está vinculada a esta aplicación."),
     LegalNotice("Wikipedia y Wikcionario", "Fuentes externas para biografías, argumentos y definiciones. Cada contenido conserva las condiciones indicadas por Wikimedia."),
-    LegalNotice("DLE de la RAE", "${AppBrand.NAME} abre el sitio oficial para consultas voluntarias. La RAE y sus marcas no están vinculadas a esta aplicación."),
-    LegalNotice("Davefx y sherpa-onnx", "Motor de voz opcional que no se incluye en ${AppBrand.NAME}. Su página oficial se abre externamente y conserva su propia licencia."),
+    LegalNotice("DLE de la RAE", "{app} abre el sitio oficial para consultas voluntarias. La RAE y sus marcas no están vinculadas a esta aplicación."),
+    LegalNotice("Davefx y sherpa-onnx", "Motor de voz opcional que no se incluye en {app}. Su página oficial se abre externamente y conserva su propia licencia."),
     LegalNotice("Fuentes literarias", "Las novedades proceden de la API pública de Google Books. Los botones de Goodreads, Casa del Libro, YouTube y otras webs solo abren esas páginas cuando el usuario lo pide; la app no lee sus webs por su cuenta. Sus nombres y marcas pertenecen a sus titulares.")
 )

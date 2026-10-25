@@ -1,0 +1,22 @@
+Bookhollow brings your ebooks together in a personal, beautifully kept catalog that is easy to browse, with illustrated backgrounds that change with the genre you are reading.
+
+Link a folder through Android's document picker, import single books, or start with five free public-domain classics. Sync keeps your progress, notes and any corrections you make by hand.
+
+Main features:
+
+• Catalog with covers, authors, series, genres, sections and favorites.
+• Search by title, author, series and ISBN, with a barcode scanner.
+• Reader for EPUB, PDF, classic MOBI, AZW and FB2.
+• Read aloud with the voices installed on Android, even with the screen locked.
+• Bookmarks, highlights, notes, dictionary and progress resume.
+• Reading statistics, yearly challenge and recommendations calculated on your phone.
+• Dark mode, adjustable text size and accessible mode.
+• Offline copies and exportable backup.
+• Widget and shortcuts to continue reading.
+• Available in English, Spanish, Portuguese, French, German and Italian.
+
+Privacy:
+
+Bookhollow has no ads or analytics of its own and does not require an account. The ISBN scanner and translation use Google ML Kit, which may send Google technical usage data, never the content of your books. The camera and microphone are only requested for the ISBN scanner or voice search. The app never deletes books on its own.
+
+Covers, book details and new releases come from open, official sources: Open Library, Wikipedia, Google Books and Project Gutenberg.

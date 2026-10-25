@@ -1,32 +1,32 @@
 # Política de privacidad de Bookhollow
 
-Última actualización: 19 de octubre de 2026.
+Última actualización: 25 de octubre de 2026.
 
-Bookhollow es una aplicación personal de organización y lectura. No incluye publicidad ni analítica propia, y no exige crear una cuenta. Las funciones de Google ML Kit (escáner ISBN, traducción e identificación de idioma) pueden enviar a Google datos técnicos de uso y rendimiento conforme a sus condiciones; nunca el contenido de los libros ni las notas.
+Bookhollow es una aplicación de organización y lectura de libros digitales. No incluye publicidad ni analítica propia, y no exige crear una cuenta. Las funciones de Google ML Kit (escáner ISBN, traducción e identificación de idioma) pueden enviar a Google datos técnicos de uso y rendimiento conforme a sus condiciones; nunca el contenido de los libros ni las notas.
 
 ## Datos que guarda
 
-El catálogo, las portadas, el progreso de lectura, las notas, los subrayados y las preferencias se guardan localmente en el dispositivo. Si el usuario selecciona una carpeta de Google Drive u otro proveedor compatible con el selector de documentos de Android, la aplicación accede únicamente a los archivos autorizados por el usuario.
+El catálogo, las portadas, el progreso de lectura, las notas, los subrayados y las preferencias se guardan en el dispositivo. Si el usuario elige una carpeta de Google Drive u otro proveedor compatible con el selector de documentos de Android, la aplicación accede solo a los archivos que el usuario autoriza, y guarda allí un archivo de respaldo de su catálogo.
 
-Bookhollow desactiva las copias automáticas de datos de Android. La exportación y restauración de respaldos se realizan solo por decisión del usuario.
+Bookhollow desactiva las copias automáticas de datos de Android. La exportación y restauración de respaldos se hacen solo por decisión del usuario.
 
 ## Uso de Internet
 
-La conexión se utiliza al sincronizar con el proveedor de archivos elegido y al solicitar funciones que consultan información pública: metadatos de libros, portadas, noticias literarias, diccionario o traducción. Bookhollow no opera un servidor propio que reciba el catálogo personal del usuario.
+La conexión se usa para sincronizar con el proveedor de archivos elegido y para las funciones que consultan información pública cuando el usuario las utiliza: Open Library, Wikipedia, Wikidata y Wikcionario (fichas, biografías, definiciones), la API de Google Books (datos de libros y novedades) y Project Gutenberg (clásicos gratuitos). En esas consultas se envían los términos necesarios, como el título o el autor. Bookhollow no tiene un servidor propio que reciba la biblioteca del usuario.
 
 ## Permisos
 
-- Cámara: se solicita únicamente para escanear códigos ISBN.
-- Micrófono: se solicita únicamente para la búsqueda por voz.
-- Notificaciones y servicio multimedia: permiten mostrar y mantener los controles de lectura en voz alta.
-- Internet: permite las consultas y sincronizaciones iniciadas por el usuario.
+- Cámara: solo para escanear códigos ISBN.
+- Micrófono: solo para la búsqueda por voz.
+- Notificaciones y servicio multimedia: para mostrar los controles de la lectura en voz alta.
+- Internet: para las consultas y sincronizaciones que inicia el usuario.
 
-Los permisos opcionales pueden denegarse desde Android; el resto de la biblioteca seguirá funcionando, salvo la función concreta que dependa del permiso.
+Los permisos opcionales pueden denegarse desde Android; el resto de la aplicación sigue funcionando.
 
 ## Servicios y enlaces externos
 
-Las consultas públicas y enlaces abiertos por el usuario pueden quedar sujetos a las políticas del proveedor correspondiente. La voz Davefx es opcional y su descarga se abre en el navegador; Bookhollow no solicita permiso para instalar aplicaciones.
+Los botones que abren otras webs (Goodreads, Casa del Libro, YouTube, la RAE…) solo las abren cuando el usuario los pulsa, y esas webs aplican sus propias políticas. La voz Davefx es opcional: Bookhollow abre la página oficial del proyecto en el navegador y no pide permiso para instalar aplicaciones.
 
 ## Control del usuario
 
-El usuario puede exportar un respaldo, cambiar o revocar la carpeta autorizada desde Android y borrar los datos de Bookhollow desde los ajustes del sistema. La aplicación no elimina libros automáticamente durante sus tareas de mantenimiento.
+El usuario puede exportar un respaldo, cambiar o retirar el acceso a la carpeta desde Android y borrar los datos de Bookhollow desde los ajustes del sistema. La aplicación nunca borra libros por su cuenta.

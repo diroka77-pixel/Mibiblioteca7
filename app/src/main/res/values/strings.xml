@@ -1,9 +1,10 @@
 <resources>
-    <string name="app_name">Bookhollow</string>
-    <string name="shortcut_continue_short">Continuar leyendo</string>
-    <string name="shortcut_continue_long">Continuar el último libro</string>
-    <string name="shortcut_library_short">Abrir biblioteca</string>
-    <string name="shortcut_library_long">Abrir Bookhollow</string>
-    <string name="shortcut_import_short">Importar libro</string>
-    <string name="shortcut_import_long">Importar un libro en Bookhollow</string>
+    <!-- Idioma por defecto: inglés. El español está en values-es. -->
+    <string name="app_name" translatable="false">Bookhollow</string>
+    <string name="shortcut_continue_short">Continue reading</string>
+    <string name="shortcut_continue_long">Continue last book</string>
+    <string name="shortcut_library_short">Open library</string>
+    <string name="shortcut_library_long">Open Bookhollow</string>
+    <string name="shortcut_import_short">Import book</string>
+    <string name="shortcut_import_long">Import a book into Bookhollow</string>
 </resources>

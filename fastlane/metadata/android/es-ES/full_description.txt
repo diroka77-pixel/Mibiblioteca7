@@ -1,21 +1,22 @@
-Bookhollow reúne tus libros digitales en un catálogo personal, claro y fácil de consultar.
+Bookhollow reúne tus libros digitales en un catálogo personal, cuidado y fácil de consultar, con fondos ilustrados que cambian según el género de lo que lees.
 
-Puedes vincular una carpeta mediante el selector de documentos de Android, importar libros individuales y mantener el catálogo disponible en el dispositivo. La sincronización conserva el progreso, las notas y las correcciones realizadas manualmente.
+Vincula una carpeta mediante el selector de documentos de Android, importa libros sueltos o empieza con cinco clásicos gratuitos de dominio público. La sincronización conserva el progreso, las notas y las correcciones que hagas a mano.
 
 Funciones principales:
 
 • Catálogo con portadas, autores, sagas, géneros, secciones y favoritos.
-• Búsqueda por título, autor, saga, ISBN y contenido disponible.
-• Lectura de EPUB, PDF, MOBI clásico, AZW y FB2.
-• Lectura en voz alta con las voces instaladas en Android.
-• Marcadores, subrayados, notas y reanudación del progreso.
-• Estadísticas de lectura, objetivo anual y recomendaciones locales.
+• Búsqueda por título, autor, saga e ISBN, con escáner de códigos.
+• Lector de EPUB, PDF, MOBI clásico, AZW y FB2.
+• Lectura en voz alta con las voces instaladas en Android, también con la pantalla bloqueada.
+• Marcadores, subrayados, notas, diccionario y reanudación del progreso.
+• Estadísticas de lectura, reto anual y recomendaciones calculadas en tu teléfono.
+• Modo oscuro, tamaño de texto ajustable y modo accesible.
 • Copias sin conexión y respaldo exportable.
-• Mantenimiento seguro para detectar archivos o portadas con problemas.
 • Widget y accesos rápidos para continuar leyendo.
+• Disponible en español, inglés, portugués, francés, alemán e italiano.
 
 Privacidad:
 
-Bookhollow no incluye anuncios ni analítica propia y no exige crear una cuenta. El escáner ISBN y la traducción usan Google ML Kit, que puede enviar a Google datos técnicos de uso, nunca el contenido de tus libros. La cámara y el micrófono solo se solicitan al usar el escáner ISBN o la búsqueda por voz. La aplicación no elimina libros automáticamente durante sus tareas de mantenimiento.
+Bookhollow no incluye anuncios ni analítica propia y no exige crear una cuenta. El escáner ISBN y la traducción usan Google ML Kit, que puede enviar a Google datos técnicos de uso, nunca el contenido de tus libros. La cámara y el micrófono solo se solicitan al usar el escáner ISBN o la búsqueda por voz. La aplicación nunca borra libros por su cuenta.
 
-Algunas funciones consultan fuentes externas para obtener portadas, metadatos, noticias, definiciones o traducciones. El usuario puede revisar dentro de la aplicación la información de privacidad, los permisos, las atribuciones y un diagnóstico técnico antes de compartirlo.
+Las portadas, fichas y novedades proceden de fuentes abiertas y oficiales: Open Library, Wikipedia, Google Books y Project Gutenberg.

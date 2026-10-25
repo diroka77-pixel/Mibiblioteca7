@@ -291,7 +291,7 @@ private fun PublicBookCard(result: PublicBookResult, onOpen: () -> Unit, onWish:
                     Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                 else {
                     AppIcon("Libros", tint = Mahogany.copy(alpha = .55f), size = 38.dp)
-                    Text("Sin portada", fontSize = 9.sp, color = Mahogany.copy(alpha = .65f))
+                    Text(tr("Sin portada"), fontSize = 9.sp, color = Mahogany.copy(alpha = .65f))
                 }
             }
             Spacer(Modifier.width(14.dp))
@@ -300,22 +300,22 @@ private fun PublicBookCard(result: PublicBookResult, onOpen: () -> Unit, onWish:
                     color = Ink, fontSize = 17.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 if (result.author.isNotBlank()) Text(result.author, color = Mahogany,
                     fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (result.year.isNotBlank()) Text("Publicación: ${result.year}",
+                if (result.year.isNotBlank()) Text(trf("Publicación: {0}", result.year),
                     color = Mahogany.copy(alpha = .72f), fontSize = 12.sp)
                 if (result.categories.isNotEmpty()) Text(
                     result.categories.take(2).joinToString(" · "),
                     color = Mahogany.copy(alpha = .72f), fontSize = 11.sp,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (result.publisher.isNotBlank()) Text("Editorial: ${result.publisher}",
+                if (result.publisher.isNotBlank()) Text(trf("Editorial: {0}", result.publisher),
                     color = Mahogany.copy(alpha = .7f), fontSize = 11.sp, maxLines = 2)
                 if (result.summary.isNotBlank()) Text(result.summary, color = Ink.copy(alpha = .82f),
                     fontSize = 11.sp, lineHeight = 15.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                Text("Abrir ficha completa", color = Teal, fontSize = 12.sp,
+                Text(tr("Abrir ficha completa"), color = Teal, fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Button(onClick = onWish, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                     AppIcon("Favoritos", tint = Color.White, size = 17.dp)
-                    Spacer(Modifier.width(5.dp)); Text("Añadir a deseos", fontSize = 12.sp)
+                    Spacer(Modifier.width(5.dp)); Text(tr("Añadir a deseos"), fontSize = 12.sp)
                 }
             }
         }
@@ -325,7 +325,7 @@ private fun PublicBookCard(result: PublicBookResult, onOpen: () -> Unit, onWish:
 @Composable
 private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDetails?, wishListed: Boolean, onBack: () -> Unit, onWish: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-        TextButton(onClick = onBack) { Text("← Volver a resultados", color = Brass) }
+        TextButton(onClick = onBack) { Text(tr("← Volver a resultados"), color = Brass) }
         Surface(Modifier.fillMaxWidth(), color = Paper.copy(alpha = .98f), shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp)) {
             Column(Modifier.padding(18.dp)) {
                 Box(Modifier.fillMaxWidth().height(270.dp), contentAlignment = Alignment.Center) {
@@ -334,31 +334,31 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                     else if (details == null) CircularProgressIndicator(color = Brass)
                     else Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         AppIcon("Libros", tint = Mahogany.copy(alpha = .5f), size = 64.dp)
-                        Text("Portada no disponible", color = Mahogany.copy(alpha = .7f), fontSize = 12.sp)
+                        Text(tr("Portada no disponible"), color = Mahogany.copy(alpha = .7f), fontSize = 12.sp)
                     }
                 }
                 Text(result.title, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 28.sp, color = Ink)
                 Text(result.author.ifBlank { "Autor no disponible" }, fontSize = 18.sp, color = Mahogany)
                 Spacer(Modifier.height(10.dp))
-                Button(onClick = onWish, colors = ButtonDefaults.buttonColors(containerColor = Teal), modifier = Modifier.fillMaxWidth()) { Text(if (wishListed) "♥  Quitar de deseos" else "♡  Añadir a deseos") }
+                Button(onClick = onWish, colors = ButtonDefaults.buttonColors(containerColor = Teal), modifier = Modifier.fillMaxWidth()) { Text(if (wishListed) tr("♥  Quitar de deseos") else tr("♡  Añadir a deseos")) }
                 Spacer(Modifier.height(18.dp))
-                Text("Descripción", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
+                Text(tr("Descripción"), fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
                 Text(details?.summary?.ifBlank { "No hay descripción disponible en las fuentes públicas." } ?: "Cargando información pública…", color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
                 if (!details?.review.isNullOrBlank()) {
                     Spacer(Modifier.height(18.dp))
-                    Text("Reseña y contexto", fontFamily = FontFamily.Serif,
+                    Text(tr("Reseña y contexto"), fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
                     Text(details!!.review, color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
                 }
                 Spacer(Modifier.height(18.dp))
-                Text("Sobre el autor", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
+                Text(tr("Sobre el autor"), fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
                 val authorPicture by rememberPublicCover(details?.authorImageUrl.orEmpty())
                 if (authorPicture != null) Image(authorPicture!!.asImageBitmap(), "Foto de ${result.author}",
                     Modifier.fillMaxWidth().heightIn(max = 300.dp), contentScale = ContentScale.Fit,
                     alignment = Alignment.Center)
                 Text(details?.authorBio?.ifBlank { "No hay biografía disponible en las fuentes públicas." } ?: "Cargando biografía…", color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
                 Spacer(Modifier.height(18.dp))
-                Text("Detalles del libro", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
+                Text(tr("Detalles del libro"), fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
                 val sagaLabel = details?.saga.orEmpty() +
                     details?.sagaOrder?.takeIf(String::isNotBlank)?.let { " · Libro $it" }.orEmpty()
                 val rows = listOf("Publicación" to (details?.published ?: result.year),
@@ -370,7 +370,7 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 rows.forEach { (label, value) -> Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) { Text("$label: ", fontWeight = FontWeight.Bold, color = Ink); Text(value, color = Ink) } }
                 if (!details?.editions.isNullOrEmpty()) {
                     Spacer(Modifier.height(18.dp))
-                    Text("Ediciones y portadas", fontFamily = FontFamily.Serif,
+                    Text(tr("Ediciones y portadas"), fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(details!!.editions, key = { it.isbn.ifBlank { it.label + it.coverUrl } }) { edition ->
@@ -403,11 +403,11 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                             Uri.parse("https://www.youtube.com/results?search_query=$query")))
                     } catch (_: Exception) {
                         android.widget.Toast.makeText(videoContext,
-                            "No hay ninguna aplicación para abrir el enlace",
+                            tr("No hay ninguna aplicación para abrir el enlace"),
                             android.widget.Toast.LENGTH_LONG).show()
                     }
                 }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                    Text("Buscar tráileres y presentaciones en YouTube", color = Teal, textAlign = TextAlign.Center)
+                    Text(tr("Buscar tráileres y presentaciones en YouTube"), color = Teal, textAlign = TextAlign.Center)
                 }
                 Spacer(Modifier.height(6.dp))
             }
@@ -664,7 +664,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshLaunchNews(force: Boolean = false) {
         if (newsRefreshing || (!force &&
-            System.currentTimeMillis() - prefs.getLong("literary_news_v5_checked", 0L) < 12L * 60 * 60 * 1000)) return
+            System.currentTimeMillis() - prefs.getLong("literary_news_v5_checked_" + I18n.currentLanguage(), 0L) < 12L * 60 * 60 * 1000)) return
         newsRefreshing = true
         viewModelScope.launch {
             try {
@@ -678,7 +678,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     .put("title", it.title).put("url", it.url)
                     .put("image", it.imageUrl).put("date", it.releaseDate)) }
                 prefs.edit().putString("literary_news", array.toString())
-                    .putLong("literary_news_v5_checked", System.currentTimeMillis()).apply()
+                    .putLong("literary_news_v5_checked_" + I18n.currentLanguage(), System.currentTimeMillis()).apply()
             } catch (_: Exception) {
                 // Se conservan los próximos lanzamientos guardados si la fuente falla.
             } finally { newsRefreshing = false }
@@ -761,7 +761,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (revision == saveVersion && publishAfterSave) saveCloud()
             } catch (e: Exception) {
-                detailMessage = "No se pudo guardar el catálogo local: ${e.localizedMessage}"
+                detailMessage = trf("No se pudo guardar el catálogo local: {0}", e.localizedMessage)
             }
         }
     }
@@ -843,8 +843,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         ?.bufferedWriter()?.use { it.write(payload) }
                         ?: throw IllegalStateException("No se pudo escribir el respaldo")
                 }
-                message = "Respaldo de ${AppBrand.NAME} guardado."
-            } catch (e: Exception) { message = "No se pudo exportar: ${e.localizedMessage}" }
+                message = trApp("Respaldo de {app} guardado.")
+            } catch (e: Exception) { message = trf("No se pudo exportar: {0}", e.localizedMessage) }
         }
     }
 
@@ -863,9 +863,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 getApplication<Application>().contentResolver.openOutputStream(destination, "w")
                     ?.bufferedWriter(Charsets.UTF_8)?.use { it.write("\uFEFF"); it.write(rows) }
                     ?: error("No se pudo crear el archivo")
-                withContext(Dispatchers.Main) { message = "Catálogo exportado. Puedes abrirlo con Excel." }
+                withContext(Dispatchers.Main) { message = tr("Catálogo exportado. Puedes abrirlo con Excel.") }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) { message = "No se pudo exportar el catálogo: ${e.localizedMessage}" }
+                withContext(Dispatchers.Main) { message = trf("No se pudo exportar el catálogo: {0}", e.localizedMessage) }
             }
         }
     }
@@ -898,9 +898,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 getApplication<Application>().contentResolver.openOutputStream(destination, "w")
                     ?.bufferedWriter(Charsets.UTF_8)?.use { it.write(text) }
                     ?: error("No se pudo crear el archivo")
-                withContext(Dispatchers.Main) { message = "Cuaderno de lectura exportado." }
+                withContext(Dispatchers.Main) { message = tr("Cuaderno de lectura exportado.") }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) { message = "No se pudo exportar el cuaderno: ${e.localizedMessage}" }
+                withContext(Dispatchers.Main) { message = trf("No se pudo exportar el cuaderno: {0}", e.localizedMessage) }
             }
         }
     }
@@ -921,8 +921,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     message = if (books.isEmpty())
                         "Respaldo recibido. Selecciona tu carpeta de libros y sincroniza para recuperarlo."
                     else "$matched fichas restauradas. Las restantes se recuperarán al sincronizar."
-                } else message = "$matched fichas restauradas."
-            } catch (e: Exception) { message = "No se pudo importar: ${e.localizedMessage}" }
+                } else message = trf("{0} fichas restauradas.", matched)
+            } catch (e: Exception) { message = trf("No se pudo importar: {0}", e.localizedMessage) }
         }
     }
 
@@ -1180,12 +1180,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         sagaOrder = found.second.ifBlank { current.sagaOrder }
                     ) else current }
                     saveBooks()
-                    detailMessage = "Saga encontrada: ${found.first}" +
-                        found.second.takeIf(String::isNotBlank)?.let { " · número $it" }.orEmpty()
+                    detailMessage = trf("Saga encontrada: {0}", found.first) +
+                        found.second.takeIf(String::isNotBlank)?.let { trf(" · número {0}", it) }.orEmpty()
                     searchSagaCatalog(found.first, book)
                 }
             } catch (e: Exception) {
-                detailMessage = "No se pudo consultar la saga: ${e.localizedMessage ?: "sin conexión"}"
+                detailMessage = trf("No se pudo consultar la saga: {0}", e.localizedMessage ?: tr("sin conexión"))
             } finally { sagaSearches = sagaSearches - uri }
         }
     }
@@ -1217,7 +1217,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     delay(100)
                 }
                 if (changed > 0) saveBooks()
-                detailMessage = "Sagas revisadas: $changed libros identificados de ${targets.size}."
+                detailMessage = trf("Sagas revisadas: {0} libros identificados de {1}.", changed, targets.size)
             } finally { sagaOrganizing = false }
         }
     }
@@ -1234,7 +1234,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
         if (changed > 0) {
             saveBooks(); addActivity("Saga unificada · $clean · $changed libros")
-            detailMessage = "$changed libros agrupados como «$clean»."
+            detailMessage = trf("{0} libros agrupados como «{1}».", changed, clean)
         }
     }
 
@@ -1248,7 +1248,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val found = withContext(Dispatchers.IO) { fetchSagaCatalog(clean, book) }
                 if (found.isEmpty()) {
-                    detailMessage = "No se ha podido obtener el catálogo completo de «$clean»."
+                    detailMessage = trf("No se ha podido obtener el catálogo completo de «{0}».", clean)
                 } else {
                     sagaCatalogs = sagaCatalogs + (key to found)
                     val root = JSONObject()
@@ -1259,10 +1259,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         })
                     }
                     prefs.edit().putString("saga_catalogs", root.toString()).apply()
-                    detailMessage = "Saga comprobada: ${found.size} volúmenes encontrados."
+                    detailMessage = trf("Saga comprobada: {0} volúmenes encontrados.", found.size)
                 }
             } catch (e: Exception) {
-                detailMessage = "No se pudo comprobar la saga: ${e.localizedMessage ?: "sin conexión"}"
+                detailMessage = trf("No se pudo comprobar la saga: {0}", e.localizedMessage ?: tr("sin conexión"))
             } finally { sagaCatalogSearches = sagaCatalogSearches - key }
         }
     }
@@ -1283,16 +1283,16 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) { fetchGenresOnline(book) }
-                if (result.genres.isEmpty()) detailMessage = "No encontré géneros fiables para «${displayTitle(book)}». Puedes editarlos manualmente."
+                if (result.genres.isEmpty()) detailMessage = trf("No encontré géneros fiables para «{0}». Puedes editarlos manualmente.", displayTitle(book))
                 else {
                     val value = result.genres.joinToString(" · ")
                     updateGenre(uri, value)
                     prefs.edit().putString("genre_source_" + uri, result.source)
                         .putLong("genre_checked_" + uri, System.currentTimeMillis()).apply()
-                    detailMessage = "Géneros actualizados: $value"
+                    detailMessage = trf("Géneros actualizados: {0}", value)
                 }
             } catch (e: Exception) {
-                detailMessage = "No se pudieron consultar los catálogos: ${e.localizedMessage ?: "comprueba la conexión"}"
+                detailMessage = trf("No se pudieron consultar los catálogos: {0}", e.localizedMessage ?: tr("comprueba la conexión"))
             } finally { genreSearches = genreSearches - uri }
         }
     }
@@ -1389,7 +1389,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 books = books.map { if (it.uri == uri) it.copy(cover = bytes, coverSource = "Imagen elegida por ti") else it }
                 saveCloud()
-            } catch (e: Exception) { detailMessage = "No se pudo cambiar la portada: ${e.localizedMessage}" }
+            } catch (e: Exception) { detailMessage = trf("No se pudo cambiar la portada: {0}", e.localizedMessage) }
         }
     }
 
@@ -1513,7 +1513,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshIncomplete() {
         if (bulkInfoLoading) return
         val targets = books.filter(::needsDetails).map { it.uri }
-        if (targets.isEmpty()) { message = "Todas las fichas tienen portada y datos."; return }
+        if (targets.isEmpty()) { message = tr("Todas las fichas tienen portada y datos."); return }
         bulkJob = viewModelScope.launch {
             bulkInfoLoading = true; bulkProgress = 0
             try {
@@ -1558,7 +1558,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     delay(180)
                 }
                 if (changed) saveBooks()
-                message = "Clasificación terminada: " + books.count { it.genre.isNotBlank() } + " libros con género."
+                message = tr("Clasificación terminada: ") + books.count { it.genre.isNotBlank() } + " libros con género."
             } finally { genreClassifying = false }
         }
     }
@@ -1684,11 +1684,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 if (interactive) {
                     importedBookUri = imported.uri
                     val format = detectImportedBookFormat(imported.uri.lastPathSegment.orEmpty(), "")
-                    message = "${format?.label ?: "Libro"} añadido a ${AppBrand.NAME}"
+                    message = trf("{0} añadido a {app}", format?.label ?: tr("Libro"))
                 }
                 return true
             } catch (e: Exception) {
-                if (interactive) message = "No se pudo abrir el archivo: ${e.localizedMessage ?: "archivo no válido"}"
+                if (interactive) message = trf("No se pudo abrir el archivo: {0}", e.localizedMessage ?: tr("archivo no válido"))
                 return false
             }
     }
@@ -1715,16 +1715,16 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             } finally {
                 sampleBooksProgress = null
                 message = when (added) {
-                    0 -> "No se pudieron descargar los clásicos. Comprueba la conexión e inténtalo de nuevo."
-                    sampleBooks.size -> "Se han añadido $added clásicos gratuitos a tu biblioteca."
-                    else -> "Se han añadido $added de ${sampleBooks.size} clásicos. Puedes volver a intentarlo para los que faltan."
+                    0 -> tr("No se pudieron descargar los clásicos. Comprueba la conexión e inténtalo de nuevo.")
+                    sampleBooks.size -> trf("Se han añadido {0} clásicos gratuitos a tu biblioteca.", added)
+                    else -> trf("Se han añadido {0} de {1} clásicos. Puedes volver a intentarlo para los que faltan.", added, sampleBooks.size)
                 }
             }
         }
     }
 
     fun selectFolder(uri: Uri) {
-        if (syncing) { message = "Espera a que termine la sincronización antes de cambiar de carpeta."; return }
+        if (syncing) { message = tr("Espera a que termine la sincronización antes de cambiar de carpeta."); return }
         dismissFirstRunGuide()
         val app = getApplication<Application>()
         val resolver = app.contentResolver
@@ -1735,12 +1735,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         } catch (_: Exception) {
             try {
                 resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                message = "Drive ha concedido solo lectura; no se podrán borrar archivos."
+                message = tr("Drive ha concedido solo lectura; no se podrán borrar archivos.")
                 true
             } catch (_: Exception) {
                 // El URI sigue siendo válido durante esta sesión. Se conserva para
                 // poder explicar y reparar el permiso sin perder la selección.
-                message = "La carpeta se ha seleccionado, pero Android no confirmó el permiso permanente."
+                message = tr("La carpeta se ha seleccionado, pero Android no confirmó el permiso permanente.")
                 false
             }
         }
@@ -1759,7 +1759,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun sync(uri: Uri? = prefs.getString(folderKey, null)?.let(Uri::parse), changedFolder: Boolean = false) {
         if (uri == null) {
-            message = "Selecciona primero tu carpeta de libros."
+            message = tr("Selecciona primero tu carpeta de libros.")
             lastDriveFailure = DriveFailureKind.INVALID_FOLDER
             return
         }
@@ -1874,7 +1874,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 // Recuperar favoritos, progreso, secciones y ediciones solo
                 // después de que la carpeta haya confirmado sus archivos.
                 try { restoreCloud(uri) } catch (e: Exception) {
-                    detailMessage = "La biblioteca se sincronizó; no se pudo aplicar el respaldo: ${e.localizedMessage}"
+                    detailMessage = trf("La biblioteca se sincronizó; no se pudo aplicar el respaldo: {0}", e.localizedMessage)
                 }
                 syncCount = result.size
                 prefs.getString("pending_backup", null)?.let { pending ->
@@ -1907,7 +1907,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 prefs.edit().putString("folder_name", folderName).apply()
                 // Una sincronización correcta no deja una advertencia permanente en el catálogo.
                 // El detalle sigue disponible en Centro de tareas y en el diagnóstico.
-                message = "Sincronización completada · ${result.size} archivos revisados"
+                message = trf("Sincronización completada · {0} archivos revisados", result.size)
                 lastDriveFailure = null
                 completed = true
                 } catch (e: Exception) {
@@ -2005,7 +2005,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun forceMissingCovers() {
         if (coverUpdateRunning) return
         googleBooksRetryAt = 0L
-        message = "Buscando portadas para ${books.count { it.cover == null }} libros…"
+        message = trf("Buscando portadas para {0} libros…", books.count { it.cover == null })
         refreshMissingCovers()
     }
 
@@ -2035,7 +2035,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     detailMessage = "Portada incorporada a la ficha."
                 }
             } catch (e: Exception) {
-                detailMessage = "No se pudo recuperar la portada: ${e.localizedMessage ?: "comprueba la conexión"}"
+                detailMessage = trf("No se pudo recuperar la portada: {0}", e.localizedMessage ?: tr("comprueba la conexión"))
             } finally { coverLoading = null }
         }
     }
@@ -2056,9 +2056,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     books = books.filterNot { it.uri == book.uri }
                     saveBooks()
                     message = null
-                } else message = "No se pudo borrar. Comprueba el permiso de escritura de Drive."
+                } else message = tr("No se pudo borrar. Comprueba el permiso de escritura de Drive.")
             } catch (e: Exception) {
-                message = "No se pudo borrar: ${e.localizedMessage ?: "sin permiso"}"
+                message = trf("No se pudo borrar: {0}", e.localizedMessage ?: tr("sin permiso"))
             }
         }
     }
@@ -2188,7 +2188,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         fallback.bioSource)
                 }
             } catch (e: Exception) {
-                message = "No se pudo consultar la información: ${e.localizedMessage ?: "comprueba la conexión"}"
+                message = trf("No se pudo consultar la información: {0}", e.localizedMessage ?: tr("comprueba la conexión"))
             } finally { infoLoading = null }
         }
     }
@@ -2322,9 +2322,9 @@ private fun LibraryStatusBanner(
             }
             when (failure) {
                 DriveFailureKind.PERMISSION, DriveFailureKind.INVALID_FOLDER ->
-                    TextButton(onClick = onChooseFolder) { Text("Elegir carpeta", color = Color.White) }
+                    TextButton(onClick = onChooseFolder) { Text(tr("Elegir carpeta"), color = Color.White) }
                 DriveFailureKind.OFFLINE, DriveFailureKind.PROVIDER_BUSY, DriveFailureKind.UNKNOWN ->
-                    TextButton(onClick = onRetry) { Text("Reintentar", color = Color.White) }
+                    TextButton(onClick = onRetry) { Text(tr("Reintentar"), color = Color.White) }
                 null -> Unit
             }
         }
@@ -3351,7 +3351,7 @@ private fun openGoodreads(context: Context, book: Book? = null) {
     if (book == null) {
         val launch = context.packageManager.getLaunchIntentForPackage("com.goodreads")
         if (launch != null) context.startActivity(launch)
-        else android.widget.Toast.makeText(context, "La aplicación de reseñas no está instalada", android.widget.Toast.LENGTH_LONG).show()
+        else android.widget.Toast.makeText(context, tr("La aplicación de reseñas no está instalada"), android.widget.Toast.LENGTH_LONG).show()
         return
     }
     openGoodreadsUrl(context, goodreadsLink(book))
@@ -3375,7 +3375,7 @@ private fun openGoodreadsUrl(context: Context, url: String) {
     catch (_: Exception) {
         try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
         catch (_: Exception) {
-            android.widget.Toast.makeText(context, "No hay ninguna aplicación para abrir el enlace", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(context, tr("No hay ninguna aplicación para abrir el enlace"), android.widget.Toast.LENGTH_LONG).show()
         }
     }
 }
@@ -3415,7 +3415,7 @@ private fun shareBookFile(context: Context, book: Book) {
         }
         context.startActivity(Intent.createChooser(send, "Compartir libro"))
     } catch (_: Exception) {
-        android.widget.Toast.makeText(context, "No se pudo compartir este archivo de Drive",
+        android.widget.Toast.makeText(context, tr("No se pudo compartir este archivo de Drive"),
             android.widget.Toast.LENGTH_LONG).show()
     }
 }
@@ -3431,7 +3431,7 @@ private fun searchInGoogleApp(context: Context, query: String) {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
                 .setPackage("com.google.android.googlequicksearchbox"))
         } catch (_: Exception) {
-            android.widget.Toast.makeText(context, "No se encontró la aplicación de Google", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(context, tr("No se encontró la aplicación de Google"), android.widget.Toast.LENGTH_LONG).show()
         }
     }
 }
@@ -3454,7 +3454,7 @@ private fun openChrome(context: Context, url: String) {
     } catch (_: Exception) {
         val launch = context.packageManager.getLaunchIntentForPackage("com.android.chrome")
         if (launch != null) context.startActivity(launch)
-        else android.widget.Toast.makeText(context, "Chrome no está instalada", android.widget.Toast.LENGTH_LONG).show()
+        else android.widget.Toast.makeText(context, tr("Chrome no está instalada"), android.widget.Toast.LENGTH_LONG).show()
     }
 }
 
@@ -3463,7 +3463,7 @@ private fun openCasaDelLibro(context: Context) {
     val launch = manager.getLaunchIntentForPackage("com.tagus")
         ?: manager.getLaunchIntentForPackage("com.casadellibro.lecturadigital")
     if (launch != null) context.startActivity(launch)
-    else android.widget.Toast.makeText(context, "No se encontró Casa del Libro en el teléfono",
+    else android.widget.Toast.makeText(context, tr("No se encontró Casa del Libro en el teléfono"),
         android.widget.Toast.LENGTH_LONG).show()
 }
 
@@ -3670,7 +3670,7 @@ private fun openCasaDelLibro(context: Context) {
     var sagaRenameTarget by remember { mutableStateOf("") }
     if (wallpaperPickerOpen) AlertDialog(
         onDismissRequest = { wallpaperPickerOpen = false },
-        title = { Text("Elegir fondo de pantalla") },
+        title = { Text(tr("Elegir fondo de pantalla")) },
         text = {
             LazyColumn(Modifier.heightIn(max = 440.dp)) {
                 items(listOf("Automático", "Clásico", "Portada") + wallpaperGenres) { mode ->
@@ -3686,12 +3686,12 @@ private fun openCasaDelLibro(context: Context) {
             }
         },
         confirmButton = { LibraryTextButton(onClick = { wallpaperPickerOpen = false }) {
-            Text("Cerrar")
+            Text(tr("Cerrar"))
         } }
     )
     if (animationPickerOpen) AlertDialog(
         onDismissRequest = { animationPickerOpen = false },
-        title = { Text("Movimiento y fluidez") },
+        title = { Text(tr("Movimiento y fluidez")) },
         text = { Column {
             listOf("Equilibrada", "Suave", "Sin animaciones").forEach { mode ->
                 Row(Modifier.fillMaxWidth().clickable {
@@ -3704,10 +3704,10 @@ private fun openCasaDelLibro(context: Context) {
                 }
             }
         } },
-        confirmButton = { LibraryTextButton(onClick = { animationPickerOpen = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { animationPickerOpen = false }) { Text(tr("Cerrar")) } })
     if (textSizePickerOpen) AlertDialog(
         onDismissRequest = { textSizePickerOpen = false },
-        title = { Text("Tamaño del texto") },
+        title = { Text(tr("Tamaño del texto")) },
         text = { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             listOf("Normal" to 1f, "Grande" to 1.15f, "Muy grande" to 1.3f).forEach { (label, scale) ->
                 Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable {
@@ -3718,40 +3718,40 @@ private fun openCasaDelLibro(context: Context) {
                     Text(label, fontSize = 16.sp)
                 }
             }
-            Text("Se suma al tamaño de letra configurado en Android.",
+            Text(tr("Se suma al tamaño de letra configurado en Android."),
                 color = Mahogany.copy(alpha = .76f), fontSize = 12.sp,
                 modifier = Modifier.padding(top = 8.dp))
         } },
-        confirmButton = { LibraryTextButton(onClick = { textSizePickerOpen = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { textSizePickerOpen = false }) { Text(tr("Cerrar")) } })
     if (addingSection) AlertDialog(
         onDismissRequest = { addingSection = false },
-        title = { Text("Nueva sección") },
-        text = { OutlinedTextField(sectionName, { sectionName = it }, label = { Text("Nombre") }) },
-        confirmButton = { LibraryTextButton(onClick = { vm.addSection(sectionName); sectionName = ""; addingSection = false }) { Text("Crear") } },
-        dismissButton = { LibraryTextButton(onClick = { addingSection = false }) { Text("Cancelar") } }
+        title = { Text(tr("Nueva sección")) },
+        text = { OutlinedTextField(sectionName, { sectionName = it }, label = { Text(tr("Nombre")) }) },
+        confirmButton = { LibraryTextButton(onClick = { vm.addSection(sectionName); sectionName = ""; addingSection = false }) { Text(tr("Crear")) } },
+        dismissButton = { LibraryTextButton(onClick = { addingSection = false }) { Text(tr("Cancelar")) } }
     )
     sectionToDelete?.let { name -> AlertDialog(
         onDismissRequest = { sectionToDelete = null },
-        title = { Text("Eliminar sección") },
+        title = { Text(tr("Eliminar sección")) },
         text = { Text("Se eliminará la sección «$name». Los libros permanecerán en la biblioteca.") },
-        confirmButton = { LibraryTextButton(onClick = { vm.deleteSection(name); sectionToDelete = null }) { Text("Eliminar") } },
-        dismissButton = { LibraryTextButton(onClick = { sectionToDelete = null }) { Text("Cancelar") } }
+        confirmButton = { LibraryTextButton(onClick = { vm.deleteSection(name); sectionToDelete = null }) { Text(tr("Eliminar")) } },
+        dismissButton = { LibraryTextButton(onClick = { sectionToDelete = null }) { Text(tr("Cancelar")) } }
     ) }
     if (addWishDialog) AlertDialog(
         onDismissRequest = { addWishDialog = false },
-        title = { Text("Añadir a la lista de deseos") },
+        title = { Text(tr("Añadir a la lista de deseos")) },
         text = { Column {
-            OutlinedTextField(wishTitle, { wishTitle = it }, label = { Text("Título") })
-            OutlinedTextField(wishUrl, { wishUrl = it }, label = { Text("Enlace opcional") })
+            OutlinedTextField(wishTitle, { wishTitle = it }, label = { Text(tr("Título")) })
+            OutlinedTextField(wishUrl, { wishUrl = it }, label = { Text(tr("Enlace opcional")) })
         } },
         confirmButton = { LibraryTextButton(onClick = {
             vm.addGoodreadsWish(wishTitle, wishUrl); addWishDialog = false; wishTitle = ""; wishUrl = ""
-        }) { Text("Añadir") } },
-        dismissButton = { LibraryTextButton(onClick = { addWishDialog = false }) { Text("Cancelar") } }
+        }) { Text(tr("Añadir")) } },
+        dismissButton = { LibraryTextButton(onClick = { addWishDialog = false }) { Text(tr("Cancelar")) } }
     )
     if (publicSearchOpen) AlertDialog(
         onDismissRequest = { publicSearchOpen = false; selectedPublicResult = null },
-        title = { Text("Consultar libros públicos", fontFamily = FontFamily.Serif, color = Ink) },
+        title = { Text(tr("Consultar libros públicos"), fontFamily = FontFamily.Serif, color = Ink) },
         text = {
             Column(Modifier.fillMaxWidth()) {
                 DiscoverSearchField(
@@ -3782,7 +3782,7 @@ private fun openCasaDelLibro(context: Context) {
                 Spacer(Modifier.height(10.dp))
                 if (publicSearching) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
                 if (!publicSearching && publicQuery.isNotBlank() && publicResults.isEmpty())
-                    Text("No se han encontrado resultados.", color = Mahogany)
+                    Text(tr("No se han encontrado resultados."), color = Mahogany)
                 if (selectedPublicResult == null) {
                     LazyColumn(Modifier.heightIn(max = 420.dp)) {
                         items(publicResults, key = { it.sourceUrl.ifBlank { it.title + "|" + it.author } }) { result ->
@@ -3811,21 +3811,21 @@ private fun openCasaDelLibro(context: Context) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { publicSearchOpen = false; selectedPublicResult = null }) { Text("Cerrar") } }
+        confirmButton = { TextButton(onClick = { publicSearchOpen = false; selectedPublicResult = null }) { Text(tr("Cerrar")) } }
     )
     sagaRenameSource?.let { source -> AlertDialog(
         onDismissRequest = { sagaRenameSource = null },
-        title = { Text("Unificar nombre de saga") },
+        title = { Text(tr("Unificar nombre de saga")) },
         text = { Column {
             Text("Todos los libros agrupados como «$source» usarán el nuevo nombre.")
             OutlinedTextField(sagaRenameTarget, { sagaRenameTarget = it },
-                label = { Text("Nombre definitivo") }, singleLine = true)
+                label = { Text(tr("Nombre definitivo")) }, singleLine = true)
         } },
         confirmButton = { LibraryTextButton(onClick = {
             vm.renameSagaGroup(source, sagaRenameTarget)
             sagaRenameSource = null; sagaRenameTarget = ""
-        }, enabled = sagaRenameTarget.isNotBlank()) { Text("Unificar") } },
-        dismissButton = { LibraryTextButton(onClick = { sagaRenameSource = null }) { Text("Cancelar") } }
+        }, enabled = sagaRenameTarget.isNotBlank()) { Text(tr("Unificar")) } },
+        dismissButton = { LibraryTextButton(onClick = { sagaRenameSource = null }) { Text(tr("Cancelar")) } }
     ) }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
     val bookPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -3833,11 +3833,11 @@ private fun openCasaDelLibro(context: Context) {
     }
     if (vm.showFirstRunGuide) AlertDialog(
         onDismissRequest = vm::dismissFirstRunGuide,
-        title = { Text("Bienvenido a ${AppBrand.NAME}", fontFamily = FontFamily.Serif,
+        title = { Text(trApp("Bienvenido a {app}"), fontFamily = FontFamily.Serif,
             fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Conecta la carpeta donde guardas tus libros. La aplicación creará el catálogo y conservará tus datos en el teléfono.")
+                Text(tr("Conecta la carpeta donde guardas tus libros. La aplicación creará el catálogo y conservará tus datos en el teléfono."))
                 listOf(
                     "1" to "Elige la carpeta Libros de Google Drive.",
                     "2" to "Pulsa Usar esta carpeta en la pantalla de Android.",
@@ -3854,22 +3854,22 @@ private fun openCasaDelLibro(context: Context) {
                         Text(instruction, color = Ink, modifier = Modifier.weight(1f))
                     }
                 }
-                Text("${AppBrand.NAME} no mueve ni elimina tus archivos durante la sincronización.",
+                Text(trApp("{app} no mueve ni elimina tus archivos durante la sincronización."),
                     color = Mahogany.copy(alpha = .78f), fontSize = 12.sp)
             }
         },
         confirmButton = { LibraryTextButton(onClick = {
             vm.dismissFirstRunGuide(); folderPicker.launch(null)
-        }) { Text("Elegir carpeta") } },
-        dismissButton = { TextButton(onClick = vm::dismissFirstRunGuide) { Text("Explorar primero") } }
+        }) { Text(tr("Elegir carpeta")) } },
+        dismissButton = { TextButton(onClick = vm::dismissFirstRunGuide) { Text(tr("Explorar primero")) } }
     )
     if (vm.showReleaseNotes && !vm.showFirstRunGuide) AlertDialog(
         onDismissRequest = vm::dismissReleaseNotes,
-        title = { Text("Novedades de ${AppBrand.NAME}") },
+        title = { Text(trApp("Novedades de {app}")) },
         text = { Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            currentReleaseNotes().forEach { note -> Text("• $note", fontSize = 13.sp) }
+            currentReleaseNotes().forEach { note -> Text("• " + trApp(note), fontSize = 13.sp) }
         } },
-        confirmButton = { LibraryTextButton(onClick = vm::dismissReleaseNotes) { Text("Entendido") } }
+        confirmButton = { LibraryTextButton(onClick = vm::dismissReleaseNotes) { Text(tr("Entendido")) } }
     )
     LaunchedEffect(vm.importedBookUri, vm.books) {
         vm.importedBookUri?.let { uri ->
@@ -4024,7 +4024,7 @@ private fun openCasaDelLibro(context: Context) {
                     it.format == Barcode.FORMAT_EAN_13 || it.format == Barcode.FORMAT_EAN_8 }
                     .mapNotNull { it.rawValue }.firstOrNull()
                 if (isbn != null) { vm.query = isbn; switchTab("Biblioteca") }
-                else android.widget.Toast.makeText(context, "No se ha detectado un ISBN. Acerca más la cámara.",
+                else android.widget.Toast.makeText(context, tr("No se ha detectado un ISBN. Acerca más la cámara."),
                     android.widget.Toast.LENGTH_LONG).show()
             }
     }
@@ -4056,10 +4056,10 @@ private fun openCasaDelLibro(context: Context) {
             override fun onError(error: Int) {
                 voiceListening = false
                 val message = when (error) {
-                    SpeechRecognizer.ERROR_NO_MATCH -> "No he entendido la búsqueda. Inténtalo otra vez."
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No he oído ninguna búsqueda."
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Activa el permiso del micrófono."
-                    else -> "No se ha podido reconocer la voz."
+                    SpeechRecognizer.ERROR_NO_MATCH -> tr("No he entendido la búsqueda. Inténtalo otra vez.")
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> tr("No he oído ninguna búsqueda.")
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> tr("Activa el permiso del micrófono.")
+                    else -> tr("No se ha podido reconocer la voz.")
                 }
                 android.widget.Toast.makeText(context, message,
                     android.widget.Toast.LENGTH_SHORT).show()
@@ -4089,7 +4089,7 @@ private fun openCasaDelLibro(context: Context) {
     val microphonePermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) startVoiceWhenPermitted = true
-        else android.widget.Toast.makeText(context, "Se necesita permiso para usar el micrófono.",
+        else android.widget.Toast.makeText(context, tr("Se necesita permiso para usar el micrófono."),
             android.widget.Toast.LENGTH_LONG).show()
     }
     LaunchedEffect(startVoiceWhenPermitted) {
@@ -4105,7 +4105,7 @@ private fun openCasaDelLibro(context: Context) {
     fun launchVoiceSearch(publicSearch: Boolean = false) {
         if (speechRecognizer == null) {
             android.widget.Toast.makeText(context,
-                "El reconocimiento de voz no está disponible.",
+                tr("El reconocimiento de voz no está disponible."),
                 android.widget.Toast.LENGTH_LONG).show()
             return
         }
@@ -4296,7 +4296,7 @@ private fun openCasaDelLibro(context: Context) {
     }
     if (genrePickerOpen) AlertDialog(
         onDismissRequest = { genrePickerOpen = false; genreSearch = "" },
-        title = { Text("Filtrar géneros") },
+        title = { Text(tr("Filtrar géneros")) },
         text = {
             Column(Modifier.fillMaxWidth()) {
                 OutlinedTextField(
@@ -4305,10 +4305,10 @@ private fun openCasaDelLibro(context: Context) {
                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                     trailingIcon = {
                         if (genreSearch.isNotEmpty()) IconButton(onClick = { genreSearch = "" }) {
-                            Icon(Icons.Outlined.Close, contentDescription = "Borrar búsqueda")
+                            Icon(Icons.Outlined.Close, contentDescription = tr("Borrar búsqueda"))
                         }
                     },
-                    placeholder = { Text("Escribe para filtrar géneros") }
+                    placeholder = { Text(tr("Escribe para filtrar géneros")) }
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -4321,11 +4321,11 @@ private fun openCasaDelLibro(context: Context) {
                     TextButton(
                         onClick = { draftAllGenres = true; draftGenres = emptySet() },
                         enabled = !draftAllGenres
-                    ) { Text("Marcar todos") }
+                    ) { Text(tr("Marcar todos")) }
                     TextButton(
                         onClick = { draftAllGenres = false; draftGenres = emptySet() },
                         enabled = draftAllGenres || draftGenres.isNotEmpty()
-                    ) { Text("Desmarcar todos") }
+                    ) { Text(tr("Desmarcar todos")) }
                 }
                 LazyColumn(state = genrePickerListState, modifier = Modifier.heightIn(max = 320.dp)) {
                     items(matchingGenres, key = { it }) { genre ->
@@ -4342,7 +4342,7 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                     if (matchingGenres.isEmpty()) item {
-                        Text("No hay géneros que coincidan con «${genreSearch.trim()}».",
+                        Text(trf("No hay géneros que coincidan con «{0}».", genreSearch.trim()),
                             Modifier.padding(12.dp))
                     }
                 }
@@ -4354,7 +4354,7 @@ private fun openCasaDelLibro(context: Context) {
                 selectedGenres = if (draftAllGenres) emptySet() else draftGenres intersect allGenres.toSet()
                 genrePickerOpen = false
                 genreSearch = ""
-            }) { Text("Listo") }
+            }) { Text(tr("Listo")) }
         }
     )
     val groupMode = if (tab == "Secciones") "Secciones" else if (tab == "Géneros") "Géneros" else if (tab == "Inicio") "Todos" else vm.groupMode
@@ -4463,27 +4463,27 @@ private fun openCasaDelLibro(context: Context) {
         var plotDraft by remember(uri, found) { mutableStateOf(found.plot) }
         var bioDraft by remember(uri, found) { mutableStateOf(found.bio) }
         AlertDialog(onDismissRequest = vm::dismissCandidate,
-            title = { Text("Revisar datos encontrados") },
+            title = { Text(tr("Revisar datos encontrados")) },
             text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
-                Text("Comprueba que corresponden a este libro antes de guardarlos.")
-                OutlinedTextField(authorDraft, { authorDraft = it }, label = { Text("Autor") })
-                Text("Argumento · " + found.plotSource.ifBlank { "Sin fuente" }, fontSize = 12.sp)
+                Text(tr("Comprueba que corresponden a este libro antes de guardarlos."))
+                OutlinedTextField(authorDraft, { authorDraft = it }, label = { Text(tr("Autor")) })
+                Text(tr("Argumento · ") + found.plotSource.ifBlank { "Sin fuente" }, fontSize = 12.sp)
                 OutlinedTextField(plotDraft, { plotDraft = it }, minLines = 3,
-                    label = { Text("Argumento") })
-                Text("Biografía · " + found.bioSource.ifBlank { "Sin fuente" }, fontSize = 12.sp)
+                    label = { Text(tr("Argumento")) })
+                Text(tr("Biografía · ") + found.bioSource.ifBlank { "Sin fuente" }, fontSize = 12.sp)
                 OutlinedTextField(bioDraft, { bioDraft = it }, minLines = 3,
-                    label = { Text("Sobre el autor") })
+                    label = { Text(tr("Sobre el autor")) })
             } },
             confirmButton = { LibraryTextButton(onClick = {
                 vm.acceptCandidate(uri, found.copy(author = authorDraft.trim(),
                     plot = plotDraft.trim(), bio = bioDraft.trim(),
                     plotSource = if (plotDraft.trim() == found.plot) found.plotSource else "Revisado por ti",
                     bioSource = if (bioDraft.trim() == found.bio) found.bioSource else "Revisado por ti"))
-            }) { Text("Guardar datos") } },
-            dismissButton = { LibraryTextButton(onClick = vm::dismissCandidate) { Text("Cancelar") } })
+            }) { Text(tr("Guardar datos")) } },
+            dismissButton = { LibraryTextButton(onClick = vm::dismissCandidate) { Text(tr("Cancelar")) } })
     }
     if (organizeSections) AlertDialog(onDismissRequest = { organizeSections = false },
-        title = { Text("Organizar secciones") },
+        title = { Text(tr("Organizar secciones")) },
         text = { Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
             vm.sections.forEach { section ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -4497,31 +4497,31 @@ private fun openCasaDelLibro(context: Context) {
                     IconButton(onClick = { sectionToDelete = section }) { AppIcon("Borrar", "Eliminar sección") }
                 }
             }
-            if (vm.sections.isEmpty()) Text("Aún no hay secciones.")
+            if (vm.sections.isEmpty()) Text(tr("Aún no hay secciones."))
         } },
-        confirmButton = { LibraryTextButton(onClick = { organizeSections = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { organizeSections = false }) { Text(tr("Cerrar")) } })
     sectionToRename?.let { original -> AlertDialog(
         onDismissRequest = { sectionToRename = null },
-        title = { Text("Cambiar nombre") },
+        title = { Text(tr("Cambiar nombre")) },
         text = { OutlinedTextField(renameSectionName, { renameSectionName = it },
-            label = { Text("Nombre de la sección") }, singleLine = true) },
+            label = { Text(tr("Nombre de la sección")) }, singleLine = true) },
         confirmButton = { LibraryTextButton(onClick = {
             vm.renameSection(original, renameSectionName)
             sectionToRename = null
-        }) { Text("Guardar") } },
-        dismissButton = { LibraryTextButton(onClick = { sectionToRename = null }) { Text("Cancelar") } }
+        }) { Text(tr("Guardar")) } },
+        dismissButton = { LibraryTextButton(onClick = { sectionToRename = null }) { Text(tr("Cancelar")) } }
     ) }
     if (duplicateDialog) AlertDialog(onDismissRequest = { duplicateDialog = false },
-        title = { Text("Posibles duplicados") },
+        title = { Text(tr("Posibles duplicados")) },
         text = { Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
             if (!duplicateScanComplete) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(10.dp))
-                    Text("Comparando libros…")
+                    Text(tr("Comparando libros…"))
                 }
             } else if (duplicateGroups.isEmpty()) {
-                Text("No se han encontrado posibles duplicados.")
+                Text(tr("No se han encontrado posibles duplicados."))
             } else duplicateGroups.forEach { group ->
                 Text(displayTitle(group.first()), fontFamily = FontFamily.Serif,
                     fontWeight = FontWeight.Bold, color = Mahogany)
@@ -4530,35 +4530,35 @@ private fun openCasaDelLibro(context: Context) {
                         Text(displayAuthor(copy) + " · " + readableSize(copy.sourceSize),
                             modifier = Modifier.weight(1f), fontSize = 12.sp)
                         LibraryTextButton(onClick = { duplicateDialog = false; selected = copy }) {
-                            Text("Revisar")
+                            Text(tr("Revisar"))
                         }
                     }
                 }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
             }
         } },
-        confirmButton = { LibraryTextButton(onClick = { duplicateDialog = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { duplicateDialog = false }) { Text(tr("Cerrar")) } })
     vm.newBooksNotice?.let { titles ->
         AlertDialog(onDismissRequest = vm::clearNewBooksNotice,
-            title = { Text("Nuevas incorporaciones") },
+            title = { Text(tr("Nuevas incorporaciones")) },
             text = { Column {
-                Text("La sincronización ha encontrado estos libros nuevos:")
+                Text(tr("La sincronización ha encontrado estos libros nuevos:"))
                 Spacer(Modifier.height(10.dp))
                 Text(titles, fontWeight = FontWeight.SemiBold)
             } },
             confirmButton = {
-                LibraryTextButton(onClick = vm::clearNewBooksNotice) { Text("Aceptar") }
+                LibraryTextButton(onClick = vm::clearNewBooksNotice) { Text(tr("Aceptar")) }
             })
     }
     if (showSyncReport) AlertDialog(onDismissRequest = { showSyncReport = false },
-        title = { Text("Sincronización de Drive") },
+        title = { Text(tr("Sincronización de Drive")) },
         text = { Column {
             Text(vm.syncReport)
             Spacer(Modifier.height(14.dp))
-            Text("Diagnóstico", fontWeight = FontWeight.Bold)
+            Text(tr("Diagnóstico"), fontWeight = FontWeight.Bold)
             Text(vm.driveDiagnosticText(), fontSize = 12.sp)
             Spacer(Modifier.height(14.dp))
-            Text("Fluidez de esta sesión", fontWeight = FontWeight.Bold)
+            Text(tr("Fluidez de esta sesión"), fontWeight = FontWeight.Bold)
             Text((context as? MainActivity)?.performanceReport().orEmpty(), fontSize = 12.sp)
         } },
         dismissButton = {
@@ -4566,10 +4566,10 @@ private fun openCasaDelLibro(context: Context) {
                 val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
                 clipboard?.setPrimaryClip(android.content.ClipData.newPlainText(
                     "Diagnóstico de ${AppBrand.NAME}", vm.driveDiagnosticText()))
-                android.widget.Toast.makeText(context, "Diagnóstico copiado", android.widget.Toast.LENGTH_SHORT).show()
-            }) { Text("Copiar diagnóstico") }
+                android.widget.Toast.makeText(context, tr("Diagnóstico copiado"), android.widget.Toast.LENGTH_SHORT).show()
+            }) { Text(tr("Copiar diagnóstico")) }
         },
-        confirmButton = { LibraryTextButton(onClick = { showSyncReport = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { showSyncReport = false }) { Text(tr("Cerrar")) } })
     LaunchedEffect(libraryHealthOpen) {
         if (libraryHealthOpen) vm.runMaintenanceScan()
     }
@@ -4599,7 +4599,7 @@ private fun openCasaDelLibro(context: Context) {
             }
         }
         AlertDialog(onDismissRequest = { libraryHealthOpen = false },
-            title = { Text("Estado de la biblioteca") },
+            title = { Text(tr("Estado de la biblioteca")) },
             text = { Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text("${health.healthScore} %", fontFamily = FontFamily.Serif,
                     fontSize = 34.sp, fontWeight = FontWeight.Bold,
@@ -4608,47 +4608,47 @@ private fun openCasaDelLibro(context: Context) {
                         health.healthScore >= 60 -> Brass
                         else -> WarningText
                     })
-                Text("Salud del catálogo", fontWeight = FontWeight.SemiBold)
+                Text(tr("Salud del catálogo"), fontWeight = FontWeight.SemiBold)
                 LinearProgressIndicator(
                     progress = { health.healthScore / 100f },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp).semantics {
-                        contentDescription = "Salud de la biblioteca"
+                        contentDescription = tr("Salud de la biblioteca")
                         stateDescription = percentDescription("Salud", health.healthScore)
                     },
                     color = Teal)
                 if (vm.maintenanceRunning) {
-                    Text("Comprobando archivos ${vm.maintenanceDone}/${vm.maintenanceTotal}…",
+                    Text(trf("Comprobando archivos {0}/{1}…", vm.maintenanceDone, vm.maintenanceTotal),
                         fontSize = 12.sp, color = Mahogany)
                     LinearProgressIndicator(
                         progress = { if (vm.maintenanceTotal == 0) 0f else
                             vm.maintenanceDone.toFloat() / vm.maintenanceTotal },
                         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).semantics {
-                            contentDescription = "Comprobación de archivos"
+                            contentDescription = tr("Comprobación de archivos")
                             stateDescription = "${vm.maintenanceDone} de ${vm.maintenanceTotal}"
                         }, color = Brass)
-                } else Text("Revisión incremental completada", fontSize = 12.sp, color = Teal)
-                Info("Libros analizados", health.total.toString())
-                Info("Fichas completas", health.healthy.toString())
-                Info("Necesitan atención", health.needsAttention.toString())
+                } else Text(tr("Revisión incremental completada"), fontSize = 12.sp, color = Teal)
+                Info(tr("Libros analizados"), health.total.toString())
+                Info(tr("Fichas completas"), health.healthy.toString())
+                Info(tr("Necesitan atención"), health.needsAttention.toString())
                 if (health.ignoredProblems > 0)
-                    Info("Avisos conservados o ignorados", health.ignoredProblems.toString())
+                    Info(tr("Avisos conservados o ignorados"), health.ignoredProblems.toString())
                 Spacer(Modifier.height(10.dp))
-                Text("Datos de las fichas", fontWeight = FontWeight.Bold)
-                Info("Sin portada", health.missingCover.toString())
-                Info("Autor sin identificar", health.unknownAuthor.toString())
-                Info("Sin argumento", health.missingPlot.toString())
-                Info("Sin biografía del autor", health.missingBiography.toString())
+                Text(tr("Datos de las fichas"), fontWeight = FontWeight.Bold)
+                Info(tr("Sin portada"), health.missingCover.toString())
+                Info(tr("Autor sin identificar"), health.unknownAuthor.toString())
+                Info(tr("Sin argumento"), health.missingPlot.toString())
+                Info(tr("Sin biografía del autor"), health.missingBiography.toString())
                 Spacer(Modifier.height(10.dp))
-                Text("Archivos y organización", fontWeight = FontWeight.Bold)
-                Info("Archivos vacíos", health.emptyFiles.toString())
-                Info("Formatos no compatibles", health.unsupportedFiles.toString())
-                Info("Tamaño no confirmado por Drive", health.unverifiedSize.toString())
-                Info("Archivos inaccesibles", health.inaccessibleFiles.toString())
-                Info("Referencias duplicadas", health.duplicateReferences.toString())
-                Info("Copias posiblemente duplicadas", health.duplicateCopies.toString())
-                Info("Portadas dañadas", health.damagedCovers.toString())
-                Info("Portadas demasiado pequeñas", health.smallCovers.toString())
-                Info("Sagas con huecos conocidos", health.sagasWithGaps.toString())
+                Text(tr("Archivos y organización"), fontWeight = FontWeight.Bold)
+                Info(tr("Archivos vacíos"), health.emptyFiles.toString())
+                Info(tr("Formatos no compatibles"), health.unsupportedFiles.toString())
+                Info(tr("Tamaño no confirmado por Drive"), health.unverifiedSize.toString())
+                Info(tr("Archivos inaccesibles"), health.inaccessibleFiles.toString())
+                Info(tr("Referencias duplicadas"), health.duplicateReferences.toString())
+                Info(tr("Copias posiblemente duplicadas"), health.duplicateCopies.toString())
+                Info(tr("Portadas dañadas"), health.damagedCovers.toString())
+                Info(tr("Portadas demasiado pequeñas"), health.smallCovers.toString())
+                Info(tr("Sagas con huecos conocidos"), health.sagasWithGaps.toString())
                 Spacer(Modifier.height(10.dp))
                 if (health.fileProblemUris.isNotEmpty()) {
                     LibraryActionButton(onClick = {
@@ -4656,7 +4656,7 @@ private fun openCasaDelLibro(context: Context) {
                         vm.qualityFilter = "Archivo"
                         switchTab("Libros")
                     }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Ver archivos con problemas")
+                        Text(tr("Ver archivos con problemas"))
                     }
                     Spacer(Modifier.height(8.dp))
                 }
@@ -4664,11 +4664,11 @@ private fun openCasaDelLibro(context: Context) {
                     libraryHealthOpen = false
                     vm.qualityFilter = "Todos"
                     switchTab("Libros")
-                }, modifier = Modifier.fillMaxWidth()) { Text("Revisar fichas incompletas") }
+                }, modifier = Modifier.fillMaxWidth()) { Text(tr("Revisar fichas incompletas")) }
                 Spacer(Modifier.height(8.dp))
                 LibraryActionButton(onClick = { vm.runMaintenanceScan(force = true) },
                     enabled = !vm.maintenanceRunning, modifier = Modifier.fillMaxWidth()) {
-                    Text("Volver a comprobar")
+                    Text(tr("Volver a comprobar"))
                 }
                 if (health.coverProblemUris.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
@@ -4676,7 +4676,7 @@ private fun openCasaDelLibro(context: Context) {
                         libraryHealthOpen = false
                         vm.forceMissingCovers()
                     }, enabled = !vm.coverUpdateRunning, modifier = Modifier.fillMaxWidth()) {
-                        Text("Reparar portadas pendientes")
+                        Text(tr("Reparar portadas pendientes"))
                     }
                 }
                 if (health.duplicateCopies + health.duplicateReferences > 0) {
@@ -4684,24 +4684,24 @@ private fun openCasaDelLibro(context: Context) {
                     LibraryActionButton(onClick = {
                         libraryHealthOpen = false
                         duplicateDialog = true
-                    }, modifier = Modifier.fillMaxWidth()) { Text("Revisar duplicados") }
+                    }, modifier = Modifier.fillMaxWidth()) { Text(tr("Revisar duplicados")) }
                 }
                 Spacer(Modifier.height(8.dp))
                 LibraryActionButton(onClick = {
                     libraryHealthOpen = false
                     vm.sync()
                 }, enabled = !vm.syncing, modifier = Modifier.fillMaxWidth()) {
-                    Text("Buscar cambios en Drive")
+                    Text(tr("Buscar cambios en Drive"))
                 }
                 if (health.problemKeys.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
                     LibraryTextButton(onClick = {
                         vm.ignoreMaintenanceProblems(health.problemKeys)
-                    }, modifier = Modifier.fillMaxWidth()) { Text("Conservar e ignorar estos avisos") }
+                    }, modifier = Modifier.fillMaxWidth()) { Text(tr("Conservar e ignorar estos avisos")) }
                 }
                 if (vm.maintenanceIgnored.isNotEmpty()) {
                     LibraryTextButton(onClick = vm::restoreMaintenanceWarnings,
-                        modifier = Modifier.fillMaxWidth()) { Text("Restablecer avisos ignorados") }
+                        modifier = Modifier.fillMaxWidth()) { Text(tr("Restablecer avisos ignorados")) }
                 }
             } },
             dismissButton = {
@@ -4709,12 +4709,12 @@ private fun openCasaDelLibro(context: Context) {
                     val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
                     clipboard?.setPrimaryClip(android.content.ClipData.newPlainText(
                         "Estado de ${AppBrand.NAME}", reportText))
-                    android.widget.Toast.makeText(context, "Informe copiado",
+                    android.widget.Toast.makeText(context, tr("Informe copiado"),
                         android.widget.Toast.LENGTH_SHORT).show()
-                }) { Text("Copiar informe") }
+                }) { Text(tr("Copiar informe")) }
             },
             confirmButton = { LibraryTextButton(onClick = { libraryHealthOpen = false }) {
-                Text("Cerrar")
+                Text(tr("Cerrar"))
             } })
     }
     if (readingStatsOpen) {
@@ -4723,57 +4723,57 @@ private fun openCasaDelLibro(context: Context) {
                 book.rating, normalizeBookGenres(book.genre), displayAuthor(book), book.rereadCount)
         }, annualGoal = vm.annualReadingGoal)
         AlertDialog(onDismissRequest = { readingStatsOpen = false },
-            title = { Text("Resumen completo") },
+            title = { Text(tr("Resumen completo")) },
             text = { Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Info("Libros terminados", detailedStats.totalRead.toString())
-                Info("Terminados este año", detailedStats.currentYearRead.toString())
-                Info("Terminados este mes", detailedStats.currentMonthRead.toString())
-                Info("Racha de meses con lecturas", detailedStats.monthStreak.toString())
-                Info("Proyección al final de año", detailedStats.projectedYearTotal.toString())
-                Info("Leyendo ahora", detailedStats.reading.toString())
-                Info("Progreso medio activo", "${detailedStats.averageActiveProgress} %")
-                Info("Pendientes", detailedStats.pending.toString())
-                Info("Relecturas registradas", detailedStats.rereads.toString())
-                Info("Valoración media", detailedStats.averageRating?.let {
+                Info(tr("Libros terminados"), detailedStats.totalRead.toString())
+                Info(tr("Terminados este año"), detailedStats.currentYearRead.toString())
+                Info(tr("Terminados este mes"), detailedStats.currentMonthRead.toString())
+                Info(tr("Racha de meses con lecturas"), detailedStats.monthStreak.toString())
+                Info(tr("Proyección al final de año"), detailedStats.projectedYearTotal.toString())
+                Info(tr("Leyendo ahora"), detailedStats.reading.toString())
+                Info(tr("Progreso medio activo"), "${detailedStats.averageActiveProgress} %")
+                Info(tr("Pendientes"), detailedStats.pending.toString())
+                Info(tr("Relecturas registradas"), detailedStats.rereads.toString())
+                Info(tr("Valoración media"), detailedStats.averageRating?.let {
                     String.format(java.util.Locale.getDefault(), "%.1f / 5", it)
                 } ?: "Sin valorar")
-                Info("Libros con citas guardadas", vm.books.count { it.quotes.isNotBlank() }.toString())
-                Info("Leídos sin fecha final válida", detailedStats.readWithoutFinishDate.toString())
+                Info(tr("Libros con citas guardadas"), vm.books.count { it.quotes.isNotBlank() }.toString())
+                Info(tr("Leídos sin fecha final válida"), detailedStats.readWithoutFinishDate.toString())
                 val completedSagas = vm.sagaCatalogs.count { (name, catalog) ->
                     val owned = vm.books.filter { it.saga.equals(name, true) }
                     catalog.isNotEmpty() && catalog.all { volume -> owned.any { b ->
                         b.sagaOrder == volume.order || displayTitle(b).equals(volume.title, true)
                     } }
                 }
-                Info("Sagas completas comprobadas", completedSagas.toString())
+                Info(tr("Sagas completas comprobadas"), completedSagas.toString())
                 if (detailedStats.topGenres.isNotEmpty()) {
                     Spacer(Modifier.height(7.dp))
-                    Text("Géneros realmente leídos", fontWeight = FontWeight.Bold)
+                    Text(tr("Géneros realmente leídos"), fontWeight = FontWeight.Bold)
                     detailedStats.topGenres.forEach { (name, count) ->
                         Text("$name: $count", fontSize = 12.sp)
                     }
                 }
                 if (detailedStats.topAuthors.isNotEmpty()) {
                     Spacer(Modifier.height(7.dp))
-                    Text("Autores más leídos", fontWeight = FontWeight.Bold)
+                    Text(tr("Autores más leídos"), fontWeight = FontWeight.Bold)
                     detailedStats.topAuthors.forEach { (name, count) ->
                         Text("$name: $count", fontSize = 12.sp)
                     }
                 }
             } },
             confirmButton = { LibraryTextButton(onClick = { readingStatsOpen = false }) {
-                Text("Cerrar")
+                Text(tr("Cerrar"))
             } })
     }
     if (releaseCalendarOpen) AlertDialog(onDismissRequest = { releaseCalendarOpen = false },
-        title = { Text("Calendario de publicaciones") },
+        title = { Text(tr("Calendario de publicaciones")) },
         text = { Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
-            Text("Novedades en español según Google Books", fontWeight = FontWeight.Bold)
+            Text(tr("Novedades según Google Books"), fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             val dated = vm.launchNews.filter { it.releaseDate.isNotBlank() }
                 .sortedBy { it.releaseDate }
-            if (dated.isEmpty()) Text("No hay próximos lanzamientos disponibles.")
+            if (dated.isEmpty()) Text(tr("No hay próximos lanzamientos disponibles."))
             dated.forEach { news ->
                 Text(news.releaseDate, color = Teal, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 Text(news.title, color = Mahogany, fontSize = 13.sp)
@@ -4781,57 +4781,57 @@ private fun openCasaDelLibro(context: Context) {
                 HorizontalDivider(Modifier.padding(vertical = 7.dp))
             }
         } },
-        confirmButton = { LibraryTextButton(onClick = { releaseCalendarOpen = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { releaseCalendarOpen = false }) { Text(tr("Cerrar")) } })
     if (taskCenterOpen) AlertDialog(onDismissRequest = { taskCenterOpen = false },
-        title = { Text("Centro de tareas") },
+        title = { Text(tr("Centro de tareas")) },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-            Info("Sincronización de Drive", if (vm.syncing)
+            Info(tr("Sincronización de Drive"), if (vm.syncing)
                 if (vm.syncCount == 0) "Conectando con Drive" else "Revisando ${vm.syncCount} archivos"
                 else vm.syncSummary.ifBlank { "En espera" })
-            Info("Portadas", if (vm.coverUpdateRunning) "${vm.coverUpdateDone}/${vm.coverUpdateTotal}" else
+            Info(tr("Portadas"), if (vm.coverUpdateRunning) "${vm.coverUpdateDone}/${vm.coverUpdateTotal}" else
                 "${vm.books.count { it.cover == null }} pendientes")
-            Info("Sagas", if (vm.sagaOrganizing) "${vm.sagaOrganized}/${vm.sagaOrganizeTotal}" else
+            Info(tr("Sagas"), if (vm.sagaOrganizing) "${vm.sagaOrganized}/${vm.sagaOrganizeTotal}" else
                 "${vm.books.count { it.saga.isBlank() }} sin identificar")
-            Info("Géneros", if (vm.genreClassifying) "${vm.genreProgress}/${vm.genreTotal}" else
+            Info(tr("Géneros"), if (vm.genreClassifying) "${vm.genreProgress}/${vm.genreTotal}" else
                 "${vm.books.count { normalizeBookGenres(it.genre).isEmpty() }} sin clasificar")
-            Info("Fichas para revisar", vm.reviewPending.size.toString())
+            Info(tr("Fichas para revisar"), vm.reviewPending.size.toString())
             Spacer(Modifier.height(8.dp))
             LibraryActionButton(onClick = vm::sync, enabled = !vm.syncing,
-                modifier = Modifier.fillMaxWidth()) { Text("Actualizar Drive") }
+                modifier = Modifier.fillMaxWidth()) { Text(tr("Actualizar Drive")) }
             LibraryActionButton(onClick = vm::forceMissingCovers, enabled = !vm.coverUpdateRunning,
-                modifier = Modifier.fillMaxWidth()) { Text("Buscar portadas pendientes") }
+                modifier = Modifier.fillMaxWidth()) { Text(tr("Buscar portadas pendientes")) }
             LibraryActionButton(onClick = vm::organizeAllSagas, enabled = !vm.sagaOrganizing,
-                modifier = Modifier.fillMaxWidth()) { Text("Identificar sagas pendientes") }
+                modifier = Modifier.fillMaxWidth()) { Text(tr("Identificar sagas pendientes")) }
             LibraryActionButton(onClick = { vm.classifyGenres(true) }, enabled = !vm.genreClassifying,
-                modifier = Modifier.fillMaxWidth()) { Text("Clasificar géneros pendientes") }
+                modifier = Modifier.fillMaxWidth()) { Text(tr("Clasificar géneros pendientes")) }
         } },
-        confirmButton = { LibraryTextButton(onClick = { taskCenterOpen = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { taskCenterOpen = false }) { Text(tr("Cerrar")) } })
     if (activityOpen) AlertDialog(onDismissRequest = { activityOpen = false },
-        title = { Text("Actividad reciente") },
+        title = { Text(tr("Actividad reciente")) },
         text = { Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
-            if (vm.activityLog.isEmpty()) Text("Todavía no hay actividad registrada.")
+            if (vm.activityLog.isEmpty()) Text(tr("Todavía no hay actividad registrada."))
             vm.activityLog.forEach { Text(it, modifier = Modifier.padding(vertical = 5.dp),
                 fontSize = 12.sp, color = Mahogany) }
         } },
-        confirmButton = { LibraryTextButton(onClick = { activityOpen = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { activityOpen = false }) { Text(tr("Cerrar")) } })
     if (privacyOpen) AlertDialog(onDismissRequest = { privacyOpen = false },
-        title = { Text("Privacidad y datos") },
+        title = { Text(tr("Privacidad y datos")) },
         text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
-            Text("Resumen claro de cómo funciona ${AppBrand.NAME}.", color = Mahogany)
+            Text(trApp("Resumen claro de cómo funciona {app}."), color = Mahogany)
             Spacer(Modifier.height(10.dp))
             privacyDisclosures().forEach { disclosure ->
-                Text(disclosure.title, fontWeight = FontWeight.Bold, color = Teal)
-                Text(disclosure.detail, fontSize = 13.sp, lineHeight = 19.sp,
+                Text(trApp(disclosure.title), fontWeight = FontWeight.Bold, color = Teal)
+                Text(trApp(disclosure.detail), fontSize = 13.sp, lineHeight = 19.sp,
                     modifier = Modifier.padding(bottom = 10.dp))
             }
-            Text("Puedes revisar y exportar tus datos desde Opciones de biblioteca.",
+            Text(tr("Puedes revisar y exportar tus datos desde Opciones de biblioteca."),
                 fontSize = 12.sp, color = Mahogany.copy(alpha = .75f))
         } },
-        confirmButton = { LibraryTextButton(onClick = { privacyOpen = false }) { Text("Entendido") } })
+        confirmButton = { LibraryTextButton(onClick = { privacyOpen = false }) { Text(tr("Entendido")) } })
     if (supportOpen) {
         val diagnostic = supportDiagnosticText()
         AlertDialog(onDismissRequest = { supportOpen = false },
-            title = { Text("Acerca de y soporte") },
+            title = { Text(tr("Acerca de y soporte")) },
             text = { Column(Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState())) {
                 Text(AppBrand.NAME, fontFamily = FontFamily.Serif, fontSize = 22.sp,
                     fontWeight = FontWeight.Bold, color = Mahogany)
@@ -4844,48 +4844,48 @@ private fun openCasaDelLibro(context: Context) {
                     putExtra(Intent.EXTRA_SUBJECT, "Diagnóstico de ${AppBrand.NAME}")
                     putExtra(Intent.EXTRA_TEXT, diagnostic)
                 }
-                try { context.startActivity(Intent.createChooser(send, "Compartir diagnóstico")) }
+                try { context.startActivity(Intent.createChooser(send, tr("Compartir diagnóstico"))) }
                 catch (_: Exception) {
-                    android.widget.Toast.makeText(context, "No se pudo compartir el diagnóstico.",
+                    android.widget.Toast.makeText(context, tr("No se pudo compartir el diagnóstico."),
                         android.widget.Toast.LENGTH_LONG).show()
                 }
-            }) { Text("Compartir diagnóstico") } },
-            confirmButton = { LibraryTextButton(onClick = { supportOpen = false }) { Text("Cerrar") } })
+            }) { Text(tr("Compartir diagnóstico")) } },
+            confirmButton = { LibraryTextButton(onClick = { supportOpen = false }) { Text(tr("Cerrar")) } })
     }
     if (helpOpen) AlertDialog(onDismissRequest = { helpOpen = false },
-        title = { Text("Ayuda de ${AppBrand.NAME}") },
+        title = { Text(trApp("Ayuda de {app}")) },
         text = { Column(Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState())) {
             libraryHelpSections().forEach { section ->
-                Text(section.title, fontWeight = FontWeight.Bold, color = Teal,
+                Text(trApp(section.title), fontWeight = FontWeight.Bold, color = Teal,
                     modifier = Modifier.padding(top = 6.dp))
-                Text(section.body, fontSize = 13.sp, lineHeight = 19.sp,
+                Text(trApp(section.body), fontSize = 13.sp, lineHeight = 19.sp,
                     modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
             }
             LibraryTextButton(onClick = {
                 helpOpen = false
                 vm.openFirstRunGuide()
-            }, modifier = Modifier.fillMaxWidth()) { Text("Ver guía inicial") }
+            }, modifier = Modifier.fillMaxWidth()) { Text(tr("Ver guía inicial")) }
             LibraryTextButton(onClick = {
                 helpOpen = false
                 folderPicker.launch(null)
-            }, modifier = Modifier.fillMaxWidth()) { Text("Elegir carpeta de libros") }
+            }, modifier = Modifier.fillMaxWidth()) { Text(tr("Elegir carpeta de libros")) }
         } },
-        confirmButton = { LibraryTextButton(onClick = { helpOpen = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { helpOpen = false }) { Text(tr("Cerrar")) } })
     if (legalOpen) AlertDialog(onDismissRequest = { legalOpen = false },
-        title = { Text("Información legal y licencias") },
+        title = { Text(tr("Información legal y licencias")) },
         text = { Column(Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState())) {
             Text(AppBrand.NAME, color = Mahogany,
                 fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
             legalNotices().forEach { notice ->
-                Text(notice.name, fontWeight = FontWeight.Bold, color = Teal,
+                Text(trApp(notice.name), fontWeight = FontWeight.Bold, color = Teal,
                     modifier = Modifier.padding(top = 6.dp))
-                Text(notice.notice, fontSize = 12.sp, lineHeight = 18.sp,
+                Text(trApp(notice.notice), fontSize = 12.sp, lineHeight = 18.sp,
                     modifier = Modifier.padding(top = 2.dp, bottom = 7.dp))
             }
-            Text("Los nombres y marcas mencionados se usan solo para identificar componentes o servicios compatibles.",
+            Text(tr("Los nombres y marcas mencionados se usan solo para identificar componentes o servicios compatibles."),
                 fontSize = 11.sp, color = Mahogany.copy(alpha = .75f))
         } },
-        confirmButton = { LibraryTextButton(onClick = { legalOpen = false }) { Text("Cerrar") } })
+        confirmButton = { LibraryTextButton(onClick = { legalOpen = false }) { Text(tr("Cerrar")) } })
     val shown = current
     LaunchedEffect(tab, shown?.uri) {
         (context as? MainActivity)?.setMetricScreen(if (shown != null) "Ficha" else tab)
@@ -5029,17 +5029,17 @@ private fun openCasaDelLibro(context: Context) {
                 Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 18.dp)) {
                     if (settingsOpen) {
-                        NavigationDrawerItem(label = { Text("Volver al menú") }, selected = false,
+                        NavigationDrawerItem(label = { Text(tr("Volver al menú")) }, selected = false,
                             icon = { Icon(Icons.Outlined.ArrowBack, null) },
                             onClick = { settingsOpen = false })
-                        Text("Ajustes", color = Mahogany, fontSize = 22.sp,
+                        Text(tr("Ajustes"), color = Mahogany, fontSize = 22.sp,
                             fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 16.dp))
-                        Text("Biblioteca y Drive", color = Teal, fontWeight = FontWeight.Bold)
-                        NavigationDrawerItem(label = { Text("Carpeta de libros") }, selected = false,
+                        Text(tr("Biblioteca y Drive"), color = Teal, fontWeight = FontWeight.Bold)
+                        NavigationDrawerItem(label = { Text(tr("Carpeta de libros")) }, selected = false,
                             icon = { AppIcon("Carpeta") }, onClick = {
                                 scope.launch { drawerState.close() }; folderPicker.launch(null)
                             })
-                        NavigationDrawerItem(label = { Text("Importar un libro") }, selected = false,
+                        NavigationDrawerItem(label = { Text(tr("Importar un libro")) }, selected = false,
                             icon = { Icon(Icons.Outlined.FileOpen, null) }, onClick = {
                                 scope.launch { drawerState.close() }
                                 bookPicker.launch(arrayOf(
@@ -5048,14 +5048,14 @@ private fun openCasaDelLibro(context: Context) {
                                     "application/x-fictionbook+xml", "application/octet-stream"
                                 ))
                             })
-                        NavigationDrawerItem(label = { Text(if (vm.syncing) "Sincronizando…" else "Sincronizar biblioteca") },
+                        NavigationDrawerItem(label = { Text(if (vm.syncing) tr("Sincronizando…") else tr("Sincronizar biblioteca")) },
                             selected = false, icon = { AppIcon("Sincronizar") },
                             onClick = { if (!vm.syncing) vm.sync() })
-                        NavigationDrawerItem(label = { Text("Estado de sincronización en Drive") },
+                        NavigationDrawerItem(label = { Text(tr("Estado de sincronización en Drive")) },
                             selected = false, icon = { AppIcon("Estado") }, onClick = {
                                 scope.launch { drawerState.close() }; showSyncReport = true
                             })
-                        NavigationDrawerItem(label = { Text("Buscar datos y portadas") }, selected = false,
+                        NavigationDrawerItem(label = { Text(tr("Buscar datos y portadas")) }, selected = false,
                             icon = { AppIcon("Datos") }, onClick = {
                                 if (vm.bulkInfoLoading) vm.cancelIncomplete() else vm.refreshIncomplete()
                             })
@@ -5066,62 +5066,62 @@ private fun openCasaDelLibro(context: Context) {
                             selected = vm.sampleBooksProgress != null,
                             icon = { Icon(Icons.Outlined.AutoStories, null) },
                             onClick = vm::importSampleBooks)
-                        NavigationDrawerItem(label = { Text("Consultar libros públicos") }, selected = false,
+                        NavigationDrawerItem(label = { Text(tr("Consultar libros públicos")) }, selected = false,
                             icon = { Icon(Icons.Outlined.Search, null) }, onClick = {
                                 publicSearchOpen = true
                                 scope.launch { drawerState.close() }
                             })
                         NavigationDrawerItem(
                             label = { Text(if (vm.coverUpdateRunning)
-                                "Buscando portadas ${vm.coverUpdateDone}/${vm.coverUpdateTotal}…"
-                            else "Forzar portadas que faltan") },
+                                trf("Buscando portadas {0}/{1}…", vm.coverUpdateDone, vm.coverUpdateTotal)
+                            else tr("Forzar portadas que faltan")) },
                             selected = vm.coverUpdateRunning, icon = { AppIcon("Portada") },
                             onClick = { if (!vm.coverUpdateRunning) vm.forceMissingCovers() })
                         NavigationDrawerItem(
                             label = { Text(if (vm.sagaOrganizing)
-                                "Identificando sagas ${vm.sagaOrganized}/${vm.sagaOrganizeTotal}…"
-                            else "Identificar todas las sagas") },
+                                trf("Identificando sagas {0}/{1}…", vm.sagaOrganized, vm.sagaOrganizeTotal)
+                            else tr("Identificar todas las sagas")) },
                             selected = vm.sagaOrganizing, icon = { AppIcon("Sagas") },
                             onClick = { if (!vm.sagaOrganizing) vm.organizeAllSagas() })
                         NavigationDrawerItem(
                             label = { Text(if (vm.genreClassifying)
-                                "Clasificando géneros " + vm.genreProgress + "/" + vm.genreTotal + "…" else "Clasificar biblioteca por géneros") },
+                                tr("Clasificando géneros ") + vm.genreProgress + "/" + vm.genreTotal + "…" else tr("Clasificar biblioteca por géneros")) },
                             selected = false, icon = { Icon(Icons.Outlined.Category, null) },
                             onClick = { if (!vm.genreClassifying) vm.classifyGenres() })
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                        Text("Fondo de las pantallas", color = Teal, fontWeight = FontWeight.Bold)
-                        NavigationDrawerItem(label = { Text("Fondo: " + vm.wallpaperMode) },
+                        Text(tr("Fondo de las pantallas"), color = Teal, fontWeight = FontWeight.Bold)
+                        NavigationDrawerItem(label = { Text(tr("Fondo: ") + vm.wallpaperMode) },
                             selected = false, icon = { Icon(Icons.Outlined.Wallpaper, null) },
                             onClick = { wallpaperPickerOpen = true })
-                        NavigationDrawerItem(label = { Text("Animaciones: " + vm.animationMode) },
+                        NavigationDrawerItem(label = { Text(tr("Animaciones: ") + vm.animationMode) },
                             selected = false, icon = { Icon(Icons.Outlined.Animation, null) },
                             onClick = { animationPickerOpen = true })
-                        NavigationDrawerItem(label = { Text("Tamaño del texto: " + when {
+                        NavigationDrawerItem(label = { Text(tr("Tamaño del texto: ") + when {
                             vm.interfaceTextScale >= 1.29f -> "Muy grande"
                             vm.interfaceTextScale >= 1.14f -> "Grande"
                             else -> "Normal"
                         }) }, selected = false, icon = { Icon(Icons.Outlined.FormatSize, null) },
                             onClick = { textSizePickerOpen = true })
                         // Cada pulsación pasa a la siguiente opción: Automático → Claro → Oscuro.
-                        NavigationDrawerItem(label = { Text("Tema: " + AppThemeState.preference.label) },
+                        NavigationDrawerItem(label = { Text(tr("Tema: ") + tr(AppThemeState.preference.label)) },
                             selected = false, icon = { Icon(Icons.Outlined.DarkMode, null) },
                             onClick = { AppThemeState.cycle(context) })
                         val accessibleMode = vm.interfaceTextScale >= 1.29f &&
                             vm.animationMode == "Sin animaciones"
                         NavigationDrawerItem(
-                            label = { Text(if (accessibleMode) "Restablecer interfaz" else "Activar modo accesible") },
+                            label = { Text(if (accessibleMode) tr("Restablecer interfaz") else tr("Activar modo accesible")) },
                             selected = accessibleMode,
                             icon = { Icon(Icons.Outlined.AccessibilityNew, null) },
                             onClick = vm::toggleAccessibleInterface)
-                        Text("Automático sigue el género del último libro abierto.",
+                        Text(tr("Automático sigue el género del último libro abierto."),
                             color = Mahogany, fontSize = 12.sp,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                        NavigationDrawerItem(label = { Text("Opciones de biblioteca") }, selected = false,
+                        NavigationDrawerItem(label = { Text(tr("Opciones de biblioteca")) }, selected = false,
                             icon = { AppIcon("Opciones") }, onClick = {
                                 scope.launch { drawerState.close() }; backupMenu = true
                             })
-                        NavigationDrawerItem(label = { Text("Privacidad y datos") }, selected = false,
+                        NavigationDrawerItem(label = { Text(tr("Privacidad y datos")) }, selected = false,
                             icon = { AppIcon("Ajustes") }, onClick = {
                                 scope.launch { drawerState.close() }; privacyOpen = true
                             })
@@ -5131,7 +5131,7 @@ private fun openCasaDelLibro(context: Context) {
                         Column(Modifier.fillMaxWidth().padding(18.dp)) {
                             Text(AppBrand.NAME, color = Color.White, fontSize = 23.sp,
                                 fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
-                            Text("Tu espacio de lectura", color = Color(0xFFF4E8D8),
+                            Text(tr("Tu espacio de lectura"), color = Color(0xFFF4E8D8),
                                 style = MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -5139,15 +5139,15 @@ private fun openCasaDelLibro(context: Context) {
                     // La navegación principal ya está disponible en la barra inferior.
                     // Se mantiene aquí únicamente el contenido de gestión y exploración.
                     HorizontalDivider(Modifier.padding(vertical = 14.dp))
-                    Text("EXPLORAR", color = Teal,
+                    Text(tr("EXPLORAR"), color = Teal,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
-                    NavigationDrawerItem(label = { Text("Quiero leer") }, selected = showWishList,
+                    NavigationDrawerItem(label = { Text(tr("Quiero leer")) }, selected = showWishList,
                         icon = { AppIcon("Pendientes") }, onClick = {
                             switchTab("Biblioteca", showPending = !showWishList)
                             scope.launch { drawerState.close() }
                         })
-                    NavigationDrawerItem(label = { Text("Sagas y colecciones") },
+                    NavigationDrawerItem(label = { Text(tr("Sagas y colecciones")) },
                         selected = tab == "Biblioteca" && vm.groupMode == "Sagas" && !showWishList,
                         icon = { AppIcon("Sagas") }, onClick = {
                             showWishList = false
@@ -5157,10 +5157,10 @@ private fun openCasaDelLibro(context: Context) {
                             switchTab("Biblioteca")
                             scope.launch { drawerState.close() }
                         })
-                    if (showWishList) LibraryTextButton(onClick = { addWishDialog = true }) { Text("Añadir libro deseado") }
+                    if (showWishList) LibraryTextButton(onClick = { addWishDialog = true }) { Text(tr("Añadir libro deseado")) }
                     if (tab == "Biblioteca" && !showWishList) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                        Text("MOSTRAR", color = Teal,
+                        Text(tr("MOSTRAR"), color = Teal,
                             style = MaterialTheme.typography.labelMedium)
                         Row(Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -5176,7 +5176,7 @@ private fun openCasaDelLibro(context: Context) {
                                 }
                             }
                         }
-                        Text("AGRUPAR POR", color = Teal, style = MaterialTheme.typography.labelMedium,
+                        Text(tr("AGRUPAR POR"), color = Teal, style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.padding(top = 14.dp))
                         listOf("Todos", "Autores", "Sagas", "Géneros", "Secciones").forEach { mode ->
                             NavigationDrawerItem(label = { Text(mode) }, selected = vm.groupMode == mode,
@@ -5187,7 +5187,7 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                     if (tab == "Secciones") {
-                        Text("Datos de las fichas", color = Mahogany, fontWeight = FontWeight.SemiBold)
+                        Text(tr("Datos de las fichas"), color = Mahogany, fontWeight = FontWeight.SemiBold)
                         listOf("Todos", "Revisar", "Archivo", "Portada", "Argumento", "Biografía", "Autor").forEach { kind ->
                             NavigationDrawerItem(label = { Text(kind) }, selected = vm.qualityFilter == kind,
                                 onClick = { vm.qualityFilter = if (kind == "Todos" || vm.qualityFilter == kind) "Ninguno" else kind;
@@ -5195,7 +5195,7 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                     if (tab == "Secciones") {
-                        Text("MIS SECCIONES", color = Teal,
+                        Text(tr("MIS SECCIONES"), color = Teal,
                             style = MaterialTheme.typography.labelMedium)
                         (listOf("Todas") + vm.sections).forEach { name ->
                             NavigationDrawerItem(label = { Text(name) },
@@ -5208,7 +5208,7 @@ private fun openCasaDelLibro(context: Context) {
                     }
                     if (tab != "Inicio" && !showWishList) {
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                        Text("VISTA", color = Teal,
+                        Text(tr("VISTA"), color = Teal,
                             style = MaterialTheme.typography.labelMedium)
                         Row(Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -5220,47 +5220,47 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 14.dp))
-                    NavigationDrawerItem(label = { Text("Estado de la biblioteca") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Estado de la biblioteca")) }, selected = false,
                         icon = { AppIcon("Datos") }, onClick = {
                             libraryHealthOpen = true; scope.launch { drawerState.close() }
                         })
-                    NavigationDrawerItem(label = { Text("Centro de tareas") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Centro de tareas")) }, selected = false,
                         icon = { Icon(Icons.Outlined.TaskAlt, null) }, onClick = {
                             taskCenterOpen = true; scope.launch { drawerState.close() }
                         })
-                    NavigationDrawerItem(label = { Text("Actividad reciente") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Actividad reciente")) }, selected = false,
                         icon = { Icon(Icons.Outlined.History, null) }, onClick = {
                             activityOpen = true; scope.launch { drawerState.close() }
                         })
-                    NavigationDrawerItem(label = { Text("Privacidad y datos") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Privacidad y datos")) }, selected = false,
                         icon = { AppIcon("Ajustes") }, onClick = {
                             privacyOpen = true; scope.launch { drawerState.close() }
                         })
-                    NavigationDrawerItem(label = { Text("Acerca de y soporte") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Acerca de y soporte")) }, selected = false,
                         icon = { Icon(Icons.Outlined.Info, null) }, onClick = {
                             supportOpen = true; scope.launch { drawerState.close() }
                         })
-                    NavigationDrawerItem(label = { Text("Ayuda y guía rápida") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Ayuda y guía rápida")) }, selected = false,
                         icon = { Icon(Icons.Outlined.HelpOutline, null) }, onClick = {
                             helpOpen = true; scope.launch { drawerState.close() }
                         })
-                    NavigationDrawerItem(label = { Text("Novedades") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Novedades")) }, selected = false,
                         icon = { Icon(Icons.Outlined.NewReleases, null) }, onClick = {
                             vm.openReleaseNotes(); scope.launch { drawerState.close() }
                         })
-                    NavigationDrawerItem(label = { Text("Información legal") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Información legal")) }, selected = false,
                         icon = { Icon(Icons.Outlined.Gavel, null) }, onClick = {
                             legalOpen = true; scope.launch { drawerState.close() }
                         })
-                    NavigationDrawerItem(label = { Text("Estadísticas de lectura") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Estadísticas de lectura")) }, selected = false,
                         icon = { AppIcon("Pendientes") }, onClick = {
                             switchTab("Estadísticas"); scope.launch { drawerState.close() }
                         })
-                    NavigationDrawerItem(label = { Text("Calendario de publicaciones") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Calendario de publicaciones")) }, selected = false,
                         icon = { Icon(Icons.Outlined.CalendarMonth, null) }, onClick = {
                             releaseCalendarOpen = true; scope.launch { drawerState.close() }
                         })
-                    NavigationDrawerItem(label = { Text("Escanear ISBN") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Escanear ISBN")) }, selected = false,
                         icon = { Icon(Icons.Outlined.QrCodeScanner, null) }, onClick = {
                             scope.launch { drawerState.close() }
                             launchIsbnCamera = true
@@ -5269,17 +5269,17 @@ private fun openCasaDelLibro(context: Context) {
                                 launchIsbnCamera = false; isbnCamera.launch(null)
                             } else cameraPermission.launch(Manifest.permission.CAMERA)
                         })
-                    NavigationDrawerItem(label = { Text("Exportar catálogo para Excel") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Exportar catálogo para Excel")) }, selected = false,
                         icon = { Icon(Icons.Outlined.TableView, null) }, onClick = {
                             scope.launch { drawerState.close() }
                             catalogExport.launch("${AppBrand.NAME}-catalogo.csv")
                         })
-                    NavigationDrawerItem(label = { Text("Exportar notas y subrayados") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Exportar notas y subrayados")) }, selected = false,
                         icon = { Icon(Icons.Outlined.EditNote, null) }, onClick = {
                             scope.launch { drawerState.close() }
                             notebookExport.launch("${AppBrand.NAME}-cuaderno.txt")
                         })
-                    NavigationDrawerItem(label = { Text("Ajustes") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Ajustes")) }, selected = false,
                         icon = { AppIcon("Ajustes") }, onClick = { settingsOpen = true })
                     }
                 }
@@ -5298,7 +5298,7 @@ private fun openCasaDelLibro(context: Context) {
                 Box(Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
                     IconButton(onClick = { scope.launch { drawerState.open() } },
                         modifier = Modifier.align(Alignment.CenterStart)
-                            .semantics { contentDescription = "Abrir menú" }) {
+                            .semantics { contentDescription = tr("Abrir menú") }) {
                         Icon(Icons.Outlined.Menu, "Abrir menú", tint = Color.White)
                     }
                     Text(AppBrand.NAME, modifier = Modifier.align(Alignment.Center),
@@ -5308,11 +5308,11 @@ private fun openCasaDelLibro(context: Context) {
                     IconButton(onClick = {
                         vm.sync()
                         android.widget.Toast.makeText(context,
-                            "Buscando libros nuevos y cambios en Drive…",
+                            tr("Buscando libros nuevos y cambios en Drive…"),
                             android.widget.Toast.LENGTH_SHORT).show()
                     }, enabled = !vm.syncing, modifier = Modifier.align(Alignment.CenterEnd)
                         .semantics {
-                            contentDescription = "Actualizar biblioteca"
+                            contentDescription = tr("Actualizar biblioteca")
                             stateDescription = if (vm.syncing) "Actualización en curso" else "Disponible"
                         }) {
                         if (vm.syncing) {
@@ -5369,7 +5369,7 @@ private fun openCasaDelLibro(context: Context) {
                             (targetTab == "Biblioteca" && tab == "Secciones"),
                         onClick = { switchTab(targetTab) },
                         icon = { AppIcon(icon, description = label, size = 22.dp) },
-                        label = { Text(label, maxLines = 1, softWrap = false,
+                        label = { Text(tr(label, "nav"), maxLines = 1, softWrap = false,
                             fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = Mahogany,
@@ -5388,7 +5388,7 @@ private fun openCasaDelLibro(context: Context) {
         if (vm.offlineDownloadUri != null) {
             LinearProgressIndicator(progress = { vm.offlineDownloadPercent / 100f },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).semantics {
-                    contentDescription = "Descarga del libro"
+                    contentDescription = tr("Descarga del libro")
                     stateDescription = percentDescription("Descarga", vm.offlineDownloadPercent)
                 }, color = Teal)
             WallpaperLabel("Descargando libro · ${vm.offlineDownloadPercent} %",
@@ -5415,7 +5415,7 @@ private fun openCasaDelLibro(context: Context) {
                                     1.dp, Color.White.copy(alpha = .55f))) {
                                 Icon(Icons.Outlined.FilterList, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
-                                Text(if (genreAllSelected) "Géneros" else "${selectedGenres.size} seleccionados",
+                                Text(if (genreAllSelected) tr("Géneros") else trf("{0} seleccionados", selectedGenres.size),
                                     maxLines = 1)
                             }
                             if (!genreAllSelected) {
@@ -5423,7 +5423,7 @@ private fun openCasaDelLibro(context: Context) {
                                     genreAllSelected = true
                                     selectedGenres = emptySet()
                                 }) {
-                                    Icon(Icons.Outlined.Close, contentDescription = "Marcar todos los géneros")
+                                    Icon(Icons.Outlined.Close, contentDescription = tr("Marcar todos los géneros"))
                                 }
                             }
                         }
@@ -5462,10 +5462,10 @@ private fun openCasaDelLibro(context: Context) {
             }
             if (tab == "Descubrir") item(key = "public-search-page") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                    Text("Descubrir", color = Color.White, fontFamily = FontFamily.Serif,
+                    Text(tr("Descubrir"), color = Color.White, fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold, fontSize = 30.sp,
                         style = MaterialTheme.typography.headlineSmall.copy(shadow = WallpaperTextShadow))
-                    Text("Busca un libro y consulta su información pública.", color = Color.White.copy(alpha = .86f), fontSize = 15.sp)
+                    Text(tr("Busca un libro y consulta su información pública."), color = Color.White.copy(alpha = .86f), fontSize = 15.sp)
                     Spacer(Modifier.height(12.dp))
                     Surface(Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
                         color = Paper.copy(alpha = .98f), shadowElevation = 4.dp,
@@ -5500,10 +5500,10 @@ private fun openCasaDelLibro(context: Context) {
                     if (publicSearching) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 10.dp), color = Brass)
                     Spacer(Modifier.height(14.dp))
                     if (!publicSearching && publicQuery.isNotBlank() && publicResults.isEmpty())
-                        Text("No se han encontrado resultados.", color = Color.White.copy(alpha = .9f))
+                        Text(tr("No se han encontrado resultados."), color = Color.White.copy(alpha = .9f))
                     if (selectedPublicResult == null && publicResults.isNotEmpty()) {
                         Text(
-                            "Resultados encontrados (" + publicResults.size + ")",
+                            tr("Resultados encontrados (") + publicResults.size + ")",
                             color = Brass,
                             fontFamily = FontFamily.Serif,
                             fontSize = 20.sp
@@ -5527,10 +5527,10 @@ private fun openCasaDelLibro(context: Context) {
                         PublicBookDetailPage(result, details, wishListed = vm.wishList.any { it.first.equals(result.title, true) && it.second == result.sourceUrl }, onBack = { selectedPublicResult = null }, onWish = {
                             if (vm.wishList.any { it.first.equals(result.title, true) && it.second == result.sourceUrl }) {
                                 vm.removeGoodreadsWish(result.title, result.sourceUrl)
-                                android.widget.Toast.makeText(context, "Quitado de Quiero leer", android.widget.Toast.LENGTH_SHORT).show()
+                                android.widget.Toast.makeText(context, tr("Quitado de Quiero leer"), android.widget.Toast.LENGTH_SHORT).show()
                             } else {
                                 vm.addGoodreadsWish(result.title, result.sourceUrl)
-                                android.widget.Toast.makeText(context, "Añadido a Quiero leer", android.widget.Toast.LENGTH_SHORT).show()
+                                android.widget.Toast.makeText(context, tr("Añadido a Quiero leer"), android.widget.Toast.LENGTH_SHORT).show()
                             }
                         })
                     }
@@ -5538,11 +5538,11 @@ private fun openCasaDelLibro(context: Context) {
             }
             if (tab != "Estadísticas" && tab != "Descubrir") item(key = "controls") {
                 Column(Modifier.padding(horizontal = 12.dp)) {
-                    if (tab == "Secciones") Text("Tus secciones",
+                    if (tab == "Secciones") Text(tr("Tus secciones"),
                         fontFamily = FontFamily.Serif,
                         style = MaterialTheme.typography.headlineSmall.copy(shadow = WallpaperTextShadow),
                         color = Color.White, fontWeight = FontWeight.Bold)
-                    if (tab == "Favoritos") Text("Tus favoritos",
+                    if (tab == "Favoritos") Text(tr("Tus favoritos"),
                         fontFamily = FontFamily.Serif,
                         style = MaterialTheme.typography.headlineSmall.copy(shadow = WallpaperTextShadow),
                         fontWeight = FontWeight.Bold, color = Color.White)
@@ -5564,7 +5564,7 @@ private fun openCasaDelLibro(context: Context) {
                         Row(Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically) {
-                            ConceptFilterChip("Todos", "Libros", Modifier.weight(1f),
+                            ConceptFilterChip(tr("Todos"), "Libros", Modifier.weight(1f),
                                 !showWishList && !vm.onlyFavorites && vm.statusFilter == null) {
                                 showWishList = false
                                 vm.onlyFavorites = false
@@ -5573,11 +5573,11 @@ private fun openCasaDelLibro(context: Context) {
                                 vm.qualityFilter = "Ninguno"
                                 smartCollection = null
                             }
-                            ConceptFilterChip("Favoritos", "Favoritos", Modifier.weight(1f),
+                            ConceptFilterChip(tr("Favoritos"), "Favoritos", Modifier.weight(1f),
                                 !showWishList && vm.onlyFavorites) {
                                 showWishList = false; vm.onlyFavorites = true; vm.statusFilter = null
                             }
-                            ConceptFilterChip("Pendientes", "Pendientes", Modifier.weight(1f),
+                            ConceptFilterChip(tr("Pendientes"), "Pendientes", Modifier.weight(1f),
                                 !showWishList && !vm.onlyFavorites && vm.statusFilter == ReadingStatus.PENDING) {
                                 showWishList = false; vm.onlyFavorites = false; vm.statusFilter = ReadingStatus.PENDING
                             }
@@ -5610,13 +5610,13 @@ private fun openCasaDelLibro(context: Context) {
                             verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(when {
-                                    showWishList -> "Quiero leer"
-                                    vm.onlyFavorites -> "Tus favoritos"
-                                    vm.statusFilter == ReadingStatus.PENDING -> "Libros pendientes"
-                                    vm.statusFilter == ReadingStatus.READING -> "Leyendo"
-                                    vm.statusFilter == ReadingStatus.READ -> "Libros leídos"
-                                    groupMode == "Sagas" -> "Sagas y colecciones"
-                                    else -> "Todos los libros"
+                                    showWishList -> tr("Quiero leer")
+                                    vm.onlyFavorites -> tr("Tus favoritos")
+                                    vm.statusFilter == ReadingStatus.PENDING -> tr("Libros pendientes")
+                                    vm.statusFilter == ReadingStatus.READING -> tr("Leyendo")
+                                    vm.statusFilter == ReadingStatus.READ -> tr("Libros leídos")
+                                    groupMode == "Sagas" -> tr("Sagas y colecciones")
+                                    else -> tr("Todos los libros")
                                 }, fontFamily = FontFamily.Serif, fontSize = 24.sp,
                                     fontWeight = FontWeight.Bold, color = Color.White,
                                     style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
@@ -5648,12 +5648,12 @@ private fun openCasaDelLibro(context: Context) {
                     if (tab == "Secciones") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             LibraryActionButton(onClick = { addingSection = true }) {
-                                ActionLabel("Nueva sección", "Añadir")
+                                ActionLabel(tr("Nueva sección"), "Añadir")
                             }
                             Spacer(Modifier.width(8.dp))
-                            LibraryTextButton(onClick = { organizeSections = true }) { Text("Organizar") }
+                            LibraryTextButton(onClick = { organizeSections = true }) { Text(tr("Organizar")) }
                         }
-                        Text("Tus secciones", color = Color.White.copy(alpha = .82f),
+                        Text(tr("Tus secciones"), color = Color.White.copy(alpha = .82f),
                             fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
                         if (vm.sections.isEmpty()) {
                             WallpaperLabel("Crea una sección para organizar tus libros.", fontSize = 12.sp)
@@ -5668,7 +5668,7 @@ private fun openCasaDelLibro(context: Context) {
                                 }
                             }
                         }
-                        Text("Vista", color = Color.White.copy(alpha = .82f),
+                        Text(tr("Vista"), color = Color.White.copy(alpha = .82f),
                             fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
                         ConceptViewSelector(activeViewMode,
                             onGallery = { vm.chooseViewMode("Galería", activeViewScope) },
@@ -5676,18 +5676,18 @@ private fun openCasaDelLibro(context: Context) {
                     }
                     Box {
                         DropdownMenu(expanded = backupMenu, onDismissRequest = { backupMenu = false }) {
-                            Text("El respaldo incluye tus notas y lecturas. Guárdalo en una carpeta privada.",
+                            Text(tr("El respaldo incluye tus notas y lecturas. Guárdalo en una carpeta privada."),
                                 modifier = Modifier.width(280.dp).padding(16.dp), fontSize = 12.sp)
-                            Text("Exporta tus datos antes de cambiar de teléfono: no se copian automáticamente.",
+                            Text(tr("Exporta tus datos antes de cambiar de teléfono: no se copian automáticamente."),
                                 modifier = Modifier.width(280.dp).padding(horizontal = 16.dp), fontSize = 12.sp)
-                            DropdownMenuItem(text = { Text("Exportar mis datos") }, onClick = {
+                            DropdownMenuItem(text = { Text(tr("Exportar mis datos")) }, onClick = {
                                 backupMenu = false; backupExport.launch("${AppBrand.NAME}-respaldo.json")
                             })
-                            DropdownMenuItem(text = { Text("Restaurar respaldo") }, onClick = {
+                            DropdownMenuItem(text = { Text(tr("Restaurar respaldo")) }, onClick = {
                                 backupMenu = false; backupImport.launch(arrayOf("application/json"))
                             })
                             DropdownMenuItem(
-                                text = { Text("Buscar duplicados") },
+                                text = { Text(tr("Buscar duplicados")) },
                                 onClick = { backupMenu = false; duplicateDialog = true })
                         }
                     }
@@ -5700,24 +5700,23 @@ private fun openCasaDelLibro(context: Context) {
                         Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             AppIcon("Libros", tint = Teal, size = 46.dp)
-                            Text("Crea tu biblioteca", color = Ink, fontSize = 22.sp,
+                            Text(tr("Crea tu biblioteca"), color = Ink, fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
-                            Text("Selecciona tu carpeta de Google Drive para encontrar tus EPUB y PDF.",
+                            Text(tr("Selecciona tu carpeta de Google Drive para encontrar tus EPUB y PDF."),
                                 color = Mahogany, textAlign = TextAlign.Center)
                             Button(onClick = { folderPicker.launch(null) },
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
-                                Text("Elegir carpeta de libros")
+                                Text(tr("Elegir carpeta de libros"))
                             }
                             val sampleProgress = vm.sampleBooksProgress
                             OutlinedButton(onClick = vm::importSampleBooks,
                                 enabled = sampleProgress == null,
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
-                                Text(if (sampleProgress == null) "Probar con ${sampleBooks.size} clásicos gratuitos"
-                                    else "Descargando clásicos ${sampleProgress.first + 1}/${sampleProgress.second}…",
+                                Text(if (sampleProgress == null) trf("Probar con {0} clásicos gratuitos", sampleBooks.size)
+                                    else trf("Descargando clásicos {0}/{1}…", sampleProgress.first + 1, sampleProgress.second),
                                     color = Teal, textAlign = TextAlign.Center)
                             }
-                            Text("Don Quijote, Lazarillo de Tormes, Marianela, Pepita Jiménez y Niebla. " +
-                                "Son de dominio público y se descargan de Project Gutenberg.",
+                            Text(tr("Don Quijote, Lazarillo de Tormes, Marianela, Pepita Jiménez y Niebla. Son de dominio público y se descargan de Project Gutenberg."),
                                 color = Mahogany.copy(alpha = .8f), fontSize = 12.sp, textAlign = TextAlign.Center)
                         }
                     }
@@ -5749,7 +5748,7 @@ private fun openCasaDelLibro(context: Context) {
                             WallpaperLabel("La primera lectura crea el catálogo. Las siguientes sincronizaciones solo incorporan cambios.",
                                 modifier = Modifier.padding(horizontal = 24.dp), fontSize = 12.sp)
                             Spacer(Modifier.height(12.dp))
-                            Button(onClick = { folderPicker.launch(null) }) { Text("Elegir carpeta") }
+                            Button(onClick = { folderPicker.launch(null) }) { Text(tr("Elegir carpeta")) }
                         }
                     }
                 }
@@ -5763,7 +5762,7 @@ private fun openCasaDelLibro(context: Context) {
                         if (!vm.onlyFavorites) OutlinedButton(onClick = {
                             vm.query = ""; vm.statusFilter = null; vm.qualityFilter = "Ninguno"
                             vm.selectedSection = null; smartCollection = null
-                        }) { Text("Limpiar búsqueda y filtros") }
+                        }) { Text(tr("Limpiar búsqueda y filtros")) }
                     }
                 }
             } else if (tab == "Géneros" && !genreAllSelected && selectedGenres.isEmpty()) {
@@ -5784,10 +5783,10 @@ private fun openCasaDelLibro(context: Context) {
                             horizontalAlignment = Alignment.CenterHorizontally) {
                             AppIcon("Secciones", tint = Color.White, size = 36.dp)
                             Spacer(Modifier.height(8.dp))
-                            Text("Todavía no hay libros en secciones",
+                            Text(tr("Todavía no hay libros en secciones"),
                                 color = Color.White, fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center)
-                            Text("Crea una sección y asígnale libros desde su ficha.",
+                            Text(tr("Crea una sección y asígnale libros desde su ficha."),
                                 color = Color.White.copy(alpha = .86f), fontSize = 12.sp,
                                 textAlign = TextAlign.Center)
                         }
@@ -5816,7 +5815,7 @@ private fun openCasaDelLibro(context: Context) {
                             val missing = if (numbers.size >= 2) (numbers.min()..numbers.max())
                                 .filterNot(numbers::contains) else emptyList()
                             if (missing.isNotEmpty()) Text(
-                                "Sin EPUB en la biblioteca: " + missing.joinToString(", "),
+                                tr("Sin EPUB en la biblioteca: ") + missing.joinToString(", "),
                                 fontSize = 11.sp, color = Color.White,
                                 style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
                             val catalog = vm.sagaCatalog(name)
@@ -5830,8 +5829,8 @@ private fun openCasaDelLibro(context: Context) {
                                         .replace(Regex("[^\\p{L}\\p{N}]"), "") !in ownedTitles
                                 }
                                 Text(if (absent.isEmpty())
-                                    "✓ Completa · ${catalog.size} volúmenes"
-                                else "Faltan ${absent.size}: " + absent.joinToString { volume ->
+                                    trf("✓ Completa · {0} volúmenes", catalog.size)
+                                else trf("Faltan {0}: ", absent.size) + absent.joinToString { volume ->
                                     volume.order.takeIf(String::isNotBlank)?.let { "$it. " }.orEmpty() +
                                         volume.title
                                 }, fontSize = 11.sp,
@@ -5935,7 +5934,7 @@ private fun openCasaDelLibro(context: Context) {
                 (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(1)).coerceIn(0f, 1f)
     } }
     BoxWithConstraints(modifier.fillMaxHeight().width(24.dp)
-        .semantics { contentDescription = "Desplazamiento rápido de la biblioteca" }
+        .semantics { contentDescription = tr("Desplazamiento rápido de la biblioteca") }
         .pointerInput(listState, maxIndex) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
@@ -6054,14 +6053,14 @@ private fun HomeReadingSummary(books: List<Book>, progress: (Uri) -> Int) {
     val started = books.map { progress(it.uri) }.filter { it > 0 }
     val average = started.average().takeIf { !it.isNaN() }?.toInt() ?: 0
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
-        Text("Tu actividad de lectura", fontFamily = FontFamily.Serif,
+        Text(tr("Tu actividad de lectura"), fontFamily = FontFamily.Serif,
             fontWeight = FontWeight.Bold, fontSize = 21.sp, color = Color.White,
             style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
         Row(Modifier.fillMaxWidth().padding(top = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HomeMetricCard("Leídos", read.toString(), Teal, Modifier.weight(1f))
-            HomeMetricCard("Leyendo", reading.toString(), Brass, Modifier.weight(1f))
-            HomeMetricCard("Pendientes", pending.toString(), Color(0xFFD6A0C8), Modifier.weight(1f))
+            HomeMetricCard(tr("Leídos"), read.toString(), Teal, Modifier.weight(1f))
+            HomeMetricCard(tr("Leyendo"), reading.toString(), Brass, Modifier.weight(1f))
+            HomeMetricCard(tr("Pendientes"), pending.toString(), Color(0xFFD6A0C8), Modifier.weight(1f))
         }
         Card(Modifier.fillMaxWidth().padding(top = 8.dp),
             colors = CardDefaults.cardColors(containerColor = Paper.copy(alpha = .94f)),
@@ -6069,8 +6068,8 @@ private fun HomeReadingSummary(books: List<Book>, progress: (Uri) -> Int) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Progreso medio", color = Ink, fontWeight = FontWeight.Bold)
-                        Text("De los libros empezados", color = Mahogany.copy(alpha = .7f), fontSize = 11.sp)
+                        Text(tr("Progreso medio"), color = Ink, fontWeight = FontWeight.Bold)
+                        Text(tr("De los libros empezados"), color = Mahogany.copy(alpha = .7f), fontSize = 11.sp)
                     }
                     Text("$average %", color = Teal, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 }
@@ -6086,7 +6085,7 @@ private fun HomeReadingSummary(books: List<Book>, progress: (Uri) -> Int) {
                             .background(color))
                     }
                 }
-                Text("Terminados ${read * 100 / total}% · leyendo ${reading * 100 / total}% · pendientes ${pending * 100 / total}%",
+                Text(trf("Terminados {0}% · leyendo {1}% · pendientes {2}%", read * 100 / total, reading * 100 / total, pending * 100 / total),
                     fontSize = 10.sp, color = Mahogany.copy(alpha = .68f),
                     modifier = Modifier.padding(top = 5.dp))
             }
@@ -6118,58 +6117,58 @@ private fun ReadingStatisticsPage(
     val maxMonth = stats.completedByMonth.maxOrNull()?.coerceAtLeast(1) ?: 1
     Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Estadísticas de lectura", fontFamily = FontFamily.Serif,
+        Text(tr("Estadísticas de lectura"), fontFamily = FontFamily.Serif,
             fontWeight = FontWeight.Bold, fontSize = 27.sp, color = Color.White,
             style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
-        Text("Datos reales de tu actividad registrada", color = Color.White.copy(alpha = .86f))
+        Text(tr("Datos reales de tu actividad registrada"), color = Color.White.copy(alpha = .86f))
         var goalDraft by remember(annualGoal) { mutableStateOf(annualGoal.toString()) }
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Paper),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text("Reto ${today.year}", color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(trf("Reto {0}", today.year), color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Text("${(stats.goalPercent * 100).toInt()} %", color = Teal, fontWeight = FontWeight.Bold)
                 }
-                Text("${stats.currentYearRead} de ${stats.goal} libros terminados", color = Mahogany)
+                Text(trf("{0} de {1} libros terminados", stats.currentYearRead, stats.goal), color = Mahogany)
                 LinearProgressIndicator(progress = { stats.goalPercent }, Modifier.fillMaxWidth(),
                     color = Brass, trackColor = Brass.copy(alpha = .16f))
-                Text(if (stats.remainingForGoal == 0) "Objetivo alcanzado"
-                    else "Faltan ${stats.remainingForGoal} · proyección actual: ${stats.projectedYearTotal}",
+                Text(if (stats.remainingForGoal == 0) tr("Objetivo alcanzado")
+                    else trf("Faltan {0} · proyección actual: {1}", stats.remainingForGoal, stats.projectedYearTotal),
                     fontSize = 12.sp, color = Mahogany.copy(alpha = .76f))
                 if (stats.remainingForGoal > 0) {
                     val pace = String.format(java.util.Locale.getDefault(), "%.1f", stats.requiredMonthlyPace)
-                    Text(if (stats.onTrackForGoal) "Vas al ritmo necesario para cumplir el reto"
-                        else "Ritmo necesario: $pace libros al mes hasta diciembre",
+                    Text(if (stats.onTrackForGoal) tr("Vas al ritmo necesario para cumplir el reto")
+                        else trf("Ritmo necesario: {0} libros al mes hasta diciembre", pace),
                         fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                         color = if (stats.onTrackForGoal) Teal else Mahogany)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(goalDraft, { goalDraft = it.filter(Char::isDigit).take(3) },
-                        label = { Text("Objetivo anual") }, singleLine = true,
+                        label = { Text(tr("Objetivo anual")) }, singleLine = true,
                         modifier = Modifier.weight(1f))
                     Spacer(Modifier.width(8.dp))
                     Button(onClick = { goalDraft.toIntOrNull()?.coerceIn(1, 365)?.let(onGoalChanged) }) {
-                        Text("Guardar")
+                        Text(tr("Guardar"))
                     }
                 }
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HomeMetricCard("Este mes", stats.currentMonthRead.toString(), Teal, Modifier.weight(1f))
-            HomeMetricCard("Racha mensual", stats.monthStreak.toString(), Brass, Modifier.weight(1f))
-            HomeMetricCard("Relecturas", stats.rereads.toString(), Color(0xFFD6A0C8), Modifier.weight(1f))
+            HomeMetricCard(tr("Este mes"), stats.currentMonthRead.toString(), Teal, Modifier.weight(1f))
+            HomeMetricCard(tr("Racha mensual"), stats.monthStreak.toString(), Brass, Modifier.weight(1f))
+            HomeMetricCard(tr("Relecturas"), stats.rereads.toString(), Color(0xFFD6A0C8), Modifier.weight(1f))
         }
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Paper),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Evolución", color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(tr("Evolución"), color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 val comparison = when {
-                    stats.yearOverYearDelta > 0 -> "+${stats.yearOverYearDelta} frente al año pasado"
-                    stats.yearOverYearDelta < 0 -> "${stats.yearOverYearDelta} frente al año pasado"
-                    else -> "El mismo número que el año pasado"
+                    stats.yearOverYearDelta > 0 -> trf("+{0} frente al año pasado", stats.yearOverYearDelta)
+                    stats.yearOverYearDelta < 0 -> trf("{0} frente al año pasado", stats.yearOverYearDelta)
+                    else -> tr("El mismo número que el año pasado")
                 }
-                Text("${stats.currentYearRead} este año · ${stats.previousYearRead} el año pasado",
+                Text(trf("{0} este año · {1} el año pasado", stats.currentYearRead, stats.previousYearRead),
                     color = Mahogany)
                 Text(comparison, color = if (stats.yearOverYearDelta >= 0) Teal else Mahogany,
                     fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -6177,14 +6176,14 @@ private fun ReadingStatisticsPage(
                 Text("Mejor mes: $bestMonthText" +
                     if (stats.bestMonthCount > 0) " (${stats.bestMonthCount} libros)" else "",
                     color = Mahogany, fontSize = 12.sp)
-                Text("Has terminado el ${stats.catalogReadPercent} % de tu biblioteca",
+                Text(trf("Has terminado el {0} % de tu biblioteca", stats.catalogReadPercent),
                     color = Mahogany, fontSize = 12.sp)
             }
         }
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Paper),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Libros terminados por mes", color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(tr("Libros terminados por mes"), color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Row(Modifier.fillMaxWidth().height(112.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.Bottom) {
@@ -6208,37 +6207,37 @@ private fun ReadingStatisticsPage(
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HomeMetricCard("Leídos", stats.totalRead.toString(), Teal, Modifier.weight(1f))
-            HomeMetricCard("Leyendo", stats.reading.toString(), Brass, Modifier.weight(1f))
-            HomeMetricCard("Pendientes", stats.pending.toString(), Color(0xFFD6A0C8), Modifier.weight(1f))
+            HomeMetricCard(tr("Leídos"), stats.totalRead.toString(), Teal, Modifier.weight(1f))
+            HomeMetricCard(tr("Leyendo"), stats.reading.toString(), Brass, Modifier.weight(1f))
+            HomeMetricCard(tr("Pendientes"), stats.pending.toString(), Color(0xFFD6A0C8), Modifier.weight(1f))
         }
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Paper),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Lecturas activas", color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("Progreso medio: ${stats.averageActiveProgress} %", color = Mahogany)
+                Text(tr("Lecturas activas"), color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(trf("Progreso medio: {0} %", stats.averageActiveProgress), color = Mahogany)
                 LinearProgressIndicator(progress = { stats.averageActiveProgress / 100f },
                     Modifier.fillMaxWidth(), color = Teal, trackColor = Teal.copy(alpha = .16f))
-                Text("Valoración media de libros terminados: " +
+                Text(tr("Valoración media de libros terminados: ") +
                     (stats.averageRating?.let { String.format(java.util.Locale.getDefault(), "%.1f / 5", it) }
                         ?: "sin valorar"), fontSize = 12.sp, color = Mahogany.copy(alpha = .76f))
             }
         }
         if (stats.topGenres.isNotEmpty())
-            StatsRankingCard("Géneros leídos", stats.topGenres, Modifier.fillMaxWidth())
+            StatsRankingCard(tr("Géneros leídos"), stats.topGenres, Modifier.fillMaxWidth())
         if (stats.topAuthors.isNotEmpty())
-            StatsRankingCard("Autores leídos", stats.topAuthors, Modifier.fillMaxWidth())
+            StatsRankingCard(tr("Autores leídos"), stats.topAuthors, Modifier.fillMaxWidth())
         if (stats.readWithoutFinishDate > 0) {
             Surface(Modifier.fillMaxWidth(), color = InkFixed.copy(alpha = .82f),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
-                Text("${stats.readWithoutFinishDate} libros marcados como leídos no tienen una fecha final válida y no cuentan en el reto anual.",
+                Text(trf("{0} libros marcados como leídos no tienen una fecha final válida y no cuentan en el reto anual.", stats.readWithoutFinishDate),
                     Modifier.padding(14.dp), color = Color.White, fontSize = 12.sp)
             }
         }
         OutlinedButton(onClick = onOpenDetailed, modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
             border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .55f))) {
-            Text("Ver resumen completo")
+            Text(tr("Ver resumen completo"))
         }
     }
 }
@@ -6249,7 +6248,7 @@ private fun StatsRankingCard(title: String, values: List<Pair<String, Int>>, mod
         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(title, color = Ink, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            if (values.isEmpty()) Text("Sin datos", color = Mahogany.copy(alpha = .68f), fontSize = 11.sp)
+            if (values.isEmpty()) Text(tr("Sin datos"), color = Mahogany.copy(alpha = .68f), fontSize = 11.sp)
             values.forEach { (label, count) ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(label, color = Mahogany, fontSize = 11.sp, maxLines = 2,
@@ -6289,19 +6288,19 @@ private fun HomeExternalRecommendations(
     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Text("Descubre tu próxima lectura", fontFamily = FontFamily.Serif,
+            Text(tr("Descubre tu próxima lectura"), fontFamily = FontFamily.Serif,
                 fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Color.White,
                 modifier = Modifier.weight(1f),
                 style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
-            TextButton(onClick = onViewAll) { Text("Explorar", color = Color.White) }
+            TextButton(onClick = onViewAll) { Text(tr("Explorar"), color = Color.White) }
         }
         if (suggestions.isNotEmpty()) ExternalBooksRow(suggestions.take(12), "recomendada", onOpen)
         if (newReleases.isNotEmpty()) {
-            ExternalSectionTitle("Novedades")
+            ExternalSectionTitle(tr("Novedades", "sección"))
             ExternalBooksRow(newReleases, "novedad", onOpen)
         }
         if (upcoming.isNotEmpty()) {
-            ExternalSectionTitle("Novedades y próximos lanzamientos")
+            ExternalSectionTitle(tr("Novedades y próximos lanzamientos"))
             ExternalBooksRow(upcoming, "proximo", onOpen)
         }
     }
@@ -6371,13 +6370,13 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Text("Recomendados para ti", fontFamily = FontFamily.Serif,
+            Text(tr("Recomendados para ti"), fontFamily = FontFamily.Serif,
                 fontWeight = FontWeight.Bold, fontSize = 21.sp, color = Color.White,
                 modifier = Modifier.weight(1f),
                 style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
-            TextButton(onClick = onViewAll) { Text("Ver biblioteca", color = Color.White) }
+            TextButton(onClick = onViewAll) { Text(tr("Ver biblioteca"), color = Color.White) }
         }
-        Text("Elegidos en el teléfono según tus lecturas, sin enviar tu historial.",
+        Text(tr("Elegidos en el teléfono según tus lecturas, sin enviar tu historial."),
             color = Color.White.copy(alpha = .76f), fontSize = 11.sp,
             modifier = Modifier.padding(horizontal = 12.dp))
         LazyRow(Modifier.fillMaxWidth().padding(top = 10.dp),
@@ -6418,7 +6417,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
     isOffline: (Book) -> Boolean,
     onLongPress: (Book) -> Unit, onCarouselTouch: () -> Unit, onOpen: (Book) -> Unit) {
     Column {
-        Text("Continuar leyendo", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+        Text(tr("Continuar leyendo"), fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
             fontSize = 21.sp, color = Color.White,
             modifier = Modifier.padding(start = 12.dp, top = 16.dp, bottom = 12.dp),
             style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
@@ -6463,7 +6462,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
                         LinearProgressIndicator(progress = { progress(book.uri).coerceIn(0, 100) / 100f },
                             modifier = Modifier.fillMaxWidth(), color = Teal,
                             trackColor = Brass.copy(alpha = 0.15f))
-                        Text("${progress(book.uri)} % leído", fontSize = 10.sp, color = Teal)
+                        Text(trf("{0} % leído", progress(book.uri)), fontSize = 10.sp, color = Teal)
                     }
                 }
             }
@@ -6595,7 +6594,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         AppIcon(book.status.label, tint = Color.White, size = 14.dp)
-                        Text(if (book.status == ReadingStatus.READ) "Completado" else book.status.label,
+                        Text(if (book.status == ReadingStatus.READ) tr("Completado") else book.status.label,
                             fontSize = 11.sp, color = Color.White)
                     }
                 }
@@ -6605,7 +6604,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
 }
 
 @Composable private fun OfflineBadge(modifier: Modifier = Modifier, compact: Boolean = false) {
-    Surface(modifier = modifier.semantics { contentDescription = "Disponible sin conexión" },
+    Surface(modifier = modifier.semantics { contentDescription = tr("Disponible sin conexión") },
         shape = androidx.compose.foundation.shape.CircleShape, color = Teal,
         shadowElevation = 2.dp) {
         Icon(Icons.Outlined.DownloadDone, contentDescription = null, tint = Color.White,
@@ -6696,7 +6695,7 @@ private fun FlatCover(book: Book, w: androidx.compose.ui.unit.Dp, h: androidx.co
                         fontSize = (w.value * .07f).coerceIn(9f, 14f).sp,
                         color = Ink, maxLines = 3, textAlign = TextAlign.Center,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                    Text("Portada pendiente", fontSize = 9.sp, color = Mahogany.copy(alpha = .62f))
+                    Text(tr("Portada pendiente"), fontSize = 9.sp, color = Mahogany.copy(alpha = .62f))
                 }
             }
         }
@@ -7399,9 +7398,9 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         source.inputStream().use { it.copyTo(output, 64 * 1024) }
                     } ?: throw IllegalStateException("No se pudo escribir el archivo")
                 }
-                android.widget.Toast.makeText(context, "Archivo guardado", android.widget.Toast.LENGTH_LONG).show()
+                android.widget.Toast.makeText(context, tr("Archivo guardado"), android.widget.Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
-                android.widget.Toast.makeText(context, "No se pudo guardar: " + e.localizedMessage,
+                android.widget.Toast.makeText(context, tr("No se pudo guardar: ") + e.localizedMessage,
                     android.widget.Toast.LENGTH_LONG).show()
             } finally { exportingEpub = false }
         }
@@ -7416,17 +7415,17 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     }
     if (confirmDelete) AlertDialog(
         onDismissRequest = { confirmDelete = false },
-        title = { Text("Borrar archivo") },
+        title = { Text(tr("Borrar archivo")) },
         text = { Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
-            Text("Se borrará de Drive únicamente esta copia:")
+            Text(tr("Se borrará de Drive únicamente esta copia:"))
             Text(displayTitle(book) + " · " + displayAuthor(book), fontWeight = FontWeight.Bold)
-            Text("Tamaño: " + readableSize(book.sourceSize))
-            if (book.isbn.isNotBlank()) Text("ISBN: " + book.isbn, fontSize = 12.sp)
-            Text("Archivo: " + (duplicateNames[book.uri] ?: "Consultando nombre…"),
+            Text(tr("Tamaño: ") + readableSize(book.sourceSize))
+            if (book.isbn.isNotBlank()) Text(tr("ISBN: ") + book.isbn, fontSize = 12.sp)
+            Text(tr("Archivo: ") + (duplicateNames[book.uri] ?: "Consultando nombre…"),
                 fontSize = 12.sp)
             if (possibleDuplicates.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
-                Text("Otras copias que se conservarán:", fontWeight = FontWeight.Bold)
+                Text(tr("Otras copias que se conservarán:"), fontWeight = FontWeight.Bold)
                 possibleDuplicates.forEach { other ->
                     Text("• " + (duplicateNames[other.uri] ?: displayTitle(other)) +
                         " · " + readableSize(other.sourceSize) +
@@ -7434,49 +7433,49 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 }
             } else {
                 Spacer(Modifier.height(8.dp))
-                Text("No se detectaron otras copias con el mismo título y autor.", fontSize = 12.sp)
+                Text(tr("No se detectaron otras copias con el mismo título y autor."), fontSize = 12.sp)
             }
         } },
-        confirmButton = { LibraryTextButton(onClick = { confirmDelete = false; deleteBook() }) { Text("Borrar archivo") } },
-        dismissButton = { LibraryTextButton(onClick = { confirmDelete = false }) { Text("Cancelar") } }
+        confirmButton = { LibraryTextButton(onClick = { confirmDelete = false; deleteBook() }) { Text(tr("Borrar archivo")) } },
+        dismissButton = { LibraryTextButton(onClick = { confirmDelete = false }) { Text(tr("Cancelar")) } }
     )
     if (editIdentityDialog) AlertDialog(
         onDismissRequest = { editIdentityDialog = false },
-        title = { Text("Editar título, autor y saga") },
+        title = { Text(tr("Editar título, autor y saga")) },
         text = { Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-            OutlinedTextField(titleDraft, { titleDraft = it }, label = { Text("Título") })
-            OutlinedTextField(authorDraft, { authorDraft = it }, label = { Text("Autor") })
-            OutlinedTextField(sagaDraft, { sagaDraft = it }, label = { Text("Saga") })
-            OutlinedTextField(orderDraft, { orderDraft = it }, label = { Text("Número en la saga") })
+            OutlinedTextField(titleDraft, { titleDraft = it }, label = { Text(tr("Título")) })
+            OutlinedTextField(authorDraft, { authorDraft = it }, label = { Text(tr("Autor")) })
+            OutlinedTextField(sagaDraft, { sagaDraft = it }, label = { Text(tr("Saga")) })
+            OutlinedTextField(orderDraft, { orderDraft = it }, label = { Text(tr("Número en la saga")) })
         } },
         confirmButton = { LibraryTextButton(onClick = {
             editIdentity(titleDraft, authorDraft, sagaDraft, orderDraft)
             editIdentityDialog = false
-        }) { Text("Guardar") } },
-        dismissButton = { LibraryTextButton(onClick = { editIdentityDialog = false }) { Text("Cancelar") } }
+        }) { Text(tr("Guardar")) } },
+        dismissButton = { LibraryTextButton(onClick = { editIdentityDialog = false }) { Text(tr("Cancelar")) } }
     )
     if (editGenre) AlertDialog(
         onDismissRequest = { editGenre = false },
-        title = { Text("Editar géneros") },
+        title = { Text(tr("Editar géneros")) },
         text = { Column {
-            Text("Escribe varios géneros separados por comas.", fontSize = 12.sp)
-            OutlinedTextField(genreDraft, { genreDraft = it }, label = { Text("Géneros") },
+            Text(tr("Escribe varios géneros separados por comas."), fontSize = 12.sp)
+            OutlinedTextField(genreDraft, { genreDraft = it }, label = { Text(tr("Géneros")) },
                 modifier = Modifier.fillMaxWidth(), minLines = 2)
         } },
-        confirmButton = { LibraryTextButton(onClick = { updateGenre(genreDraft); editGenre = false }) { Text("Guardar") } },
-        dismissButton = { LibraryTextButton(onClick = { editGenre = false }) { Text("Cancelar") } }
+        confirmButton = { LibraryTextButton(onClick = { updateGenre(genreDraft); editGenre = false }) { Text(tr("Guardar")) } },
+        dismissButton = { LibraryTextButton(onClick = { editGenre = false }) { Text(tr("Cancelar")) } }
     )
     if (editInfo) AlertDialog(
         onDismissRequest = { editInfo = false },
-        title = { Text("Editar ficha en castellano") },
+        title = { Text(tr("Editar ficha en castellano")) },
         text = { Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-            OutlinedTextField(plotDraft, { plotDraft = it }, label = { Text("Argumento") },
+            OutlinedTextField(plotDraft, { plotDraft = it }, label = { Text(tr("Argumento")) },
                 minLines = 4, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(bioDraft, { bioDraft = it }, label = { Text("Biografía del autor") },
+            OutlinedTextField(bioDraft, { bioDraft = it }, label = { Text(tr("Biografía del autor")) },
                 minLines = 4, modifier = Modifier.fillMaxWidth())
         } },
-        confirmButton = { LibraryTextButton(onClick = { saveInfo(plotDraft, bioDraft); editInfo = false }) { Text("Guardar") } },
-        dismissButton = { LibraryTextButton(onClick = { editInfo = false }) { Text("Cancelar") } }
+        confirmButton = { LibraryTextButton(onClick = { saveInfo(plotDraft, bioDraft); editInfo = false }) { Text(tr("Guardar")) } },
+        dismissButton = { LibraryTextButton(onClick = { editInfo = false }) { Text(tr("Cancelar")) } }
     )
     val plot = book.spanishPlot.ifBlank {
         book.description.takeIf { book.language.lowercase().startsWith("es") ||
@@ -7615,7 +7614,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 Button(onClick = {
                     openBook()
                 }, modifier = Modifier.fillMaxWidth().height(56.dp)) {
-                    ActionLabel("Leer este libro", "Leer")
+                    ActionLabel(tr("Leer este libro"), "Leer")
                 }
                 Spacer(Modifier.height(10.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -7640,7 +7639,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         sagaDraft = book.saga; orderDraft = book.sagaOrder
                         editIdentityDialog = true
                     }, modifier = Modifier.weight(1f).height(56.dp)) {
-                        ActionLabel("Editar datos", "Editar", 12.sp)
+                        ActionLabel(tr("Editar datos"), "Editar", 12.sp)
                     }
                 }
                 if (offlineDownloading) {
@@ -7660,7 +7659,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                             OfflineBadge()
                             Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
-                                Text("Disponible sin conexión", fontWeight = FontWeight.SemiBold,
+                                Text(tr("Disponible sin conexión"), fontWeight = FontWeight.SemiBold,
                                     color = Ink)
                                 Text(listOfNotNull(
                                     offlineCopy?.displayName?.takeIf(String::isNotBlank),
@@ -7669,7 +7668,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                                     fontSize = 11.sp, color = Ink.copy(alpha = 0.78f), maxLines = 2)
                             }
                             TextButton(onClick = removeOfflineCopy, enabled = !offlineDownloading) {
-                                Text("Borrar copia")
+                                Text(tr("Borrar copia"))
                             }
                         }
                     }
@@ -7695,11 +7694,11 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                             }
                             LibraryActionButton(onClick = { coverPicker.launch("image/*") },
                                 modifier = Modifier.weight(1f).heightIn(min = 54.dp)) {
-                                ActionLabel("Cambiar portada", "Portada", 11.sp)
+                                ActionLabel(tr("Cambiar portada"), "Portada", 11.sp)
                             }
                         }
                         LibraryTextButton(onClick = { searchCoverImages(context, book) }) {
-                            ActionLabel("Buscar imágenes de portada", "Buscar", 12.sp)
+                            ActionLabel(tr("Buscar imágenes de portada"), "Buscar", 12.sp)
                         }
                     }
                 }
@@ -7710,11 +7709,11 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 Box(Modifier.fillMaxWidth()) {
                     LibraryActionButton(onClick = { sectionMenu = true },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp)) {
-                        Text("Secciones: ${bookSections(book).joinToString().ifBlank { "Sin sección" }}  ▾")
+                        Text(trf("Secciones: {0}  ▾", bookSections(book).joinToString().ifBlank { tr("Sin sección") }))
                     }
                     DropdownMenu(expanded = sectionMenu, onDismissRequest = { sectionMenu = false }) {
                         (listOf("") + sections).forEach { name ->
-                            DropdownMenuItem(text = { Text(if (name.isBlank()) "Quitar todas" else
+                            DropdownMenuItem(text = { Text(if (name.isBlank()) tr("Quitar todas") else
                                 (if (name in bookSections(book)) "✓ " else "+ ") + name) },
                                 onClick = { assignSection(name); if (name.isBlank()) sectionMenu = false })
                         }
@@ -7722,7 +7721,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 }
                 LibraryActionButton(onClick = toggleWant,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp)) {
-                    Text(if (book.wantToRead) "✓ Quiero leer" else "+ Quiero leer más adelante")
+                    Text(if (book.wantToRead) tr("✓ Quiero leer") else tr("+ Quiero leer más adelante"))
                 }
                 }
             }
@@ -7735,17 +7734,17 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 }
             }
             item {
-                Text("Datos del libro", fontFamily = FontFamily.Serif,
+                Text(tr("Datos del libro"), fontFamily = FontFamily.Serif,
                     fontWeight = FontWeight.Bold, fontSize = 17.sp,
                     color = Color.White, modifier = Modifier.padding(top = 8.dp),
                     style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
             }
             item {
-                BookPanel("Saga y orden de lectura", book.uri.toString(), initiallyExpanded = true) {
+                BookPanel(tr("Saga y orden de lectura"), book.uri.toString(), initiallyExpanded = true) {
                     if (book.saga.isBlank()) {
-                        Text("No hay una saga asignada a este libro.",
+                        Text(tr("No hay una saga asignada a este libro."),
                             fontSize = 12.sp, color = Mahogany)
-                        Text("Puedes buscarla automáticamente o añadirla con «Editar datos».",
+                        Text(tr("Puedes buscarla automáticamente o añadirla con «Editar datos»."),
                             fontSize = 12.sp, color = Mahogany.copy(alpha = .76f))
                     } else {
                         Text(book.saga, fontWeight = FontWeight.Bold, color = Mahogany)
@@ -7757,8 +7756,8 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         Spacer(Modifier.height(8.dp))
                         if (sagaCatalog.isNotEmpty()) {
                             Text(if (missingCatalogVolumes.isEmpty())
-                                "Saga completa según el catálogo consultado."
-                            else "Te faltan ${missingCatalogVolumes.size} volúmenes:",
+                                tr("Saga completa según el catálogo consultado.")
+                            else trf("Te faltan {0} volúmenes:", missingCatalogVolumes.size),
                                 fontSize = 12.sp, fontWeight = FontWeight.Bold,
                                 color = if (missingCatalogVolumes.isEmpty()) Teal else WarningText)
                             sagaCatalog.forEach { volume ->
@@ -7783,8 +7782,8 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                             }
                             Spacer(Modifier.height(6.dp))
                             Text(if (sagaMissing.isEmpty())
-                                "${AppBrand.NAME} está revisando el catálogo completo en segundo plano."
-                            else "Faltan entre los números conocidos: ${sagaMissing.joinToString(", ")}.",
+                                trApp("{app} está revisando el catálogo completo en segundo plano.")
+                            else trf("Faltan entre los números conocidos: {0}.", sagaMissing.joinToString(", ")),
                                 fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                                 color = if (sagaMissing.isEmpty()) Mahogany else WarningText)
                         }
@@ -7797,7 +7796,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 }
             }
             item {
-                BookPanel("Géneros", book.uri.toString(), initiallyExpanded = true) {
+                BookPanel(tr("Géneros"), book.uri.toString(), initiallyExpanded = true) {
                     Text(normalizeBookGenres(book.genre).joinToString(" · ")
                         .ifBlank { "Sin clasificar" }, fontSize = 13.sp, color = Mahogany)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -7806,38 +7805,38 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                                 "Buscar", 12.sp)
                         }
                         LibraryTextButton(onClick = { genreDraft = book.genre; editGenre = true }) {
-                            ActionLabel("Editar", "Editar", 12.sp)
+                            ActionLabel(tr("Editar"), "Editar", 12.sp)
                         }
                     }
-                    Text("Fuentes de catálogo. Comprueba las etiquetas encontradas.",
+                    Text(tr("Fuentes de catálogo. Comprueba las etiquetas encontradas."),
                         fontSize = 11.sp, color = Mahogany)
                 }
             }
             item {
-                BookPanel("Argumento", book.uri.toString(), initiallyExpanded = true) {
+                BookPanel(tr("Argumento"), book.uri.toString(), initiallyExpanded = true) {
                     OutlinedTextField(value = plot, onValueChange = {}, readOnly = true,
                         modifier = Modifier.fillMaxWidth(), minLines = 3,
-                        placeholder = { Text(if (infoLoading) "Buscando argumento en castellano…" else
-                            "Argumento en castellano pendiente. Puedes escribirlo.") },
+                        placeholder = { Text(if (infoLoading) tr("Buscando argumento en castellano…") else
+                            tr("Argumento en castellano pendiente. Puedes escribirlo.")) },
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 19.sp))
-                    if (plot.isNotBlank()) Text("Fuente: " + book.plotSource.ifBlank { "No registrada" },
+                    if (plot.isNotBlank()) Text(tr("Fuente: ") + book.plotSource.ifBlank { "No registrada" },
                         fontSize = 11.sp, color = Mahogany)
                 }
             }
             item {
-                BookPanel("Sobre el autor", book.uri.toString()) {
+                BookPanel(tr("Sobre el autor"), book.uri.toString()) {
                     OutlinedTextField(value = book.authorBio, onValueChange = {}, readOnly = true,
                         modifier = Modifier.fillMaxWidth(), minLines = 3,
-                        placeholder = { Text(if (infoLoading) "Buscando biografía en castellano…" else
-                            "Biografía en castellano pendiente. Puedes escribirla.") },
+                        placeholder = { Text(if (infoLoading) tr("Buscando biografía en castellano…") else
+                            tr("Biografía en castellano pendiente. Puedes escribirla.")) },
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 17.sp))
-                    if (book.authorBio.isNotBlank()) Text("Fuente: " + book.bioSource.ifBlank { "No registrada" },
+                    if (book.authorBio.isNotBlank()) Text(tr("Fuente: ") + book.bioSource.ifBlank { "No registrada" },
                         fontSize = 11.sp, color = Mahogany)
                     val authorBooks = libraryBooks.filter {
                         displayAuthor(it).equals(displayAuthor(book), ignoreCase = true)
                     }.sortedBy(::displayTitle)
                     Spacer(Modifier.height(8.dp))
-                    Text("En tu biblioteca: ${authorBooks.size} libros", fontWeight = FontWeight.Bold,
+                    Text(trf("En tu biblioteca: {0} libros", authorBooks.size), fontWeight = FontWeight.Bold,
                         fontSize = 12.sp, color = Mahogany)
                     authorBooks.take(12).forEach { other ->
                         Text("• ${displayTitle(other)}" + other.date.takeIf(String::isNotBlank)
@@ -7845,11 +7844,11 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                     }
                     LibraryTextButton(onClick = {
                         searchInGoogleApp(context, displayAuthor(book) + " bibliografía completa")
-                    }) { Text("Consultar bibliografía completa") }
+                    }) { Text(tr("Consultar bibliografía completa")) }
                 }
             }
             if (similarBooks.isNotEmpty()) item(key = "similar-public-books") {
-                BookPanel("Libros similares", book.uri.toString(), initiallyExpanded = true) {
+                BookPanel(tr("Libros similares"), book.uri.toString(), initiallyExpanded = true) {
                     val picked = selectedSimilar
                     if (picked != null) {
                         val publicDetails by produceState<PublicBookDetails?>(
@@ -7859,7 +7858,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                             onBack = { selectedSimilar = null },
                             onWish = { onWishExternal(picked) })
                     } else {
-                        Text("Sugerencias externas según la temática, el género y el autor.",
+                        Text(tr("Sugerencias externas según la temática, el género y el autor."),
                             color = Mahogany.copy(alpha = .76f), fontSize = 12.sp)
                         ExternalBooksRow(similarBooks, "similar") { selectedSimilar = it }
                     }
@@ -7875,19 +7874,19 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         plotDraft = book.spanishPlot.ifBlank { plot }
                         bioDraft = book.authorBio
                         editInfo = true
-                    }, modifier = Modifier.weight(1f)) { ActionLabel("Editar texto", "Editar") }
+                    }, modifier = Modifier.weight(1f)) { ActionLabel(tr("Editar texto"), "Editar") }
                 }
             }
             item {
-                BookPanel("Organización personal", book.uri.toString()) {
+                BookPanel(tr("Organización personal"), book.uri.toString()) {
                     OutlinedTextField(tagsDraft, { tagsDraft = it }, modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Etiquetas separadas por comas") },
-                        placeholder = { Text("Releer, edición especial, regalo…") })
+                        label = { Text(tr("Etiquetas separadas por comas")) },
+                        placeholder = { Text(tr("Releer, edición especial, regalo…")) })
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(loanToDraft, { loanToDraft = it }, modifier = Modifier.weight(1f),
-                            label = { Text("Prestado a") })
+                            label = { Text(tr("Prestado a")) })
                         OutlinedTextField(loanDateDraft, { loanDateDraft = it }, modifier = Modifier.weight(1f),
-                            label = { Text("Fecha") }, placeholder = { Text("AAAA-MM-DD") })
+                            label = { Text(tr("Fecha")) }, placeholder = { Text(tr("AAAA-MM-DD")) })
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Relecturas: $rereadDraft", modifier = Modifier.weight(1f), color = Mahogany)
@@ -7900,12 +7899,12 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                     }
                     LibraryActionButton(onClick = {
                         saveBookManagement(tagsDraft, loanToDraft, loanDateDraft, rereadDraft)
-                    }, modifier = Modifier.fillMaxWidth()) { Text("Guardar organización") }
+                    }, modifier = Modifier.fillMaxWidth()) { Text(tr("Guardar organización")) }
                 }
             }
             item {
-                BookPanel("Mi diario de lectura", book.uri.toString(), initiallyExpanded = true) {
-                    Text("Valoración", fontSize = 12.sp, color = Mahogany)
+                BookPanel(tr("Mi diario de lectura"), book.uri.toString(), initiallyExpanded = true) {
+                    Text(tr("Valoración"), fontSize = 12.sp, color = Mahogany)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         (1..5).forEach { star ->
                             IconButton(onClick = { ratingDraft = if (ratingDraft == star) 0 else star }) {
@@ -7916,24 +7915,24 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(startedDraft, { startedDraft = it }, modifier = Modifier.weight(1f),
-                            label = { Text("Inicio") }, placeholder = { Text("AAAA-MM-DD") }, singleLine = true)
+                            label = { Text(tr("Inicio")) }, placeholder = { Text(tr("AAAA-MM-DD")) }, singleLine = true)
                         OutlinedTextField(finishedDraft, { finishedDraft = it }, modifier = Modifier.weight(1f),
-                            label = { Text("Fin") }, placeholder = { Text("AAAA-MM-DD") }, singleLine = true)
+                            label = { Text(tr("Fin")) }, placeholder = { Text(tr("AAAA-MM-DD")) }, singleLine = true)
                     }
                     OutlinedTextField(quotesDraft, { quotesDraft = it }, modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Citas favoritas") }, minLines = 3)
+                        label = { Text(tr("Citas favoritas")) }, minLines = 3)
                     LibraryActionButton(onClick = {
                         saveReadingRecord(ratingDraft, startedDraft, finishedDraft, quotesDraft)
-                    }, modifier = Modifier.fillMaxWidth()) { ActionLabel("Guardar diario", "Guardar") }
+                    }, modifier = Modifier.fillMaxWidth()) { ActionLabel(tr("Guardar diario"), "Guardar") }
                 }
             }
             item {
-                BookPanel("Mis observaciones", book.uri.toString()) {
+                BookPanel(tr("Mis observaciones"), book.uri.toString()) {
                     OutlinedTextField(notesDraft, { notesDraft = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Escribe tus notas sobre este libro") }, minLines = 3)
+                        label = { Text(tr("Escribe tus notas sobre este libro")) }, minLines = 3)
                     LibraryActionButton(onClick = { saveNotes(notesDraft) }) {
-                        ActionLabel("Guardar observaciones", "Guardar")
+                        ActionLabel(tr("Guardar observaciones"), "Guardar")
                     }
                 }
             }
@@ -7957,9 +7956,9 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                             containerColor = Paper.copy(alpha = .94f),
                             contentColor = Mahogany)) {
                         ActionLabel(when {
-                            reviewLoading -> "Buscando reseña en castellano…"
-                            reviewVisible -> "Ocultar reseña del libro"
-                            else -> "Obtener reseña del libro"
+                            reviewLoading -> tr("Buscando reseña en castellano…")
+                            reviewVisible -> tr("Ocultar reseña del libro")
+                            else -> tr("Obtener reseña del libro")
                         }, "Reseña")
                     }
                     if (reviewVisible && reviewText.isNotBlank()) Surface(
@@ -7967,7 +7966,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = .45f))) {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("Reseña", color = Mahogany, fontFamily = FontFamily.Serif,
+                            Text(tr("Reseña"), color = Mahogany, fontFamily = FontFamily.Serif,
                                 fontWeight = FontWeight.Bold, fontSize = 22.sp)
                             Text(reviewText, color = Ink, fontSize = 15.sp, lineHeight = 22.sp)
                         }
@@ -7981,7 +7980,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = Paper.copy(alpha = .94f),
                             contentColor = Mahogany)) {
-                        ActionLabel("Buscar información del libro", "Búsqueda IA")
+                        ActionLabel(tr("Buscar información del libro"), "Búsqueda IA")
                     }
                     OutlinedButton(onClick = { confirmDelete = true },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -7990,7 +7989,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = Paper.copy(alpha = .94f),
                             contentColor = DangerText)) {
-                        ActionLabel("Borrar este archivo de Drive", "Borrar")
+                        ActionLabel(tr("Borrar este archivo de Drive"), "Borrar")
                     }
                 }
             }

@@ -1255,15 +1255,15 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(12.dp))
-                NavigationDrawerItem(label = { Text("Volver a la biblioteca") },
+                NavigationDrawerItem(label = { Text(tr("Volver a la biblioteca")) },
                     selected = false, icon = { AppIcon("Volver", "Volver") },
                     onClick = { scope.launch { drawer.close() }; onBack() })
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                Text("ESCUCHAR", color = Color(0xFF785940),
+                Text(tr("ESCUCHAR"), color = Color(0xFF785940),
                     style = MaterialTheme.typography.labelMedium)
                 if (document is ReadingDocument.TextDocument) {
                     NavigationDrawerItem(
-                        label = { Text(if (audioActive) "Pausar lectura" else "Leer en voz alta") },
+                        label = { Text(if (audioActive) tr("Pausar lectura") else tr("Leer en voz alta")) },
                         selected = audioActive,
                         icon = { AppIcon(if (audioActive) "Pausar" else "Reproducir") },
                         onClick = {
@@ -1279,21 +1279,21 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         colors = NavigationDrawerItemDefaults.colors(
                             selectedContainerColor = Color(0xFFE7DCC8),
                             selectedTextColor = Color(0xFF503727)))
-                    NavigationDrawerItem(label = { Text("Detener lectura") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Detener lectura")) }, selected = false,
                         icon = { AppIcon("Cerrar") },
                         onClick = {
                             pauseSpeech()
                             audioControlsVisible = false
                             speech?.stop()
                         })
-                    NavigationDrawerItem(label = { Text("Elegir voz") }, selected = false,
+                    NavigationDrawerItem(label = { Text(tr("Elegir voz")) }, selected = false,
                         icon = { AppIcon("Ajustes") },
                         onClick = { showVoicePicker = true })
                 }
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                Text("APARIENCIA", color = Color(0xFF785940),
+                Text(tr("APARIENCIA"), color = Color(0xFF785940),
                     style = MaterialTheme.typography.labelMedium)
-                NavigationDrawerItem(label = { Text("Bloquear orientación") },
+                NavigationDrawerItem(label = { Text(tr("Bloquear orientación")) },
                     selected = lockOrientation,
                     icon = { AppIcon("Ajustes", "Orientación") },
                     onClick = {
@@ -1301,26 +1301,26 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         prefs.edit().putBoolean("lock_orientation_$key", lockOrientation).apply()
                     })
                 Spacer(Modifier.height(8.dp))
-                Text("Perfiles", fontWeight = FontWeight.SemiBold)
+                Text(tr("Perfiles"), fontWeight = FontWeight.SemiBold)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(onClick = {
                         fontSize = 17f; dark = false; sepia = false; brightness = -1f
                         prefs.edit().putFloat("font_size", fontSize).putBoolean("dark", false)
                             .putBoolean("sepia", false).putFloat("brightness", brightness).apply()
-                    }) { Text("Día") }
+                    }) { Text(tr("Día")) }
                     TextButton(onClick = {
                         fontSize = 19f; dark = false; sepia = true; brightness = .62f
                         prefs.edit().putFloat("font_size", fontSize).putBoolean("dark", false)
                             .putBoolean("sepia", true).putFloat("brightness", brightness).apply()
-                    }) { Text("Cómodo") }
+                    }) { Text(tr("Cómodo")) }
                     TextButton(onClick = {
                         fontSize = 20f; dark = true; sepia = false; brightness = .28f
                         prefs.edit().putFloat("font_size", fontSize).putBoolean("dark", true)
                             .putBoolean("sepia", false).putFloat("brightness", brightness).apply()
-                    }) { Text("Noche") }
+                    }) { Text(tr("Noche")) }
                 }
                 if (document is ReadingDocument.TextDocument) {
-                    Text("Tamaño de letra · ${fontSize.toInt()} pt", fontWeight = FontWeight.SemiBold)
+                    Text(trf("Tamaño de letra · {0} pt", fontSize.toInt()), fontWeight = FontWeight.SemiBold)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedButton(onClick = {
                             fontSize = (fontSize - 1).coerceAtLeast(12f)
@@ -1337,16 +1337,16 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     TextButton(onClick = {
                         dark = false; sepia = false
                         prefs.edit().putBoolean("dark", false).putBoolean("sepia", false).apply()
-                    }) { Text("Día") }
+                    }) { Text(tr("Día")) }
                     TextButton(onClick = {
                         dark = false; sepia = true
                         prefs.edit().putBoolean("dark", false).putBoolean("sepia", true).apply()
-                    }) { Text("Sepia") }
+                    }) { Text(tr("Sepia")) }
                     TextButton(onClick = {
                         dark = true; prefs.edit().putBoolean("dark", true).apply()
-                    }) { Text("Noche") }
+                    }) { Text(tr("Noche")) }
                 }
-                Text("Color del próximo subrayado", color = Color(0xFF785940),
+                Text(tr("Color del próximo subrayado"), color = Color(0xFF785940),
                     style = MaterialTheme.typography.labelMedium)
                 Row(Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1362,10 +1362,10 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 }
                 if (document is ReadingDocument.TextDocument)
                     OutlinedTextField(searchText, { searchText = it }, singleLine = true,
-                        label = { Text("Buscar en el libro") },
+                        label = { Text(tr("Buscar en el libro")) },
                         modifier = Modifier.fillMaxWidth())
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                Text("CAPÍTULOS Y MARCAS", color = Color(0xFF785940),
+                Text(tr("CAPÍTULOS Y MARCAS"), color = Color(0xFF785940),
                     style = MaterialTheme.typography.labelMedium)
                 val chapters = if (document is ReadingDocument.TextDocument)
                     readerChapters(document.paragraphs)
@@ -1375,7 +1375,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         val matches = document.paragraphs.withIndex()
                             .filter { it.value.text.contains(searchText, ignoreCase = true) }
                             .take(30)
-                        item { Text("${matches.size} coincidencias", fontSize = 12.sp) }
+                        item { Text(trf("{0} coincidencias", matches.size), fontSize = 12.sp) }
                         items(matches.size) { number ->
                             val match = matches[number]
                             TextButton(onClick = {
@@ -1387,7 +1387,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         is ReadingDocument.TextDocument -> {
                             if (chapters.isEmpty()) item { TextButton(onClick = {
                                 jumpToItem = 0; scope.launch { drawer.close() }
-                            }) { Text("Inicio") } }
+                            }) { Text(tr("Inicio")) } }
                             items(chapters.size) { number ->
                                 val chapter = chapters[number]
                                 TextButton(onClick = {
@@ -1397,13 +1397,13 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         }
                         is ReadingDocument.PdfDocument -> items(document.pages) { number ->
                             TextButton(onClick = { page = number; scope.launch { drawer.close() } }) {
-                                Text("Página ${number + 1}")
+                                Text(trf("Página {0}", number + 1))
                             }
                         }
                         else -> Unit
                     }
                     if (highlights.isNotEmpty()) {
-                        item { Text("Mis subrayados", fontWeight = FontWeight.Bold,
+                        item { Text(tr("Mis subrayados"), fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(top = 14.dp)) }
                         items(highlights.size) { number ->
                             val highlight = highlights[number]
@@ -1427,22 +1427,22 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         }
                     }
                 }
-                Text(if (brightness < 0f) "Brillo del sistema" else
-                    "Brillo de lectura: ${(brightness * 100).toInt()} %", fontSize = 12.sp)
+                Text(if (brightness < 0f) tr("Brillo del sistema") else
+                    trf("Brillo de lectura: {0} %", (brightness * 100).toInt()), fontSize = 12.sp)
                 Slider(value = if (brightness < 0f) 0.5f else brightness, onValueChange = {
                     brightness = it.coerceIn(0.05f, 1f)
                     prefs.edit().putFloat("brightness", brightness).apply()
                 }, valueRange = 0.05f..1f,
-                    modifier = Modifier.semantics { contentDescription = "Brillo de lectura" })
+                    modifier = Modifier.semantics { contentDescription = tr("Brillo de lectura") })
                 TextButton(onClick = {
                     brightness = -1f
                     prefs.edit().putFloat("brightness", -1f).apply()
-                }) { Text("Usar brillo del sistema") }
+                }) { Text(tr("Usar brillo del sistema")) }
                 TextButton(onClick = { scope.launch {
                     try { shareReadingFile(context, book) }
                     catch (e: Exception) { android.widget.Toast.makeText(context,
                         "No se pudo compartir: ${e.localizedMessage}", android.widget.Toast.LENGTH_LONG).show() }
-                } }) { Text("Compartir libro") }
+                } }) { Text(tr("Compartir libro")) }
             }
         }
     }) {
@@ -1494,7 +1494,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator()
                     Spacer(Modifier.height(12.dp))
-                    Text("Preparando libro…", fontWeight = FontWeight.SemiBold)
+                    Text(tr("Preparando libro…"), fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
                     Text(
                         if (book.uri.scheme == "content") "Leyendo el archivo y preparando sus capítulos"
@@ -1510,7 +1510,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     AppIcon("Aviso", size = 34.dp)
                     Spacer(Modifier.height(12.dp))
-                    Text("No se pudo abrir este libro", color = foreground,
+                    Text(tr("No se pudo abrir este libro"), color = foreground,
                         fontSize = 20.sp, fontWeight = FontWeight.Bold,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     Spacer(Modifier.height(8.dp))
@@ -1529,11 +1529,11 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }, "Abrir con otra aplicación"))
                         } catch (_: Exception) {
-                            android.widget.Toast.makeText(context, "No hay otra aplicación compatible",
+                            android.widget.Toast.makeText(context, tr("No hay otra aplicación compatible"),
                                 android.widget.Toast.LENGTH_LONG).show()
                         }
-                    }) { Text("Abrir con otra aplicación") }
-                    TextButton(onClick = onBack) { Text("Volver a ${AppBrand.NAME}") }
+                    }) { Text(tr("Abrir con otra aplicación")) }
+                    TextButton(onClick = onBack) { Text(trApp("Volver a {app}")) }
                 }
             }
             is ReadingDocument.PdfDocument -> {
@@ -1588,13 +1588,13 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             }
                         }
                         Box(Modifier.align(Alignment.CenterStart).width(48.dp).fillMaxHeight()
-                            .semantics { contentDescription = "Página anterior"; role = Role.Button }
+                            .semantics { contentDescription = tr("Página anterior"); role = Role.Button }
                             .clickable { page = (index - 1).coerceAtLeast(0) })
                         Box(Modifier.align(Alignment.CenterEnd).width(48.dp).fillMaxHeight()
-                            .semantics { contentDescription = "Página siguiente"; role = Role.Button }
+                            .semantics { contentDescription = tr("Página siguiente"); role = Role.Button }
                             .clickable { page = (index + 1).coerceAtMost(document.pages - 1) })
                     }
-                    Text("Página ${index + 1} de ${document.pages} · ${((index + 1) * 100f / document.pages).toInt()} %",
+                    Text(trf("Página {0} de {1} · {2} %", index + 1, document.pages, ((index + 1) * 100f / document.pages).toInt()),
                         color = foreground, modifier = Modifier.padding(6.dp))
                 }
             }
@@ -1706,7 +1706,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 if (availability < TextToSpeech.LANG_AVAILABLE) {
                                     audioActive = false
                                     android.widget.Toast.makeText(context,
-                                        "Instala una voz del idioma del libro en los ajustes de voz de Android",
+                                        tr("Instala una voz del idioma del libro en los ajustes de voz de Android"),
                                         android.widget.Toast.LENGTH_LONG).show()
                                 } else {
                                     val pageData = pages[currentPage]
@@ -1739,7 +1739,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         if (result == TextToSpeech.ERROR) {
                                             audioActive = false
                                             android.widget.Toast.makeText(context,
-                                                "La voz no pudo reproducir este fragmento. Prueba a elegir otra voz.",
+                                                tr("La voz no pudo reproducir este fragmento. Prueba a elegir otra voz."),
                                                 android.widget.Toast.LENGTH_LONG).show()
                                         }
                                     }
@@ -1823,7 +1823,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                 if (speechGeneration.get() == utteranceGeneration) {
                                                     audioActive = false
                                                     android.widget.Toast.makeText(context,
-                                                        "La lectura en voz alta se ha detenido. Prueba a elegir otra voz.",
+                                                        tr("La lectura en voz alta se ha detenido. Prueba a elegir otra voz."),
                                                         android.widget.Toast.LENGTH_LONG).show()
                                                 }
                                             }
@@ -1923,10 +1923,10 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 }
                             }
                             Box(Modifier.align(Alignment.CenterStart).width(48.dp).fillMaxHeight()
-                                .semantics { contentDescription = "Página anterior"; role = Role.Button }
+                                .semantics { contentDescription = tr("Página anterior"); role = Role.Button }
                                 .clickable { turn(-1) })
                             Box(Modifier.align(Alignment.CenterEnd).width(48.dp).fillMaxHeight()
-                                .semantics { contentDescription = "Página siguiente"; role = Role.Button }
+                                .semantics { contentDescription = tr("Página siguiente"); role = Role.Button }
                                 .clickable { turn(1) })
                         }
                         if (showReaderTools) {
@@ -1949,12 +1949,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         maxLines = 6,
                                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                         modifier = Modifier.fillMaxWidth())
-                                    Text("Página ${currentPage + 1} de ${pages.size} · $percent %",
+                                    Text(trf("Página {0} de {1} · {2} %", currentPage + 1, pages.size, percent),
                                         color = foreground.copy(alpha = 0.75f))
                                     Slider(value = requestedPage, onValueChange = { requestedPage = it },
                                         valueRange = 0f..pages.lastIndex.toFloat().coerceAtLeast(0f),
                                         modifier = Modifier.semantics {
-                                            contentDescription = "Posición de lectura"
+                                            contentDescription = tr("Posición de lectura")
                                             stateDescription = pageDescription(requestedPage.toInt(), pages.size)
                                         },
                                         onValueChangeFinished = {
@@ -1983,7 +1983,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                     saveReadingCursor(target.startChar)
                                                     saveSpeechCursor(target.startChar)
                                                     showReaderTools = false
-                                                }) { Text("← Capítulo") }
+                                                }) { Text(tr("← Capítulo")) }
                                             OutlinedButton(
                                                 enabled = currentChapterIndex < chapterNavigation.lastIndex,
                                                 onClick = {
@@ -1994,28 +1994,28 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                     saveReadingCursor(target.startChar)
                                                     saveSpeechCursor(target.startChar)
                                                     showReaderTools = false
-                                                }) { Text("Capítulo →") }
+                                                }) { Text(tr("Capítulo →")) }
                                         }
                                     }
                                     Row(verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         OutlinedTextField(directPage, { directPage = it.filter(Char::isDigit) },
                                             modifier = Modifier.weight(1f), singleLine = true,
-                                            label = { Text("Ir a la página") })
+                                            label = { Text(tr("Ir a la página")) })
                                         Button(onClick = {
                                             val target = (directPage.toIntOrNull() ?: 1)
                                                 .coerceIn(1, pages.size) - 1
                                             textPage = target
                                             saveSpeechCursor(pages[target].startChar)
                                             showReaderTools = false
-                                        }) { Text("Ir") }
+                                        }) { Text(tr("Ir")) }
                                     }
                                     HorizontalDivider()
-                                    Text("Lectura", fontWeight = FontWeight.Bold,
+                                    Text(tr("Lectura"), fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Serif, fontSize = 17.sp)
-                                    Text("Mantener pantalla encendida",
+                                    Text(tr("Mantener pantalla encendida"),
                                         fontWeight = FontWeight.SemiBold)
-                                    Text("El contador se reinicia con cada toque. Al agotarse, vuelve el ajuste de pantalla del teléfono.",
+                                    Text(tr("El contador se reinicia con cada toque. Al agotarse, vuelve el ajuste de pantalla del teléfono."),
                                         fontSize = 12.sp, color = foreground.copy(alpha = 0.75f))
                                     Row(Modifier.horizontalScroll(rememberScrollState()),
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2033,32 +2033,32 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                 }, label = { Text(label, fontSize = 12.sp) })
                                         }
                                     }
-                                    Text("Márgenes · ${readerMargin.toInt()} dp",
+                                    Text(trf("Márgenes · {0} dp", readerMargin.toInt()),
                                         color = foreground.copy(alpha = 0.78f))
                                     Slider(value = readerMargin, onValueChange = {
                                         readerMargin = it
                                         prefs.edit().putFloat("reader_margin", it).apply()
                                     }, valueRange = 12f..42f,
-                                        modifier = Modifier.semantics { contentDescription = "Márgenes de lectura" })
-                                    Text("Espaciado entre líneas · ${String.format(java.util.Locale.ROOT, "%.2f", lineSpacing)}",
+                                        modifier = Modifier.semantics { contentDescription = tr("Márgenes de lectura") })
+                                    Text(trf("Espaciado entre líneas · {0}", String.format(java.util.Locale.ROOT, "%.2f", lineSpacing)),
                                         color = foreground.copy(alpha = 0.78f))
                                     Slider(value = lineSpacing, onValueChange = {
                                         lineSpacing = it
                                         prefs.edit().putFloat("line_spacing", it).apply()
                                     }, valueRange = 1.15f..1.8f,
-                                        modifier = Modifier.semantics { contentDescription = "Espaciado entre líneas" })
+                                        modifier = Modifier.semantics { contentDescription = tr("Espaciado entre líneas") })
                                     HorizontalDivider()
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
-                                            Text("Marcas de página", fontWeight = FontWeight.Bold)
-                                            Text("Guarda este punto para volver después.",
+                                            Text(tr("Marcas de página"), fontWeight = FontWeight.Bold)
+                                            Text(tr("Guarda este punto para volver después."),
                                                 fontSize = 12.sp, color = foreground.copy(alpha = 0.72f))
                                         }
                                         FilledTonalButton(onClick = {
                                             toggleBookmark(pages[currentPage].startChar)
                                         }) {
                                             Text(if (pages[currentPage].startChar in bookmarkChars)
-                                                "Quitar marca" else "Poner marca")
+                                                tr("Quitar marca") else tr("Poner marca"))
                                         }
                                     }
                                     bookmarkChars.forEachIndexed { index, charPosition ->
@@ -2072,7 +2072,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                 saveSpeechCursor(charPosition)
                                                 showReaderTools = false
                                             }, modifier = Modifier.weight(1f)) {
-                                                Text("Marcador ${index + 1} · página ${targetPage + 1}",
+                                                Text(trf("Marcador {0} · página {1}", index + 1, targetPage + 1),
                                                     modifier = Modifier.fillMaxWidth())
                                             }
                                             IconButton(onClick = { toggleBookmark(charPosition) }) {
@@ -2082,7 +2082,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     }
                                     if (positionHistory.isNotEmpty()) {
                                         HorizontalDivider()
-                                        Text("Historial de posiciones", fontWeight = FontWeight.Bold)
+                                        Text(tr("Historial de posiciones"), fontWeight = FontWeight.Bold)
                                         positionHistory.asReversed().take(8).forEachIndexed { index, charPosition ->
                                             val targetPage = pages.indexOfLast { it.startChar <= charPosition }
                                                 .coerceAtLeast(0)
@@ -2091,23 +2091,23 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                 saveSpeechCursor(charPosition)
                                                 showReaderTools = false
                                             }, modifier = Modifier.fillMaxWidth()) {
-                                                Text("Posición ${index + 1} · página ${targetPage + 1}",
+                                                Text(trf("Posición {0} · página {1}", index + 1, targetPage + 1),
                                                     modifier = Modifier.fillMaxWidth())
                                             }
                                         }
                                     }
                                     HorizontalDivider()
-                                    Text("Libreta de este libro", fontWeight = FontWeight.Bold,
+                                    Text(tr("Libreta de este libro"), fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Serif, fontSize = 17.sp)
                                     OutlinedTextField(notebook, { notebook = it },
                                         modifier = Modifier.fillMaxWidth(), minLines = 4,
-                                        label = { Text("Notas, palabras y frases guardadas") })
+                                        label = { Text(tr("Notas, palabras y frases guardadas")) })
                                     Button(onClick = {
                                         prefs.edit().putString("notebook_$key", notebook).apply()
                                         showReaderTools = false
-                                    }, modifier = Modifier.fillMaxWidth()) { Text("Guardar en la libreta") }
+                                    }, modifier = Modifier.fillMaxWidth()) { Text(tr("Guardar en la libreta")) }
                                     if (highlights.isNotEmpty()) {
-                                        Text("Subrayados y notas", fontWeight = FontWeight.Bold)
+                                        Text(tr("Subrayados y notas"), fontWeight = FontWeight.Bold)
                                         highlights.takeLast(12).asReversed().forEach { mark ->
                                             TextButton(onClick = {
                                                 jumpToItem = mark.paragraph
@@ -2141,7 +2141,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 LinearProgressIndicator(
                                     progress = { (percent / 100f).coerceIn(0f, 1f) },
                                     modifier = Modifier.fillMaxWidth().height(2.dp).semantics {
-                                        contentDescription = "Progreso de lectura"
+                                        contentDescription = tr("Progreso de lectura")
                                         stateDescription = percentDescription("Lectura", percent)
                                     },
                                     color = if (dark) Color(0xFF8BC7D1) else Color(0xFF8A2D2D),
@@ -2151,7 +2151,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("Página ${textPage.coerceIn(0, totalTextPages - 1) + 1} de $totalTextPages", fontSize = 11.sp)
+                                    Text(trf("Página {0} de {1}", textPage.coerceIn(0, totalTextPages - 1) + 1, totalTextPages), fontSize = 11.sp)
                                     Text("$percent %", fontSize = 11.sp)
                                 }
                             }
@@ -2172,18 +2172,18 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             ) {
                                 TextButton(onClick = { changeSpeechRate(-0.1f) },
                                     modifier = Modifier.heightIn(min = 48.dp).semantics {
-                                        contentDescription = "Reducir velocidad de lectura"
+                                        contentDescription = tr("Reducir velocidad de lectura")
                                     },
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)) {
                                     Text("−", fontSize = 19.sp, lineHeight = 20.sp)
                                 }
-                                Text("Velocidad · ${String.format(java.util.Locale.ROOT, "%.1f", speechRate)}×",
+                                Text(trf("Velocidad · {0}×", String.format(java.util.Locale.ROOT, "%.1f", speechRate)),
                                     fontSize = 12.sp, modifier = Modifier.padding(horizontal = 6.dp).semantics {
                                         contentDescription = speechRateDescription(speechRate)
                                     })
                                 TextButton(onClick = { changeSpeechRate(0.1f) },
                                     modifier = Modifier.heightIn(min = 48.dp).semantics {
-                                        contentDescription = "Aumentar velocidad de lectura"
+                                        contentDescription = tr("Aumentar velocidad de lectura")
                                     },
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)) {
                                     Text("+", fontSize = 19.sp, lineHeight = 20.sp)
@@ -2196,7 +2196,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             ) {
                                 TextButton(
                                     modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics {
-                                        contentDescription = "Retroceder quince segundos"
+                                        contentDescription = tr("Retroceder quince segundos")
                                     },
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = { requestAudioSeek(-speechSeekDistance(15, speechRate)) }
@@ -2217,12 +2217,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         AppIcon(if (audioActive) "Pausar" else "Reproducir", size = 19.dp)
-                                        Text(if (audioActive) "Pausa" else "Play", fontSize = 9.sp)
+                                        Text(if (audioActive) tr("Pausa") else tr("Play"), fontSize = 9.sp)
                                     }
                                 }
                                 TextButton(
                                     modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics {
-                                        contentDescription = "Detener lectura"
+                                        contentDescription = tr("Detener lectura")
                                     },
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = {
@@ -2233,12 +2233,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         AppIcon("Detener", size = 17.dp)
-                                        Text("Stop", fontSize = 9.sp)
+                                        Text(tr("Stop"), fontSize = 9.sp)
                                     }
                                 }
                                 TextButton(
                                     modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics {
-                                        contentDescription = "Avanzar quince segundos"
+                                        contentDescription = tr("Avanzar quince segundos")
                                     },
                                     contentPadding = PaddingValues(0.dp),
                                     onClick = { requestAudioSeek(speechSeekDistance(15, speechRate)) }
@@ -2250,21 +2250,21 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 }
                                 TextButton(
                                     modifier = Modifier.weight(1.15f).heightIn(min = 48.dp).semantics {
-                                        contentDescription = "Continuar con la pantalla bloqueada"
+                                        contentDescription = tr("Continuar con la pantalla bloqueada")
                                     },
                                     contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
                                     onClick = {
                                         activity?.moveTaskToBack(true)
                                         android.widget.Toast.makeText(
                                             context,
-                                            "La lectura continúa en segundo plano. Pulsa el botón lateral para apagar y bloquear la pantalla.",
+                                            tr("La lectura continúa en segundo plano. Pulsa el botón lateral para apagar y bloquear la pantalla."),
                                             android.widget.Toast.LENGTH_LONG
                                         ).show()
                                     }
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         AppIcon("Bloquear", size = 17.dp)
-                                        Text("Pantalla", fontSize = 9.sp, maxLines = 1)
+                                        Text(tr("Pantalla"), fontSize = 9.sp, maxLines = 1)
                                     }
                                 }
                             }
@@ -2293,10 +2293,10 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     if (confirmExit) {
         AlertDialog(
             onDismissRequest = { confirmExit = false },
-            title = { Text("Salir de la lectura") },
-            text = { Text("¿Quieres cerrar este libro?") },
-            confirmButton = { TextButton(onClick = { confirmExit = false; onBack() }) { Text("Sí") } },
-            dismissButton = { TextButton(onClick = { confirmExit = false }) { Text("No") } }
+            title = { Text(tr("Salir de la lectura")) },
+            text = { Text(tr("¿Quieres cerrar este libro?")) },
+            confirmButton = { TextButton(onClick = { confirmExit = false; onBack() }) { Text(tr("Sí")) } },
+            dismissButton = { TextButton(onClick = { confirmExit = false }) { Text(tr("No")) } }
         )
     }
     if (showVoicePicker) {
@@ -2305,12 +2305,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
             .filter { it.locale.language == language && !it.isNetworkConnectionRequired }
             .sortedWith(compareBy({ it.locale.toLanguageTag() }, { it.name }))
         AlertDialog(onDismissRequest = { showVoicePicker = false },
-            title = { Text("Elegir voz") },
+            title = { Text(tr("Elegir voz")) },
             text = {
                 Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
-                    Text("Voces sin conexión instaladas en el dispositivo",
+                    Text(tr("Voces sin conexión instaladas en el dispositivo"),
                         style = MaterialTheme.typography.bodySmall)
-                    RadioVoiceOption("Davefx · español de España",
+                    RadioVoiceOption(tr("Davefx · español de España"),
                         selectedVoiceName == "davefx") {
                         if (hasDavefxEngine(context)) {
                             if (audioActive) {
@@ -2328,15 +2328,15 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     Uri.parse(DAVEFX_DOWNLOAD_URL)))
                             } catch (_: Exception) {
                                 android.widget.Toast.makeText(context,
-                                    "No se pudo abrir la página de Davefx.",
+                                    tr("No se pudo abrir la página de Davefx."),
                                     android.widget.Toast.LENGTH_LONG).show()
                             }
                         }
                     }
                     if (!hasDavefxEngine(context)) Text(
-                        "Davefx es un motor de voz externo y opcional. Al elegirlo se abrirá la página oficial del proyecto sherpa-onnx en el navegador.",
+                        tr("Davefx es un motor de voz externo y opcional. Al elegirlo se abrirá la página oficial del proyecto sherpa-onnx en el navegador."),
                         style = MaterialTheme.typography.bodySmall)
-                    RadioVoiceOption("Predeterminada", selectedVoiceName.isBlank()) {
+                    RadioVoiceOption(tr("Predeterminada"), selectedVoiceName.isBlank()) {
                         if (audioActive) {
                             persistSpeechCursorNow()
                             speechGeneration.incrementAndGet()
@@ -2358,19 +2358,19 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             showVoicePicker = false
                         }
                     }
-                    if (choices.isEmpty()) Text("No hay voces sin conexión para este idioma.")
+                    if (choices.isEmpty()) Text(tr("No hay voces sin conexión para este idioma."))
                 }
             },
-            confirmButton = { TextButton(onClick = { showVoicePicker = false }) { Text("Cerrar") } })
+            confirmButton = { TextButton(onClick = { showVoicePicker = false }) { Text(tr("Cerrar")) } })
     }
     pendingNote?.let { selected ->
         AlertDialog(onDismissRequest = { pendingNote = null },
-            title = { Text("Nota de lectura") },
+            title = { Text(tr("Nota de lectura")) },
             text = { Column {
                 Text("«${selected.quote.take(180)}»", fontFamily = FontFamily.Serif)
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(noteDraft, { noteDraft = it },
-                    label = { Text("Escribe tu nota") }, minLines = 3)
+                    label = { Text(tr("Escribe tu nota")) }, minLines = 3)
             } },
             confirmButton = { TextButton(onClick = {
                 highlights = highlights.filterNot { h ->
@@ -2380,8 +2380,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                 saveHighlights(context, key, highlights)
                 onHighlightsChanged()
                 pendingNote = null
-            }) { Text("Guardar") } },
-            dismissButton = { TextButton(onClick = { pendingNote = null }) { Text("Cancelar") } })
+            }) { Text(tr("Guardar")) } },
+            dismissButton = { TextButton(onClick = { pendingNote = null }) { Text(tr("Cancelar")) } })
     }
     dictionaryWord?.let { word ->
         val definitions by produceState<List<DictionaryDefinition>?>(null, word) {
@@ -2407,15 +2407,15 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     containerColor = foreground.copy(alpha = 0.06f))) {
                     Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Diccionario", modifier = Modifier.weight(1f),
+                            Text(tr("Diccionario"), modifier = Modifier.weight(1f),
                                 fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                            Icon(Icons.Filled.ExpandMore, contentDescription = "Mostrar definiciones")
+                            Icon(Icons.Filled.ExpandMore, contentDescription = tr("Mostrar definiciones"))
                         }
                         Spacer(Modifier.height(12.dp))
                         when {
-                            definitions == null -> Text("Buscando en Wikcionario y la RAE…")
+                            definitions == null -> Text(tr("Buscando en Wikcionario y la RAE…"))
                             definitions!!.isEmpty() -> Text(
-                                "Para ver definiciones sin conexión, abre el diccionario español de Android o consulta la RAE.")
+                                tr("Para ver definiciones sin conexión, abre el diccionario español de Android o consulta la RAE."))
                             else -> definitions!!.forEachIndexed { i, definition ->
                                 Column(Modifier.padding(bottom = 12.dp)) {
                                     if (i == 0 || definitions!![i - 1].source != definition.source)
@@ -2428,7 +2428,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         }
                         if (definitions == null || definitions!!.isEmpty()) {
                             Spacer(Modifier.height(12.dp))
-                            Text("Para ver las definiciones, seleccione un idioma y descargue el diccionario gratuito.",
+                            Text(tr("Para ver las definiciones, seleccione un idioma y descargue el diccionario gratuito."),
                                 fontSize = 16.sp, lineHeight = 24.sp)
                             Spacer(Modifier.height(14.dp))
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -2437,7 +2437,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     try { context.startActivity(Intent(
                                         android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) }
                                     catch (_: Exception) { }
-                                }) { Text("Español") }
+                                }) { Text(tr("Español")) }
                                 FilledIconButton(onClick = {
                                     try { context.startActivity(Intent(Intent.ACTION_VIEW,
                                         Uri.parse("https://es.wiktionary.org/wiki/" +
@@ -2449,7 +2449,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                Text("Consulta local de Wikcionario y acceso al DLE de la RAE.",
+                Text(tr("Consulta local de Wikcionario y acceso al DLE de la RAE."),
                     style = MaterialTheme.typography.bodySmall,
                     color = foreground.copy(alpha = 0.72f))
                 when {
@@ -2461,13 +2461,13 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     TextButton(onClick = {
                         saveNotebookEntry("«$word» — " +
                             (definitions?.firstOrNull()?.text ?: "palabra consultada en el diccionario"))
-                    }) { Text("Guardar en mi libreta") }
+                    }) { Text(tr("Guardar en mi libreta")) }
                     TextButton(onClick = {
                         try { context.startActivity(Intent(Intent.ACTION_VIEW,
                             Uri.parse("https://dle.rae.es/" +
                                 java.net.URLEncoder.encode(word, "UTF-8")))) }
                         catch (_: Exception) {}
-                    }) { Text("Consultar RAE") }
+                    }) { Text(tr("Consultar RAE")) }
                 }
             }
         }
@@ -2479,20 +2479,20 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         ModalBottomSheet(onDismissRequest = { translationQuote = null },
             containerColor = background, contentColor = foreground) {
             Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 36.dp)) {
-                Text("Traducción al castellano", fontFamily = FontFamily.Serif,
+                Text(tr("Traducción al castellano"), fontFamily = FontFamily.Serif,
                     fontSize = 21.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(12.dp))
                 Text("«${quote.take(500)}»", fontSize = 13.sp)
                 Spacer(Modifier.height(16.dp))
                 when {
                     translation == null -> CircularProgressIndicator(Modifier.size(24.dp))
-                    translation!!.isBlank() -> Text("No se pudo traducir este fragmento.")
+                    translation!!.isBlank() -> Text(tr("No se pudo traducir este fragmento."))
                     else -> Text(translation!!, fontSize = 17.sp, lineHeight = 24.sp)
                 }
                 if (!translation.isNullOrBlank()) {
                     TextButton(onClick = {
                         saveNotebookEntry("Frase: «${quote.take(300)}»\nTraducción: ${translation.orEmpty()}")
-                    }) { Text("Guardar frase en mi libreta") }
+                    }) { Text(tr("Guardar frase en mi libreta")) }
                 }
             }
         }

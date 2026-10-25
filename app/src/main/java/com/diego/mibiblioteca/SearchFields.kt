@@ -56,7 +56,7 @@ fun LibrarySearchField(
         onValueChange = { draft = it },
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
         singleLine = true,
-        placeholder = { Text("Buscar título, saga o autor") },
+        placeholder = { Text(tr("Buscar título, saga o autor")) },
         leadingIcon = { Icon(Icons.Outlined.Search, "Buscar") },
         trailingIcon = {
             if (draft.isNotEmpty()) IconButton(onClick = {
@@ -100,7 +100,7 @@ fun DiscoverSearchField(
         onValueChange = { draft = it },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
-        placeholder = { Text("Título, autor o ISBN") },
+        placeholder = { Text(tr("Título, autor o ISBN")) },
         leadingIcon = { Icon(Icons.Outlined.Search, "Buscar") },
         trailingIcon = {
             IconButton(onClick = onVoice) {

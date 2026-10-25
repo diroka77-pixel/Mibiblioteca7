@@ -62,8 +62,14 @@ internal fun searchLaunchCatalog(
  */
 internal const val LAUNCH_SOURCE = "Google Books"
 
-private const val RELEASES_URL = "https://www.googleapis.com/books/v1/volumes" +
-    "?q=subject:fiction&orderBy=newest&langRestrict=es&printType=books&maxResults=40&country=ES"
+/** Novedades en el idioma de la interfaz y, si se conoce, del país del teléfono. */
+internal fun releasesUrl(language: String = I18n.currentLanguage(),
+    country: String = java.util.Locale.getDefault().country): String {
+    val countryParam = country.uppercase().takeIf { it.matches(Regex("[A-Z]{2}")) }
+        ?.let { "&country=$it" }.orEmpty()
+    return "https://www.googleapis.com/books/v1/volumes" +
+        "?q=subject:fiction&orderBy=newest&langRestrict=$language&printType=books&maxResults=40$countryParam"
+}
 
 /** Convierte "2026-11-12" o "2026-11" en una fecha ISO; un año solo no basta. */
 internal fun googleBooksReleaseDate(value: String): String? {
@@ -100,4 +106,4 @@ internal fun launchNewsFromGoogleBooks(
 
 /** Descarga las novedades. Se ejecuta fuera del hilo principal. */
 internal fun fetchGoogleBooksReleases(): List<LaunchNews> =
-    runCatching { launchNewsFromGoogleBooks(getJson(RELEASES_URL)) }.getOrDefault(emptyList())
+    runCatching { launchNewsFromGoogleBooks(getJson(releasesUrl())) }.getOrDefault(emptyList())

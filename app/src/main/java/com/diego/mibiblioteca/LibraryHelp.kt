@@ -5,7 +5,7 @@ internal data class LibraryHelpSection(val title: String, val body: String)
 internal fun libraryHelpSections(): List<LibraryHelpSection> = listOf(
     LibraryHelpSection(
         "Añadir tu biblioteca",
-        "Elige la carpeta de libros desde Ajustes. Android te pedirá confirmar «Usar esta carpeta». ${AppBrand.NAME} conservará el acceso y podrás buscar cambios con el botón de sincronización."
+        "Elige la carpeta de libros desde Ajustes. Android te pedirá confirmar «Usar esta carpeta». {app} conservará el acceso y podrás buscar cambios con el botón de sincronización."
     ),
     LibraryHelpSection(
         "Formatos compatibles",
@@ -13,11 +13,11 @@ internal fun libraryHelpSections(): List<LibraryHelpSection> = listOf(
     ),
     LibraryHelpSection(
         "Importar un solo libro",
-        "Usa «Importar un libro» o abre el archivo con ${AppBrand.NAME} desde Android. El catálogo existente se conserva y el libro se añade como copia local."
+        "Usa «Importar un libro» o abre el archivo con {app} desde Android. El catálogo existente se conserva y el libro se añade como copia local."
     ),
     LibraryHelpSection(
         "Lectura en voz alta",
-        "El lector utiliza las voces instaladas en Android. Si una voz deja de responder, elige otra voz sin conexión y vuelve a iniciar la reproducción. Davefx es opcional y se descarga desde el navegador."
+        "El lector utiliza las voces instaladas en Android. Si una voz deja de responder, elige otra voz sin conexión y vuelve a iniciar la reproducción. Davefx es opcional y su página oficial se abre en el navegador."
     ),
     LibraryHelpSection(
         "Copias y recuperación",
@@ -29,6 +29,6 @@ internal fun libraryHelpSections(): List<LibraryHelpSection> = listOf(
     ),
     LibraryHelpSection(
         "Privacidad",
-        "Los permisos de cámara y micrófono solo se solicitan al usar el escáner ISBN o la búsqueda por voz. La aplicación no incluye anuncios ni seguimiento de uso."
+        "Los permisos de cámara y micrófono solo se solicitan al usar el escáner ISBN o la búsqueda por voz. La aplicación no incluye anuncios ni analítica propia."
     )
 )

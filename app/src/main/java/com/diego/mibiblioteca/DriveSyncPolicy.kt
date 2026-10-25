@@ -51,9 +51,15 @@ internal fun driveFailureMessage(
 internal fun libraryNoticeIsPersistent(message: String?, failure: DriveFailureKind?): Boolean {
     if (failure != null) return true
     val normalized = message.orEmpty().lowercase()
+    // Los avisos pueden estar traducidos: se reconocen las mismas ideas en cada idioma.
     return listOf(
         "no se pudo", "no permitió", "no confirmó", "selecciona primero",
-        "solo lectura", "sin permiso", "error"
+        "solo lectura", "sin permiso", "error",
+        "could not", "couldn't", "did not confirm", "select your", "read-only", "permission",
+        "não foi possível", "não confirmou", "somente leitura", "permissão", "selecione",
+        "impossible", "n'a pas", "lecture seule", "autorisation", "sélectionnez",
+        "konnte nicht", "nicht möglich", "nicht bestätigt", "lesezugriff", "berechtigung", "wähle",
+        "impossibile", "non è stato possibile", "non ha confermato", "sola lettura", "permesso", "seleziona"
     ).any(normalized::contains)
 }
 

@@ -1,0 +1,8 @@
+<resources>
+    <string name="shortcut_continue_short">Continua a leggere</string>
+    <string name="shortcut_continue_long">Riprendi l\'ultimo libro</string>
+    <string name="shortcut_library_short">Apri la biblioteca</string>
+    <string name="shortcut_library_long">Apri Bookhollow</string>
+    <string name="shortcut_import_short">Importa libro</string>
+    <string name="shortcut_import_long">Importa un libro in Bookhollow</string>
+</resources>
