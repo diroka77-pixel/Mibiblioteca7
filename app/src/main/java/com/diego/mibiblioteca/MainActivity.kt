@@ -392,31 +392,22 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                         }
                     }
                 }
-                if (!details?.promotionalVideoUrl.isNullOrBlank()) {
-                    Spacer(Modifier.height(20.dp))
-                    Text("Tráileres y presentaciones", fontFamily = FontFamily.Serif,
-                        fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
-                    Text("Reproduce el vídeo sin salir de ${AppBrand.NAME}", color = Mahogany.copy(alpha = .72f),
-                        fontSize = 12.sp)
-                    Spacer(Modifier.height(10.dp))
-                    Surface(Modifier.fillMaxWidth(), color = Color(0xFF111318),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Teal.copy(alpha = .55f))) {
-                        AndroidView(factory = { context ->
-                            WebView(context).apply {
-                                webViewClient = WebViewClient()
-                                webChromeClient = WebChromeClient()
-                                settings.javaScriptEnabled = true
-                                settings.domStorageEnabled = true
-                                settings.mediaPlaybackRequiresUserGesture = true
-                                setBackgroundColor(android.graphics.Color.BLACK)
-                                loadUrl(details!!.promotionalVideoUrl)
-                            }
-                        }, update = { webView ->
-                            if (webView.url != details!!.promotionalVideoUrl)
-                                webView.loadUrl(details.promotionalVideoUrl)
-                        }, modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                // El botón abre la búsqueda en YouTube: la app ya no lee YouTube por detrás.
+                val videoContext = androidx.compose.ui.platform.LocalContext.current
+                Spacer(Modifier.height(20.dp))
+                OutlinedButton(onClick = {
+                    val query = java.net.URLEncoder.encode(
+                        "${result.title} ${result.author} libro tráiler", "UTF-8")
+                    try {
+                        videoContext.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://www.youtube.com/results?search_query=$query")))
+                    } catch (_: Exception) {
+                        android.widget.Toast.makeText(videoContext,
+                            "No hay ninguna aplicación para abrir el enlace",
+                            android.widget.Toast.LENGTH_LONG).show()
                     }
+                }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text("Buscar tráileres y presentaciones en YouTube", color = Teal, textAlign = TextAlign.Center)
                 }
                 Spacer(Modifier.height(6.dp))
             }
@@ -668,16 +659,16 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     it.getString("image"), it.getString("date"))
             } } catch (_: Exception) { null }
         }
-        launchNews = cached.filter { it.source == "Casa del Libro" }
+        launchNews = cached.filter { it.source == LAUNCH_SOURCE }
     }
 
     fun refreshLaunchNews(force: Boolean = false) {
         if (newsRefreshing || (!force &&
-            System.currentTimeMillis() - prefs.getLong("literary_news_v4_checked", 0L) < 12L * 60 * 60 * 1000)) return
+            System.currentTimeMillis() - prefs.getLong("literary_news_v5_checked", 0L) < 12L * 60 * 60 * 1000)) return
         newsRefreshing = true
         viewModelScope.launch {
             try {
-                val books = async(Dispatchers.IO) { fetchCasaUpcomingBooks() }
+                val books = async(Dispatchers.IO) { fetchGoogleBooksReleases() }
                 val results = books.await()
                 val sorted = results.distinctBy { cleanCatalogText(it.title).lowercase() }
                     .sortedByDescending { it.releaseDate }.take(8)
@@ -687,7 +678,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     .put("title", it.title).put("url", it.url)
                     .put("image", it.imageUrl).put("date", it.releaseDate)) }
                 prefs.edit().putString("literary_news", array.toString())
-                    .putLong("literary_news_v4_checked", System.currentTimeMillis()).apply()
+                    .putLong("literary_news_v5_checked", System.currentTimeMillis()).apply()
             } catch (_: Exception) {
                 // Se conservan los próximos lanzamientos guardados si la fuente falla.
             } finally { newsRefreshing = false }
@@ -2783,29 +2774,6 @@ internal fun catalogMatch(candidateTitle: String, candidateAuthors: List<String>
     return confidence >= if (expectedAuthor.isBlank()) 76 else 70
 }
 
-private fun publicCoverPage(url: String): String = Jsoup.connect(url)
-    .userAgent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36")
-    .timeout(8000).maxBodySize(2_000_000).get().outerHtml()
-
-private fun fetchPublicCover(book: Book): ByteArray? {
-    val title = displayTitle(book).substringBefore(" (").substringBefore(" [")
-    val author = displayAuthor(book).takeUnless(::unknownAuthor).orEmpty()
-    val isbn = book.isbn.filter { it.isDigit() || it.uppercaseChar() == 'X' }
-    val seen = mutableSetOf<String>()
-    fun tryPage(url: String): ByteArray? {
-        if (!isPublicBookPage(url) || !seen.add(url)) return null
-        return try {
-            publicCoverImages(publicCoverPage(url), url, title, author, isbn).firstNotNullOfOrNull(::downloadImage)
-        } catch (_: Exception) { null }
-    }
-    // Solo se consulta la página que el propio usuario ha vinculado. Ya no se
-    // leen en segundo plano los resultados de Google, Bing, DuckDuckGo ni la
-    // búsqueda de Goodreads: incumple sus condiciones y se rompe con facilidad.
-    // Las portadas automáticas proceden de Open Library y Google Books.
-    if (book.goodreadsUrl.isNotBlank()) tryPage(book.goodreadsUrl)?.let { return it }
-    return null
-}
-
 private fun fetchCover(book: Book): ByteArray? {
     val isbn = book.isbn.filter { it.isDigit() || it == 'X' || it == 'x' }
     if (isbn.length == 10 || isbn.length == 13) {
@@ -2854,7 +2822,7 @@ private fun fetchCover(book: Book): ByteArray? {
             }
         }
     } catch (_: Exception) {}
-    return fetchPublicCover(book)
+    return null
 }
 
 internal fun getJson(url: String): JSONObject {
@@ -3156,28 +3124,6 @@ private fun wikipediaPlot(book: Book): String {
     } catch (_: Exception) { page.second.take(1100) }
 }
 
-private fun goodreadsPlot(book: Book): String {
-    val title = displayTitle(book)
-    val urls = mutableListOf<String>()
-    if (book.goodreadsUrl.startsWith("https://www.goodreads.com/book/show/"))
-        urls += book.goodreadsUrl
-    try {
-        val search = Jsoup.connect("https://www.goodreads.com/search?q=" +
-            java.net.URLEncoder.encode(title + " " + displayAuthor(book), "UTF-8"))
-            .timeout(6500).userAgent(AppBrand.WEB_USER_AGENT).get()
-        search.select("a[href*='/book/show/']").firstOrNull()?.absUrl("href")?.let(urls::add)
-    } catch (_: Exception) {}
-    for (url in urls.distinct()) try {
-        val page = Jsoup.connect(url).timeout(6500)
-            .userAgent(AppBrand.WEB_USER_AGENT).get()
-        if (!page.title().contains(title, ignoreCase = true)) continue
-        val description = page.selectFirst("meta[property='og:description']")
-            ?.attr("content").orEmpty().trim()
-        if (description.length > 90) return description.take(700)
-    } catch (_: Exception) {}
-    return ""
-}
-
 private suspend fun fetchSpanishBookReview(book: Book): String = withContext(Dispatchers.IO) {
     val public = runCatching {
         searchPublicBooks(displayTitle(book), displayAuthor(book)).firstOrNull()
@@ -3266,10 +3212,6 @@ private fun fetchSpanishInfo(book: Book): InfoCandidate {
             if (plot.isNotBlank()) { plotSource = "Open Library"; break }
         }
     } catch (_: Exception) {}
-    if (plot.isBlank()) {
-        plot = goodreadsPlot(book)
-        if (plot.isNotBlank()) plotSource = "Reseña"
-    }
     return InfoCandidate("", plot, bio, plotSource, bioSource)
 }
 private suspend fun <T> com.google.android.gms.tasks.Task<T>.awaitResult(): T =
@@ -3412,48 +3354,29 @@ private fun openGoodreads(context: Context, book: Book? = null) {
         else android.widget.Toast.makeText(context, "La aplicación de reseñas no está instalada", android.widget.Toast.LENGTH_LONG).show()
         return
     }
-    CoroutineScope(Dispatchers.Main).launch {
-        val url = withContext(Dispatchers.IO) { findGoodreadsBook(book) }
-        if (url != null) openGoodreadsUrl(context, url)
-        else openGoodreadsUrl(context, "https://www.goodreads.com/search?q=" +
-            java.net.URLEncoder.encode(displayTitle(book) + " " + displayAuthor(book), "UTF-8"))
-    }
+    openGoodreadsUrl(context, goodreadsLink(book))
 }
 
-private fun findGoodreadsBook(book: Book): String? {
+/**
+ * Enlace de Goodreads que se abre a petición del usuario. No se consulta Goodreads
+ * por detrás: se usa el enlace que el usuario guardó, la ficha por ISBN o su buscador.
+ */
+private fun goodreadsLink(book: Book): String {
     if (book.goodreadsUrl.matches(Regex("https://(?:www\\.)?goodreads\\.com/book/show/[^\\s?#]+.*"))) return book.goodreadsUrl
     val isbn = book.isbn.filter { it.isDigit() || it == 'X' || it == 'x' }
-    if (isbn.length == 10 || isbn.length == 13) {
-        try {
-            val connection = URL("https://www.goodreads.com/book/isbn/$isbn").openConnection() as HttpURLConnection
-            connection.connectTimeout = 8000; connection.readTimeout = 8000
-            connection.instanceFollowRedirects = true
-            connection.setRequestProperty("User-Agent", AppBrand.WEB_USER_AGENT)
-            val exact = connection.inputStream.use { connection.url.toString() }
-            connection.disconnect()
-            if (exact.contains("/book/show/")) return exact
-        } catch (_: Exception) {}
-    }
-    try {
-        val query = java.net.URLEncoder.encode(displayTitle(book) + " " + displayAuthor(book), "UTF-8")
-        val connection = URL("https://www.goodreads.com/search?q=$query").openConnection() as HttpURLConnection
-        connection.connectTimeout = 8000; connection.readTimeout = 8000
-        connection.setRequestProperty("User-Agent", AppBrand.WEB_USER_AGENT)
-        val html = try {
-            connection.inputStream.use { it.readLimited(2L * 1024 * 1024).toString(Charsets.UTF_8) }
-        } finally { connection.disconnect() }
-        val path = Regex("""/book/show/[0-9]+[^"'\s<]*""").find(html)?.value
-        if (path != null) return "https://www.goodreads.com" + path.replace("&amp;", "&")
-    } catch (_: Exception) {}
-    return null
+    if (isbn.length == 10 || isbn.length == 13) return "https://www.goodreads.com/book/isbn/$isbn"
+    return "https://www.goodreads.com/search?q=" +
+        java.net.URLEncoder.encode(displayTitle(book) + " " + displayAuthor(book), "UTF-8")
 }
 
 private fun openGoodreadsUrl(context: Context, url: String) {
+    // Primero la app de Goodreads; si no está instalada, el navegador.
     try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage("com.goodreads")) }
     catch (_: Exception) {
-        val launch = context.packageManager.getLaunchIntentForPackage("com.goodreads")
-        if (launch != null) context.startActivity(launch)
-        else android.widget.Toast.makeText(context, "La aplicación de reseñas no está instalada", android.widget.Toast.LENGTH_LONG).show()
+        try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+        catch (_: Exception) {
+            android.widget.Toast.makeText(context, "No hay ninguna aplicación para abrir el enlace", android.widget.Toast.LENGTH_LONG).show()
+        }
     }
 }
 
@@ -4846,7 +4769,7 @@ private fun openCasaDelLibro(context: Context) {
     if (releaseCalendarOpen) AlertDialog(onDismissRequest = { releaseCalendarOpen = false },
         title = { Text("Calendario de publicaciones") },
         text = { Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
-            Text("Próximos lanzamientos de tus fuentes literarias", fontWeight = FontWeight.Bold)
+            Text("Novedades en español según Google Books", fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             val dated = vm.launchNews.filter { it.releaseDate.isNotBlank() }
                 .sortedBy { it.releaseDate }
@@ -6378,7 +6301,7 @@ private fun HomeExternalRecommendations(
             ExternalBooksRow(newReleases, "novedad", onOpen)
         }
         if (upcoming.isNotEmpty()) {
-            ExternalSectionTitle("Próximos lanzamientos")
+            ExternalSectionTitle("Novedades y próximos lanzamientos")
             ExternalBooksRow(upcoming, "proximo", onOpen)
         }
     }

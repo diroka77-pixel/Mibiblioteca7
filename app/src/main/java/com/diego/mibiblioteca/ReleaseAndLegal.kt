@@ -25,5 +25,5 @@ internal fun legalNotices(): List<LegalNotice> = listOf(
     LegalNotice("Wikipedia y Wikcionario", "Fuentes externas para biografías, argumentos y definiciones. Cada contenido conserva las condiciones indicadas por Wikimedia."),
     LegalNotice("DLE de la RAE", "${AppBrand.NAME} abre el sitio oficial para consultas voluntarias. La RAE y sus marcas no están vinculadas a esta aplicación."),
     LegalNotice("Davefx y sherpa-onnx", "Motor de voz opcional que no se incluye en ${AppBrand.NAME}. Su página oficial se abre externamente y conserva su propia licencia."),
-    LegalNotice("Fuentes literarias", "Las noticias y enlaces de editoriales, librerías y catálogos se muestran como referencias externas; sus nombres y marcas pertenecen a sus titulares.")
+    LegalNotice("Fuentes literarias", "Las novedades proceden de la API pública de Google Books. Los botones de Goodreads, Casa del Libro, YouTube y otras webs solo abren esas páginas cuando el usuario lo pide; la app no lee sus webs por su cuenta. Sus nombres y marcas pertenecen a sus titulares.")
 )

@@ -1,6 +1,8 @@
 package com.diego.mibiblioteca
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -24,8 +26,8 @@ class ExternalRecommendationsTest {
     }
 
     @Test fun convertsUpcomingCatalogEntryAndSeparatesAuthor() {
-        val result = launchNewsAsPublicBooks(listOf(LaunchNews("Casa del Libro",
-            "Espinas en el aire · Javier Castillo", "https://www.casadellibro.com/libro/1",
+        val result = launchNewsAsPublicBooks(listOf(LaunchNews(LAUNCH_SOURCE,
+            "Espinas en el aire · Javier Castillo", "https://books.google.com/books?id=1",
             "https://example.com/cover.jpg", "2026-11-12")), library)
         assertTrue(result.size == 1)
         assertTrue(result.first().title == "Espinas en el aire")
@@ -33,25 +35,47 @@ class ExternalRecommendationsTest {
     }
 
     @Test fun excludesUpcomingEntryAlreadyOwned() {
-        val result = launchNewsAsPublicBooks(listOf(LaunchNews("Casa del Libro",
-            "1984 · George Orwell", "https://www.casadellibro.com/libro/2",
+        val result = launchNewsAsPublicBooks(listOf(LaunchNews(LAUNCH_SOURCE,
+            "1984 · George Orwell", "https://books.google.com/books?id=2",
             "https://example.com/cover.jpg", "2026-11-12")), library)
         assertTrue(result.isEmpty())
     }
 
     @Test fun discoversUpcomingBookByTitleOrAuthor() {
-        val news = listOf(LaunchNews("Casa del Libro",
-            "Espinas en el aire · Javier Castillo", "https://www.casadellibro.com/libro/1",
+        val news = listOf(LaunchNews(LAUNCH_SOURCE,
+            "Espinas en el aire · Javier Castillo", "https://books.google.com/books?id=1",
             "https://example.com/cover.jpg", "2026-11-24"))
         assertTrue(searchLaunchCatalog("espinas en el aire", news).single().author == "Javier Castillo")
         assertTrue(searchLaunchCatalog("Javier Castillo", news).single().title == "Espinas en el aire")
     }
 
-    @Test fun rejectsWebsiteLogosAsLiteraryNews() {
-        assertTrue(isLowQualityFeaturedNews(LaunchNews("Librotea", "Logo Librotea",
-            "https://librotea.eldiario.es", "https://example.com/logo.png", "2026-10-23")))
-        assertFalse(isLowQualityFeaturedNews(LaunchNews("Librotea",
-            "Las novelas españolas que marcarán este otoño", "https://librotea.eldiario.es/a",
-            "https://example.com/book.jpg", "2026-10-23")))
+    @Test fun acceptsOnlyFullReleaseDatesFromGoogleBooks() {
+        assertEquals("2026-11-12", googleBooksReleaseDate("2026-11-12"))
+        assertEquals("2026-11-01", googleBooksReleaseDate("2026-11"))
+        assertNull(googleBooksReleaseDate("2026"))
+        assertNull(googleBooksReleaseDate("2026-13"))
+    }
+
+    @Test fun readsRecentSpanishReleasesFromGoogleBooksResponse() {
+        val response = org.json.JSONObject("""
+            {"items": [
+              {"volumeInfo": {"title": "Espinas en el aire", "authors": ["Javier Castillo"],
+                "publishedDate": "2026-11-12", "infoLink": "http://books.google.com/books?id=1",
+                "imageLinks": {"thumbnail": "http://books.google.com/cover?id=1&edge=curl"}}},
+              {"volumeInfo": {"title": "Sin autor", "publishedDate": "2026-11-12",
+                "infoLink": "https://books.google.com/books?id=2",
+                "imageLinks": {"thumbnail": "https://books.google.com/cover?id=2"}}},
+              {"volumeInfo": {"title": "Muy antiguo", "authors": ["Alguien"], "publishedDate": "1999-01-01",
+                "infoLink": "https://books.google.com/books?id=3",
+                "imageLinks": {"thumbnail": "https://books.google.com/cover?id=3"}}}
+            ]}
+        """.trimIndent())
+        val news = launchNewsFromGoogleBooks(response, java.time.LocalDate.of(2026, 10, 25))
+        assertEquals(1, news.size)
+        assertEquals("Espinas en el aire", launchBookTitle(news.single()))
+        assertEquals("Javier Castillo", launchBookAuthor(news.single()))
+        assertTrue(news.single().imageUrl.startsWith("https://"))
+        assertFalse(news.single().imageUrl.contains("edge=curl"))
+        assertTrue(news.single().url.startsWith("https://"))
     }
 }

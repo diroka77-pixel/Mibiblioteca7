@@ -1,5 +1,8 @@
 # Bookhollow (antes MiBiblioteca)
 
+## Versión 1.0.80
+- Solo fuentes abiertas y oficiales: fuera la lectura oculta de Goodreads, Casa del Libro y YouTube. Detalles en `docs/CAMBIOS_1.0.80.md`.
+
 ## Versión 1.0.79
 - Icono nuevo y cinco clásicos gratuitos de dominio público. Detalles en `docs/CAMBIOS_1.0.79.md`.
 

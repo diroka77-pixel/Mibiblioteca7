@@ -61,24 +61,6 @@ private fun cleanEditorialText(value: String): String {
         .replace(Regex("\\s+"), " ").trim()
 }
 
-private fun findPromotionalVideo(title: String, author: String): String {
-    val query = java.net.URLEncoder.encode("$title $author trailer libro presentación editorial", "UTF-8")
-    return runCatching {
-        val connection = (java.net.URL("https://www.youtube.com/results?search_query=$query")
-            .openConnection() as java.net.HttpURLConnection).apply {
-            connectTimeout = 6500
-            readTimeout = 8000
-            setRequestProperty("User-Agent", AppBrand.WEB_USER_AGENT)
-            setRequestProperty("Accept-Language", "es-ES,es;q=0.9")
-        }
-        val html = try { connection.inputStream.bufferedReader().use { it.readText() } }
-            finally { connection.disconnect() }
-        val ids = Regex("\\\"videoId\\\":\\\"([A-Za-z0-9_-]{11})\\\"")
-            .findAll(html).map { it.groupValues[1] }.distinct().toList()
-        ids.firstOrNull()?.let { "https://www.youtube-nocookie.com/embed/$it?playsinline=1&rel=0&modestbranding=1" }.orEmpty()
-    }.getOrDefault("")
-}
-
 private val discoveryArticles = setOf("a", "al", "de", "del", "el", "la", "las", "los", "the", "un", "una", "y")
 
 private fun discoveryWords(value: String): Set<String> = discoverNormalizeSearchText(value)
@@ -204,15 +186,6 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
     var sagaOrder = ""
     var review = ""
     val editions = mutableListOf<PublicBookEdition>()
-    fetchLaunchBookDetails(result)?.let { catalog ->
-        summary = cleanEditorialText(catalog.summary).ifBlank { summary }
-        published = catalog.published.ifBlank { published }
-        pages = catalog.pages
-        language = catalog.language
-        publisher = catalog.publisher
-        source = catalog.source
-        coverUrl = catalog.coverUrl.ifBlank { coverUrl }
-    }
     runCatching {
         val key = result.sourceUrl.substringAfter("/works/", "").substringBefore("?")
         if (key.isNotBlank()) {
@@ -365,10 +338,8 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
             "información editorial y bibliográfica disponible, evitando adelantar giros importantes. " +
             "La ficha permite comparar ediciones, fecha, editorial y pertenencia a saga antes de decidir si encaja con tus lecturas."
     }
-    val promotionalVideo = findPromotionalVideo(result.title, result.author)
     return PublicBookDetails(cleanEditorialText(summary), bio.trim(), published, pages, language, publisher,
-        source, authorImageUrl, coverUrl, saga, sagaOrder, review, editions,
-        promotionalVideo)
+        source, authorImageUrl, coverUrl, saga, sagaOrder, review, editions)
 }
 
 fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<PublicBookResult> {
