@@ -32,13 +32,6 @@ class ReleaseMarketsTest {
         assertTrue(publishersForToday(market, 11) != today)
     }
 
-    @Test fun queryUsesPublisherLanguageAndCountry() {
-        val url = publisherReleasesUrl("Seix Barral", releaseMarket("ES", "es"))
-        assertTrue(url.contains("inpublisher"))
-        assertTrue(url.contains("langRestrict=es"))
-        assertTrue(url.contains("country=ES"))
-    }
-
     @Test fun resultsAlternateBetweenPublishers() {
         assertEquals(listOf(1, 10, 2, 20, 3), interleave(listOf(listOf(1, 2, 3), listOf(10, 20))))
     }
@@ -61,11 +54,12 @@ class ReleaseMarketsTest {
         assertTrue(!isUpcomingRelease("2026", "2026-10-25"))
     }
 
-    @Test fun apiKeyIsAddedOnlyToGoogleBooks() {
-        val books = "https://www.googleapis.com/books/v1/volumes?q=x"
-        assertEquals("$books&key=abc", GoogleBooksKey.withKey(books, "abc"))
-        assertEquals(books, GoogleBooksKey.withKey(books, ""))
-        assertEquals("https://openlibrary.org/search.json?q=x",
-            GoogleBooksKey.withKey("https://openlibrary.org/search.json?q=x", "abc"))
+    @Test fun openLibraryQueryUsesPublisherLanguageAndYears() {
+        val url = java.net.URLDecoder.decode(publisherReleasesUrl("Seix Barral", releaseMarket("ES", "es"), year = 2026), "UTF-8")
+        assertTrue(url.startsWith("https://openlibrary.org/search.json"))
+        assertTrue(url.contains("publisher:\"Seix Barral\""))
+        assertTrue(url.contains("language:spa"))
+        assertTrue(url.contains("first_publish_year:[2025 TO 2027]"))
+        assertTrue(url.contains("lang=es"))
     }
 }

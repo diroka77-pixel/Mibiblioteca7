@@ -12,7 +12,7 @@ Bookhollow désactive les sauvegardes automatiques d'Android. Les sauvegardes ne
 
 ## Utilisation d'Internet
 
-La connexion sert à synchroniser avec le fournisseur de fichiers choisi et aux fonctions qui consultent des informations publiques lorsque l'utilisateur les utilise : Open Library, Wikipédia, Wikidata et Wiktionnaire (fiches, biographies, définitions), l'API Google Books (données de livres et nouveautés) et Project Gutenberg (classiques gratuits). Ces requêtes n'envoient que les termes nécessaires, comme le titre ou l'auteur. Pour afficher les nouveautés de votre pays, la requête à Google Books inclut le code du pays (par exemple « FR »), issu de la carte SIM ou de la région du système ; la position précise n'est jamais utilisée. Bookhollow n'a pas de serveur propre recevant la bibliothèque de l'utilisateur.
+La connexion sert à synchroniser avec le fournisseur de fichiers choisi et aux fonctions qui consultent des informations publiques lorsque l'utilisateur les utilise : Open Library (fiches, couvertures et nouveautés), Wikipédia, Wikidata et Wiktionnaire (fiches, biographies, définitions) et Project Gutenberg (classiques gratuits). Ces requêtes n'envoient que les termes nécessaires, comme le titre ou l'auteur. Pour les nouveautés, les noms de grands éditeurs et la langue sont envoyés ; le pays de l'appareil ne sert que sur le téléphone pour les choisir et n'est pas envoyé. Bookhollow n'a pas de serveur propre recevant la bibliothèque de l'utilisateur.
 
 ## Autorisations
 

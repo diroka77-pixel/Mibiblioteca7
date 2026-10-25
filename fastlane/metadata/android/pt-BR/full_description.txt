@@ -19,4 +19,4 @@ Privacidade:
 
 O Bookhollow não tem anúncios nem análise própria e não exige conta. O leitor de ISBN e a tradução usam o Google ML Kit, que pode enviar ao Google dados técnicos de uso, nunca o conteúdo dos seus livros. A câmera e o microfone só são solicitados para o leitor de ISBN ou a busca por voz. O app nunca exclui livros por conta própria.
 
-Capas, fichas e lançamentos vêm de fontes abertas e oficiais: Open Library, Wikipédia, Google Books e Project Gutenberg.
+Capas, fichas e lançamentos vêm de fontes abertas e oficiais: Open Library, Wikipédia e Project Gutenberg.

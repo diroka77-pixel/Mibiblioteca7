@@ -19,4 +19,4 @@ Privacy:
 
 Bookhollow has no ads or analytics of its own and does not require an account. The ISBN scanner and translation use Google ML Kit, which may send Google technical usage data, never the content of your books. The camera and microphone are only requested for the ISBN scanner or voice search. The app never deletes books on its own.
 
-Covers, book details and new releases come from open, official sources: Open Library, Wikipedia, Google Books and Project Gutenberg.
+Covers, book details and new releases come from open, official sources: Open Library, Wikipedia and Project Gutenberg.

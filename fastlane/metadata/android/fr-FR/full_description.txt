@@ -19,4 +19,4 @@ Confidentialité :
 
 Bookhollow n'a ni publicité ni outil d'analyse propre et ne demande pas de compte. Le scanner ISBN et la traduction utilisent Google ML Kit, qui peut envoyer à Google des données techniques d'utilisation, jamais le contenu de vos livres. L'appareil photo et le micro ne sont demandés que pour le scanner ISBN ou la recherche vocale. L'application ne supprime jamais de livres d'elle-même.
 
-Les couvertures, fiches et nouveautés proviennent de sources ouvertes et officielles : Open Library, Wikipédia, Google Books et Project Gutenberg.
+Les couvertures, fiches et nouveautés proviennent de sources ouvertes et officielles : Open Library, Wikipédia et Project Gutenberg.

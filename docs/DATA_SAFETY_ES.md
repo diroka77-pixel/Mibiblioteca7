@@ -26,7 +26,7 @@ Este documento sirve para completar el formulario de seguridad de datos de una t
 
 Las búsquedas de metadatos, portadas, noticias, diccionario o traducción pueden enviar los términos necesarios al proveedor consultado. No deben enviarse notas, subrayados ni el contenido completo de la biblioteca. Los proveedores se identifican en «Información legal» dentro de la aplicación.
 
-Desde la 1.0.86, las novedades se piden a Google Books con el **código del país** (por ejemplo, «ES»), sacado de la tarjeta SIM o de la región del sistema, para mostrar libros de las editoriales de ese país. No se usa la ubicación precisa ni el permiso de ubicación. Al rellenar el formulario, valora si Google Play lo considera «Ubicación aproximada»: el país es mucho menos preciso que la ubicación aproximada que define Google (unos 3 km²), pero si hay dudas es más prudente declararlo como «Ubicación aproximada · funcionalidad de la app · no se comparte · no obligatorio».
+Desde la 1.0.87 la app no usa Google Books ni la «RAE API comunitaria». Las novedades se piden a Open Library con los nombres de las grandes editoriales y el idioma; el país del dispositivo (tarjeta SIM o región del sistema) solo se usa en el teléfono para elegir esas editoriales y **no se envía**. No se usa la ubicación ni el permiso de ubicación, así que no hay que declarar «Ubicación».
 
 ## Google ML Kit
 

@@ -319,7 +319,7 @@ private fun dictionaryDefinitions(context: Context, word: String): List<Dictiona
     if (normalized.isBlank()) return emptyList()
     val encoded = java.net.URLEncoder.encode(normalized, "UTF-8")
     val cache = context.getSharedPreferences("reader_dictionary", Context.MODE_PRIVATE)
-    val cacheKey = "entry_${I18n.currentLanguage()}_${normalized.lowercase(java.util.Locale.ROOT)}"
+    val cacheKey = "wikt_${I18n.currentLanguage()}_${normalized.lowercase(java.util.Locale.ROOT)}"
     val now = System.currentTimeMillis()
     cache.getString(cacheKey, null)?.let { raw -> runCatching {
         val saved = JSONObject(raw)
@@ -342,33 +342,8 @@ private fun dictionaryDefinitions(context: Context, word: String): List<Dictiona
 
     val language = WikiLanguage.current()
     val wiktionary = WikiLanguage.wiktionaryName(language)
-    // In Spanish the DLE data service goes first; other languages use their own Wiktionary.
-    val rae = if (language != "es") emptyList() else request("https://rae-api.com/api/words/$encoded")?.let { raw -> runCatching {
-        val root = JSONObject(raw)
-        val data = root.optJSONObject("data") ?: JSONObject()
-        val meanings = data.optJSONArray("meanings") ?: JSONArray()
-        buildList {
-            for (i in 0 until meanings.length()) {
-                val senses = meanings.optJSONObject(i)?.optJSONArray("senses") ?: continue
-                for (j in 0 until senses.length()) {
-                    val sense = senses.optJSONObject(j) ?: continue
-                    val definition = sense.optString("description").trim()
-                    if (definition.length >= 4) {
-                        val category = sense.optString("category").takeIf { it.isNotBlank() }
-                        add(DictionaryDefinition("RAE API comunitaria", if (category == null) definition
-                            else "${category.replaceFirstChar { it.uppercase() }} · $definition"))
-                    }
-                }
-            }
-        }.distinctBy { it.text }.take(8)
-    }.getOrNull() }.orEmpty()
-    if (rae.isNotEmpty()) {
-        val array = JSONArray().apply { rae.forEach { put(JSONObject()
-            .put("source", it.source).put("text", it.text)) } }
-        cache.edit().putString(cacheKey, JSONObject().put("time", now).put("items", array).toString()).apply()
-        return rae
-    }
-
+    // Solo Wiktionary (licencia CC BY-SA). La «RAE API comunitaria» era un servicio no
+    // oficial hecho a partir de la web de la RAE; el botón «Consultar RAE» abre la web oficial.
     val parsed = request(WikiLanguage.wiktionaryApi(language) + "?action=parse&format=json&prop=text&page=$encoded")
         ?.let { raw -> runCatching {
             Jsoup.parse(JSONObject(raw).getJSONObject("parse").getJSONObject("text").getString("*"))
@@ -2432,8 +2407,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         }
                         Spacer(Modifier.height(12.dp))
                         when {
-                            definitions == null -> Text(if (I18n.currentLanguage() == "es")
-                                tr("Buscando en Wikcionario y la RAE…") else tr("Buscando en el diccionario…"))
+                            definitions == null -> Text(tr("Buscando en el diccionario…"))
                             definitions!!.isEmpty() -> Text(
                                 if (I18n.currentLanguage() == "es")
                                     tr("Para ver definiciones sin conexión, abre el diccionario español de Android o consulta la RAE.")
@@ -2470,8 +2444,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                Text(if (I18n.currentLanguage() == "es") tr("Consulta local de Wikcionario y acceso al DLE de la RAE.")
-                    else trf("Definiciones de {0}.", WikiLanguage.wiktionaryName()),
+                // Atribución exigida por la licencia CC BY-SA de Wikimedia, con enlace a la entrada.
+                Text(trf("Definiciones de {0} · CC BY-SA 4.0", WikiLanguage.wiktionaryName()),
+                    modifier = Modifier.clickable {
+                        try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(WikiLanguage.wiktionaryPage(word)))) }
+                        catch (_: Exception) { }
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = foreground.copy(alpha = 0.72f))
                 when {

@@ -12,7 +12,7 @@ Bookhollow disattiva i backup automatici di Android. I backup vengono esportati 
 
 ## Uso di Internet
 
-La connessione serve a sincronizzare con il fornitore di file scelto e per le funzioni che consultano informazioni pubbliche quando l'utente le usa: Open Library, Wikipedia, Wikidata e Wikizionario (schede, biografie, definizioni), l'API di Google Books (dati dei libri e novità) e Project Gutenberg (classici gratuiti). Queste richieste inviano solo i termini necessari, come titolo o autore. Per mostrare le novità del tuo paese, la richiesta a Google Books include il codice del paese (per esempio «IT»), ricavato dalla SIM o dalla regione di sistema; la posizione precisa non viene mai usata. Bookhollow non ha un server proprio che riceva la biblioteca dell'utente.
+La connessione serve a sincronizzare con il fornitore di file scelto e per le funzioni che consultano informazioni pubbliche quando l'utente le usa: Open Library (schede, copertine e novità), Wikipedia, Wikidata e Wikizionario (schede, biografie, definizioni) e Project Gutenberg (classici gratuiti). Queste richieste inviano solo i termini necessari, come titolo o autore. Per le novità vengono inviati i nomi dei grandi editori e la lingua; il paese del dispositivo serve solo sul telefono per sceglierli e non viene inviato. Bookhollow non ha un server proprio che riceva la biblioteca dell'utente.
 
 ## Permessi
 

@@ -36,7 +36,7 @@ private fun isCountryCode(value: String): Boolean = value.matches(Regex("[A-Z]{2
 /**
  * Mercado editorial para las novedades: país, idioma de los libros y grandes editoriales
  * de ese país. Buscar las novedades de editoriales conocidas evita los autopublicados
- * sin portada que devolvía «lo más nuevo» de Google Books, casi siempre en inglés.
+ * sin portada que aparecían al pedir simplemente «lo más nuevo», casi siempre en inglés.
  */
 internal data class ReleaseMarket(val country: String, val language: String, val publishers: List<String>)
 
@@ -99,7 +99,7 @@ internal fun currentReleaseMarket(): ReleaseMarket =
 
 /**
  * Editoriales a consultar en esta actualización: ocho, rotando cada día para que con el
- * tiempo aparezcan todas sin gastar demasiadas consultas del cupo gratuito de Google Books.
+ * tiempo aparezcan todas sin hacer demasiadas consultas seguidas al servicio público.
  */
 internal fun publishersForToday(market: ReleaseMarket, dayOfYear: Int, count: Int = 8): List<String> {
     val all = market.publishers
@@ -108,12 +108,25 @@ internal fun publishersForToday(market: ReleaseMarket, dayOfYear: Int, count: In
     return (0 until count).map { all[(start + it) % all.size] }
 }
 
-/** Consulta de Google Books para las novedades de una editorial en un mercado. */
-internal fun publisherReleasesUrl(publisher: String, market: ReleaseMarket, maxResults: Int = 20): String =
-    "https://www.googleapis.com/books/v1/volumes?q=" +
-        java.net.URLEncoder.encode("inpublisher:\"$publisher\"", "UTF-8") +
-        "&orderBy=newest&printType=books&maxResults=${maxResults.coerceIn(1, 40)}" +
-        "&langRestrict=${market.language}&country=${market.country}"
+/** Código de idioma de Open Library (MARC, tres letras) para cada idioma de la app. */
+internal fun openLibraryLanguageCode(language: String): String = when (language) {
+    "es" -> "spa"; "pt" -> "por"; "fr" -> "fre"; "de" -> "ger"; "it" -> "ita"; else -> "eng"
+}
+
+/**
+ * Búsqueda de Open Library con las obras más recientes de una editorial, en el idioma del
+ * mercado, publicadas entre el año pasado y el que viene. lang= pide la edición en ese
+ * idioma para mostrar su título y su portada.
+ */
+internal fun publisherReleasesUrl(publisher: String, market: ReleaseMarket, limit: Int = 30,
+                                  year: Int = java.time.LocalDate.now().year): String {
+    val q = "publisher:\"$publisher\" language:${openLibraryLanguageCode(market.language)} " +
+        "first_publish_year:[${year - 1} TO ${year + 1}]"
+    return "https://openlibrary.org/search.json?q=" + java.net.URLEncoder.encode(q, "UTF-8") +
+        "&sort=new&lang=${market.language}&limit=${limit.coerceIn(1, 60)}" +
+        "&fields=key,title,author_name,cover_i,first_publish_year,publisher," +
+        "editions,editions.key,editions.title,editions.cover_i,editions.publish_date"
+}
 
 /** Texto comparable: sin tildes, en minúsculas y solo letras y números. */
 internal fun publisherKey(value: String): String =

@@ -74,5 +74,6 @@ internal object WikiLanguage {
         listOf(language, "en", "es").distinct()
 }
 
-/** País del dispositivo para Google Books (disponibilidad y precios); antes era siempre ES. */
-internal fun deviceCountry(): String = DeviceRegion.current() ?: "US"
+/** Búsqueda en la Wikipedia del idioma de la app (para enlazar la fuente de un texto). */
+internal fun wikipediaSearchUrl(query: String, language: String = WikiLanguage.current()): String =
+    "https://$language.wikipedia.org/w/index.php?search=" + java.net.URLEncoder.encode(query, "UTF-8")

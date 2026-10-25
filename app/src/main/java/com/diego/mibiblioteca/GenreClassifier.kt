@@ -51,34 +51,7 @@ internal fun fetchGenresOnline(book: Book): GenreResult {
     val isbn = book.isbn.filter { it.isDigit() || it == 'X' || it == 'x' }
     val author = displayAuthor(book).takeUnless(::unknownAuthor).orEmpty()
     val title = displayTitle(book)
-    var usedGoogle = false
     var usedOpenLibrary = false
-
-    val googleQueries = listOfNotNull(
-        ("isbn:$isbn").takeIf { isbn.length == 10 || isbn.length == 13 },
-        "intitle:$title" + if (author.isNotBlank()) " inauthor:$author" else "",
-        "intitle:$title"
-    ).distinct()
-    for (query in googleQueries) try {
-        val url = "https://www.googleapis.com/books/v1/volumes?q=" +
-            URLEncoder.encode(query, "UTF-8") + "&maxResults=8"
-        val items = getJson(url).optJSONArray("items") ?: continue
-        for (i in 0 until items.length()) {
-            val info = items.optJSONObject(i)?.optJSONObject("volumeInfo") ?: continue
-            val authors = info.optJSONArray("authors")
-            val names = (0 until (authors?.length() ?: 0)).map { authors!!.optString(it) }
-            if (!catalogMatch(info.optString("title"), names, book)) continue
-            val categories = info.optJSONArray("categories")
-            val values = (0 until (categories?.length() ?: 0)).map { categories!!.optString(it) }
-            val normalized = normalizeGenres(values)
-            if (normalized.isNotEmpty()) {
-                found += normalized
-                usedGoogle = true
-                break
-            }
-        }
-        if (usedGoogle) break
-    } catch (_: Exception) {}
 
     try {
         val q = if (isbn.length == 10 || isbn.length == 13) "isbn=$isbn"
@@ -103,8 +76,6 @@ internal fun fetchGenresOnline(book: Book): GenreResult {
     } catch (_: Exception) {}
 
     val source = when {
-        usedGoogle && usedOpenLibrary -> "Google Libros + Open Library"
-        usedGoogle -> "Google Libros"
         usedOpenLibrary -> "Open Library"
         local.isNotEmpty() -> "Metadatos del libro"
         else -> ""

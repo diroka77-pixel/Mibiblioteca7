@@ -409,8 +409,8 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                     Text(tr("Buscar tráileres y presentaciones en YouTube"), color = Teal, textAlign = TextAlign.Center)
                 }
-                // Las condiciones de Google Books piden atribución y un enlace a la ficha del libro.
-                if (result.sourceUrl.contains("books.google")) {
+                // Enlace a la ficha original y atribución de la fuente (Open Library).
+                if (result.sourceUrl.contains("openlibrary.org")) {
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(onClick = {
                         try {
@@ -421,9 +421,9 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                                 android.widget.Toast.LENGTH_LONG).show()
                         }
                     }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                        Text(tr("Ver en Google Books"), color = Teal, textAlign = TextAlign.Center)
+                        Text(tr("Ver en Open Library"), color = Teal, textAlign = TextAlign.Center)
                     }
-                    Text(tr("Información de Google Books"), fontSize = 11.sp,
+                    Text(tr("Información de Open Library"), fontSize = 11.sp,
                         color = Mahogany.copy(alpha = .8f), modifier = Modifier.padding(top = 4.dp))
                 }
                 Spacer(Modifier.height(6.dp))
@@ -582,7 +582,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val found = withContext(Dispatchers.IO) {
-                    fetchGoogleBooksReleases(market, publishers = market.publishers, perPublisher = 40)
+                    fetchMarketReleases(market, publishers = market.publishers, perPublisher = 60)
                 }
                 // Si la consulta falla, se muestran al menos las novedades de Inicio.
                 allReleases = (found + launchNews)
@@ -709,15 +709,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshLaunchNews(force: Boolean = false) {
         val market = currentReleaseMarket()
-        val checkedKey = "literary_news_v6_checked_" + market.country + "_" + market.language
+        val checkedKey = "literary_news_v7_checked_" + market.country + "_" + market.language
         if (newsRefreshing || (!force &&
             System.currentTimeMillis() - prefs.getLong(checkedKey, 0L) < 12L * 60 * 60 * 1000)) return
         newsRefreshing = true
         viewModelScope.launch {
             try {
-                val books = async(Dispatchers.IO) { fetchGoogleBooksReleases(market) }
+                val books = async(Dispatchers.IO) { fetchMarketReleases(market) }
                 val results = books.await()
-                // Se conserva el reparto entre editoriales que hace fetchGoogleBooksReleases.
+                // Se conserva el reparto entre editoriales que hace fetchMarketReleases.
                 val sorted = results.distinctBy { cleanCatalogText(it.title).lowercase() }.take(18)
                 // Si las fuentes no devuelven nada, no se marca como consultado:
                 // se vuelve a intentar la próxima vez que se abra la app.
@@ -2055,7 +2055,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun forceMissingCovers() {
         if (coverUpdateRunning) return
-        googleBooksRetryAt = 0L
         message = trf("Buscando portadas para {0} libros…", books.count { it.cover == null })
         refreshMissingCovers()
     }
@@ -2142,7 +2141,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         }
                         val google = if (found.plot.isBlank() ||
                             unknownAuthor(displayAuthor(latest)))
-                            withContext(Dispatchers.IO) { fetchGoogleBookInfo(latest) }
+                            withContext(Dispatchers.IO) { fetchCatalogBookInfo(latest) }
                         else "" to ""
                         val catalogAuthor = if (google.first.isBlank() &&
                             unknownAuthor(displayAuthor(latest)))
@@ -2154,9 +2153,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                             } else found
                         val rawPlot = found.plot.ifBlank { improved.plot.ifBlank { google.second } }
                         val plotSource = if (found.plot.isNotBlank()) found.plotSource else
-                            improved.plotSource.ifBlank { "Google Libros" }
+                            improved.plotSource.ifBlank { "Open Library" }
                         val plot = if (rawPlot.isBlank()) "" else if (I18n.currentLanguage() == "es" &&
-                            (plotSource == "Google Libros" || plotSource == "Wikipedia en español")) rawPlot
+                            plotSource == "Wikipedia en español") rawPlot
                             else ensureAppLanguage(rawPlot).ifBlank { rawPlot }
                         val rawBio = found.bio.ifBlank { improved.bio }
                         val bioSource = found.bioSource.ifBlank { improved.bioSource }
@@ -2224,7 +2223,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             infoLoading = book.uri
             try {
-                val google = withContext(Dispatchers.IO) { fetchGoogleBookInfo(book) }
+                val google = withContext(Dispatchers.IO) { fetchCatalogBookInfo(book) }
                 val resolvedAuthor = if (google.first.isNotBlank()) google.first else displayAuthor(book)
                 val fallback = withContext(Dispatchers.IO) {
                     fetchSpanishInfo(book.copy(customAuthor = resolvedAuthor))
@@ -2236,7 +2235,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 } else {
                     infoCandidate = book.uri to InfoCandidate(
                         resolvedAuthor, plot, bio,
-                        if (google.second.isNotBlank()) "Google Libros" else fallback.plotSource,
+                        if (google.second.isNotBlank()) "Open Library" else fallback.plotSource,
                         fallback.bioSource)
                 }
             } catch (e: Exception) {
@@ -2850,74 +2849,52 @@ private fun fetchCover(book: Book): ByteArray? {
                     ?.let { return it }
         }
     } catch (_: Exception) {}
-    try {
-        val author = displayAuthor(book).takeUnless(::unknownAuthor).orEmpty()
-        val queries = listOfNotNull(
-            "isbn:$isbn".takeIf { isbn.length == 10 || isbn.length == 13 },
-            "intitle:${displayTitle(book)}" + if (author.isNotBlank()) " inauthor:$author" else "",
-            "intitle:${displayTitle(book)}").distinct()
-        for (q in queries) {
-            val url = "https://www.googleapis.com/books/v1/volumes?q=" +
-                java.net.URLEncoder.encode(q, "UTF-8") + "&maxResults=10"
-            val items = try { getJson(url).optJSONArray("items") } catch (_: Exception) { continue }
-            for (i in 0 until (items?.length() ?: 0)) {
-                val info = items?.optJSONObject(i)?.optJSONObject("volumeInfo") ?: continue
-                val authors = info.optJSONArray("authors")
-                val names = (0 until (authors?.length() ?: 0)).map { authors!!.optString(it) }
-                if (!catalogMatch(info.optString("title"), names, book)) continue
-                val images = info.optJSONObject("imageLinks")
-                for (size in listOf("large", "medium", "thumbnail")) {
-                    val link = images?.optString(size).orEmpty()
-                    if (link.isNotBlank()) downloadImage(link.replace("http://", "https://"))
-                        ?.let { return it }
-                }
-            }
-        }
-    } catch (_: Exception) {}
     return null
 }
 
 internal fun getJson(url: String): JSONObject {
-    if (url.contains("www.googleapis.com/books") && System.currentTimeMillis() < googleBooksRetryAt)
-        throw IllegalStateException("Google Libros ha agotado su cuota temporalmente")
-    val isGoogleBooks = url.contains("www.googleapis.com/books")
-    val connection = URL(if (isGoogleBooks) GoogleBooksKey.withKey(url) else url).openConnection() as HttpURLConnection
+    val connection = URL(url).openConnection() as HttpURLConnection
     connection.connectTimeout = 10000
     connection.readTimeout = 12000
     connection.setRequestProperty("User-Agent", AppBrand.API_USER_AGENT)
-    if (isGoogleBooks) GoogleBooksKey.addHeaders(connection)
     return try {
-        if (connection.responseCode == 429 && url.contains("www.googleapis.com/books")) {
-            googleBooksRetryAt = System.currentTimeMillis() + 60 * 60 * 1000L
-            throw IllegalStateException("Cuota de Google Libros agotada")
-        }
         connection.inputStream.use { JSONObject(it.readLimited(2L * 1024 * 1024).toString(Charsets.UTF_8)) }
     } finally { connection.disconnect() }
 }
 
-@Volatile private var googleBooksRetryAt = 0L
 
-private fun fetchGoogleBookInfo(book: Book): Pair<String, String> {
+/**
+ * Autor y argumento de un libro desde Open Library (antes, Google Books). El argumento
+ * suele estar en inglés: quien lo muestra lo traduce al idioma de la app.
+ */
+private fun fetchCatalogBookInfo(book: Book): Pair<String, String> {
     val isbn = book.isbn.filter { it.isDigit() || it == 'X' || it == 'x' }
     val title = displayTitle(book)
     val knownAuthor = displayAuthor(book).takeUnless(::unknownAuthor).orEmpty()
-    val queries = if (isbn.length == 10 || isbn.length == 13) listOf("isbn:$isbn", "intitle:$title")
-        else listOf("intitle:$title" + if (knownAuthor.isNotBlank()) " inauthor:$knownAuthor" else "", "intitle:$title")
+    val queries = listOfNotNull(
+        ("isbn=" + isbn).takeIf { isbn.length == 10 || isbn.length == 13 },
+        "title=" + java.net.URLEncoder.encode(title, "UTF-8") +
+            if (knownAuthor.isNotBlank()) "&author=" + java.net.URLEncoder.encode(knownAuthor, "UTF-8") else "",
+        "title=" + java.net.URLEncoder.encode(title, "UTF-8")
+    ).distinct()
     var bestAuthor = ""
-    for (query in queries.distinct()) try {
-        val url = "https://www.googleapis.com/books/v1/volumes?q=" +
-            java.net.URLEncoder.encode(query, "UTF-8") + "&langRestrict=" + I18n.currentLanguage() + "&maxResults=10"
-        val items = getJson(url).optJSONArray("items")
-        for (i in 0 until (items?.length() ?: 0)) {
-            val info = items?.optJSONObject(i)?.optJSONObject("volumeInfo") ?: continue
-            val authors = info.optJSONArray("authors")
+    for (query in queries) try {
+        val docs = getJson("https://openlibrary.org/search.json?$query&limit=8&fields=key,title,author_name")
+            .optJSONArray("docs")
+        for (i in 0 until (docs?.length() ?: 0)) {
+            val doc = docs?.optJSONObject(i) ?: continue
+            val authors = doc.optJSONArray("author_name")
             val names = (0 until (authors?.length() ?: 0)).map { authors!!.optString(it) }
-            if (!catalogMatch(info.optString("title"), names, book)) continue
-            val author = names.filter(String::isNotBlank).joinToString(", ")
+            if (!query.startsWith("isbn=") && !catalogMatch(doc.optString("title"), names, book)) continue
+            val author = names.filter(String::isNotBlank).take(2).joinToString(", ")
             if (bestAuthor.isBlank() && author.isNotBlank()) bestAuthor = author
-            if (info.optString("language") != "es") continue
-            val plot = android.text.Html.fromHtml(info.optString("description"),
-                android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim().take(2500)
+            val key = doc.optString("key")
+            if (!key.startsWith("/works/")) continue
+            val description = getJson("https://openlibrary.org$key.json").opt("description")
+            val plot = when (description) {
+                is JSONObject -> description.optString("value")
+                else -> description?.toString().orEmpty()
+            }.replace(Regex("\\(\\[source\\]\\[\\d+\\]\\)|\\[\\d+\\]: .*"), "").trim().take(2500)
             if (plot.length > 80) return (author.ifBlank { bestAuthor }) to plot
         }
     } catch (_: Exception) {}
@@ -3006,38 +2983,6 @@ private fun fetchSagaMetadata(book: Book): Pair<String, String> {
             for (j in 0 until series.length()) {
                 val parsed = parseSagaLabel(series.optString(j))
                 if (parsed.first.isNotBlank()) return parsed
-            }
-        }
-    } catch (_: Exception) { }
-
-    // Google Books often knows the number even when Open Library has no series metadata.
-    try {
-        val q = java.net.URLEncoder.encode("intitle:$plainTitle" +
-            if (author.isNotBlank()) " inauthor:$author" else "", "UTF-8")
-        val items = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=40&country=${deviceCountry()}")
-            .optJSONArray("items")
-        for (i in 0 until (items?.length() ?: 0)) {
-            val volume = items?.optJSONObject(i) ?: continue
-            val info = volume.optJSONObject("volumeInfo") ?: continue
-            val authorsJson = info.optJSONArray("authors")
-            val authors = (0 until (authorsJson?.length() ?: 0)).map { authorsJson!!.optString(it) }
-            if (!catalogMatch(info.optString("title"), authors, book)) continue
-            val series = info.optJSONObject("seriesInfo") ?: volume.optJSONObject("seriesInfo")
-            val name = series?.optString("shortSeriesBookTitle").orEmpty()
-            val number = series?.optString("bookDisplayNumber").orEmpty()
-            if (name.isNotBlank()) return parseSagaLabel(name).let { parsed ->
-                parsed.first to number.ifBlank { parsed.second }
-            }
-            listOf(info.optString("subtitle"), info.optString("title"),
-                info.optString("description").take(280)).forEach { candidate ->
-                Regex("(?:serie|saga)\\s+([^,;:()]+?)(?:[,;:]|\\s*[#№]\\s*)(\\d+(?:[.]\\d+)?)",
-                    RegexOption.IGNORE_CASE).find(candidate)?.let { match ->
-                    return match.groupValues[1].trim() to match.groupValues[2]
-                }
-                Regex("([^,;:()]{3,80})\\s*[#№]\\s*(\\d+(?:[.]\\d+)?)",
-                    RegexOption.IGNORE_CASE).find(candidate)?.let { match ->
-                    return match.groupValues[1].trim() to match.groupValues[2]
-                }
             }
         }
     } catch (_: Exception) { }
@@ -3359,7 +3304,6 @@ class MainActivity : ComponentActivity() {
         AppThemeState.load(this)
         AppLanguage.load(this)
         DeviceRegion.detect(this)
-        GoogleBooksKey.init(this)
         libraryVm = ViewModelProvider(this)[LibraryViewModel::class.java]
         handleSharedBook(intent)
         setContent {
@@ -4899,7 +4843,7 @@ private fun openCasaDelLibro(context: Context) {
     if (releaseCalendarOpen) AlertDialog(onDismissRequest = { releaseCalendarOpen = false },
         title = { Text(tr("Calendario de publicaciones")) },
         text = { Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
-            Text(tr("Novedades según Google Books"), fontWeight = FontWeight.Bold)
+            Text(tr("Novedades según Open Library"), fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             val dated = vm.launchNews.filter { it.releaseDate.isNotBlank() }
                 .sortedBy { it.releaseDate }
@@ -6453,6 +6397,22 @@ private fun HomeExternalRecommendations(
     }
 }
 
+/**
+ * Fuente de un texto. Si viene de Wikipedia, añade la licencia CC BY-SA 4.0 y enlaza a
+ * la Wikipedia, como pide esa licencia para usar sus textos (también en apps de pago).
+ */
+@Composable
+private fun SourceLine(source: String, wikiQuery: String) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val isWiki = source.contains("Wikipedia", ignoreCase = true)
+    Text(tr("Fuente: ") + source.ifBlank { tr("No registrada") } + if (isWiki) " · CC BY-SA 4.0 ↗" else "",
+        fontSize = 11.sp, color = if (isWiki) Teal else Mahogany,
+        modifier = if (!isWiki) Modifier else Modifier.clickable {
+            try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(wikipediaSearchUrl(wikiQuery)))) }
+            catch (_: Exception) { }
+        }.padding(vertical = 4.dp))
+}
+
 @Composable
 private fun ExternalSectionTitle(title: String, onSeeAll: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 12.dp),
@@ -6497,7 +6457,7 @@ private fun AllReleasesScreen(releases: List<PublicBookResult>, loading: Boolean
                     if (!loading) Text(trf("{0} libros", shown.size), color = Mahogany,
                         fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                 }
-                Text(tr("Información de Google Books"), fontSize = 11.sp, color = Mahogany,
+                Text(tr("Información de Open Library"), fontSize = 11.sp, color = Mahogany,
                     modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
                 Row(Modifier.padding(horizontal = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -6564,9 +6524,10 @@ private fun ExternalBookCard(result: PublicBookResult, onOpen: (PublicBookResult
     ) {
         Box(Modifier.fillMaxWidth().height(238.dp).background(CoverPlaceholder),
             contentAlignment = Alignment.Center) {
+            // La portada ocupa toda la parte superior, como en una librería.
             if (cover != null) Image(cover!!.asImageBitmap(),
-                contentDescription = "Portada de ${result.title}",
-                modifier = Modifier.fillMaxSize().padding(8.dp), contentScale = ContentScale.Fit)
+                contentDescription = trf("Portada de {0}", result.title),
+                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             else AppIcon("Libros", tint = Mahogany.copy(alpha = .5f), size = 48.dp)
             val date = result.publishDates.ifBlank { result.year }
             if (date.isNotBlank()) Surface(Modifier.align(Alignment.TopStart).padding(9.dp),
@@ -6671,9 +6632,9 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
                     }
                     .combinedClickable(onClick = { onOpen(book) },
                         onLongClickLabel = "Más opciones", onLongClick = { onLongPress(book) }),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = Paper),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) {
                     Box {
                         FlatCover(book, coverWidth, coverWidth * 1.50f)
                         if (isOffline(book)) OfflineBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
@@ -6777,10 +6738,10 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
         Card(Modifier.fillMaxWidth()
             .semantics { contentDescription = "$title, $author. ${book.status.displayLabel}"; role = Role.Button }
             .combinedClickable(onClick = onClick, onLongClickLabel = "Más opciones", onLongClick = onLongPress),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+            // Esquinas redondeadas y una sombra suave: las portadas parecen libros sobre la mesa.
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(containerColor = Paper),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Paper)) {
+            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) {
             Box(Modifier.fillMaxWidth()) {
                 FlatCover(book, coverWidth, coverWidth * 1.50f)
                 Surface(Modifier.align(Alignment.TopEnd).padding(6.dp),
@@ -8048,8 +8009,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         placeholder = { Text(if (infoLoading) tr("Buscando argumento en castellano…") else
                             tr("Argumento en castellano pendiente. Puedes escribirlo.")) },
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 19.sp))
-                    if (plot.isNotBlank()) Text(tr("Fuente: ") + book.plotSource.ifBlank { "No registrada" },
-                        fontSize = 11.sp, color = Mahogany)
+                    if (plot.isNotBlank()) SourceLine(book.plotSource, displayTitle(book) + " " + displayAuthor(book))
                 }
             }
             item {
@@ -8059,8 +8019,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         placeholder = { Text(if (infoLoading) tr("Buscando biografía en castellano…") else
                             tr("Biografía en castellano pendiente. Puedes escribirla.")) },
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 17.sp))
-                    if (book.authorBio.isNotBlank()) Text(tr("Fuente: ") + book.bioSource.ifBlank { "No registrada" },
-                        fontSize = 11.sp, color = Mahogany)
+                    if (book.authorBio.isNotBlank()) SourceLine(book.bioSource, displayAuthor(book))
                     val authorBooks = libraryBooks.filter {
                         displayAuthor(it).equals(displayAuthor(book), ignoreCase = true)
                     }.sortedBy(::displayTitle)

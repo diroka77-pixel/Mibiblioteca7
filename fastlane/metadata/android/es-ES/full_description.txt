@@ -19,4 +19,4 @@ Privacidad:
 
 Bookhollow no incluye anuncios ni analítica propia y no exige crear una cuenta. El escáner ISBN y la traducción usan Google ML Kit, que puede enviar a Google datos técnicos de uso, nunca el contenido de tus libros. La cámara y el micrófono solo se solicitan al usar el escáner ISBN o la búsqueda por voz. La aplicación nunca borra libros por su cuenta.
 
-Las portadas, fichas y novedades proceden de fuentes abiertas y oficiales: Open Library, Wikipedia, Google Books y Project Gutenberg.
+Las portadas, fichas y novedades proceden de fuentes abiertas y oficiales: Open Library, Wikipedia y Project Gutenberg.

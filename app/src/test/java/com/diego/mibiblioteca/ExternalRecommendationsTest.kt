@@ -49,58 +49,44 @@ class ExternalRecommendationsTest {
         assertTrue(searchLaunchCatalog("Javier Castillo", news).single().title == "Espinas en el aire")
     }
 
-    @Test fun acceptsOnlyFullReleaseDatesFromGoogleBooks() {
-        assertEquals("2026-11-12", googleBooksReleaseDate("2026-11-12"))
-        assertEquals("2026-11-01", googleBooksReleaseDate("2026-11"))
-        assertEquals("2026", googleBooksReleaseDate("2026"))
-        assertNull(googleBooksReleaseDate("2026-13"))
-        assertNull(googleBooksReleaseDate("noviembre"))
+    @Test fun readsReleaseDatesInSeveralFormats() {
+        assertEquals("2026-11-12", releaseDateFrom("2026-11-12"))
+        assertEquals("2026-11-01", releaseDateFrom("2026-11"))
+        assertEquals("2026-11-12", releaseDateFrom("Nov 12, 2026"))
+        assertEquals("2026-11-12", releaseDateFrom("12 November 2026"))
+        assertEquals("2026", releaseDateFrom("2026"))
+        assertEquals("2026", releaseDateFrom("noviembre de 2026"))
+        assertNull(releaseDateFrom("noviembre"))
     }
 
-    @Test fun readsRecentSpanishReleasesFromGoogleBooksResponse() {
+    @Test fun releasesFromOpenLibraryNeedCoverPublisherAndRecentYear() {
         val response = org.json.JSONObject("""
-            {"items": [
-              {"volumeInfo": {"title": "Espinas en el aire", "authors": ["Javier Castillo"],
-                "publishedDate": "2026-11-12", "infoLink": "http://books.google.com/books?id=1",
-                "imageLinks": {"thumbnail": "http://books.google.com/cover?id=1&edge=curl"}}},
-              {"volumeInfo": {"title": "Sin autor", "publishedDate": "2026-11-12",
-                "infoLink": "https://books.google.com/books?id=2",
-                "imageLinks": {"thumbnail": "https://books.google.com/cover?id=2"}}},
-              {"volumeInfo": {"title": "Muy antiguo", "authors": ["Alguien"], "publishedDate": "1999-01-01",
-                "infoLink": "https://books.google.com/books?id=3",
-                "imageLinks": {"thumbnail": "https://books.google.com/cover?id=3"}}}
+            {"docs": [
+              {"key": "/works/OL1W", "title": "Original title", "author_name": ["Autora"],
+               "first_publish_year": 2026, "cover_i": 11, "publisher": ["Seix Barral"],
+               "editions": {"docs": [{"key": "/books/OL1M", "title": "Con portada",
+                 "cover_i": 12, "publish_date": ["Oct 1, 2026"]}]}},
+              {"key": "/works/OL2W", "title": "Sin portada", "author_name": ["Autor"],
+               "first_publish_year": 2026, "publisher": ["Seix Barral"]},
+              {"key": "/works/OL3W", "title": "Otra editorial", "author_name": ["Autor"],
+               "first_publish_year": 2026, "cover_i": 3, "publisher": ["Autoedición"]},
+              {"key": "/works/OL4W", "title": "Muy antigua", "author_name": ["Autor"],
+               "first_publish_year": 1990, "cover_i": 4, "publisher": ["Seix Barral"]},
+              {"key": "/works/OL5W", "title": "Resumen de una novela", "author_name": ["Alguien"],
+               "first_publish_year": 2026, "cover_i": 5, "publisher": ["Seix Barral"]}
             ]}
         """.trimIndent())
-        val news = launchNewsFromGoogleBooks(response, java.time.LocalDate.of(2026, 10, 25))
-        assertEquals(1, news.size)
-        assertEquals("Espinas en el aire", launchBookTitle(news.single()))
-        assertEquals("Javier Castillo", launchBookAuthor(news.single()))
-        assertTrue(news.single().imageUrl.startsWith("https://"))
-        assertFalse(news.single().imageUrl.contains("edge=curl"))
-        assertTrue(news.single().url.startsWith("https://"))
-    }
-
-    @Test fun releasesNeedCoverPublisherAndLanguage() {
-        val response = org.json.JSONObject("""
-            {"items": [
-              {"volumeInfo": {"title": "Con portada", "authors": ["Autora"], "publisher": "Seix Barral",
-                "language": "es", "publishedDate": "2026-10-01", "infoLink": "https://books.google.com/books?id=1",
-                "imageLinks": {"thumbnail": "https://books.google.com/cover?id=1"}}},
-              {"volumeInfo": {"title": "Sin portada", "authors": ["Autor"], "publisher": "Seix Barral",
-                "language": "es", "publishedDate": "2026-10-01", "infoLink": "https://books.google.com/books?id=2"}},
-              {"volumeInfo": {"title": "Otra editorial", "authors": ["Autor"], "publisher": "Autoedición",
-                "language": "es", "publishedDate": "2026-10-01", "infoLink": "https://books.google.com/books?id=3",
-                "imageLinks": {"thumbnail": "https://books.google.com/cover?id=3"}}},
-              {"volumeInfo": {"title": "In English", "authors": ["Writer"], "publisher": "Seix Barral",
-                "language": "en", "publishedDate": "2026-10-01", "infoLink": "https://books.google.com/books?id=4",
-                "imageLinks": {"thumbnail": "https://books.google.com/cover?id=4"}}},
-              {"volumeInfo": {"title": "Resumen de una novela", "authors": ["Alguien"], "publisher": "Seix Barral",
-                "language": "es", "publishedDate": "2026-10-01", "infoLink": "https://books.google.com/books?id=5",
-                "imageLinks": {"thumbnail": "https://books.google.com/cover?id=5"}}}
-            ]}
-        """.trimIndent())
-        val news = launchNewsFromGoogleBooks(response, java.time.LocalDate.of(2026, 10, 25),
-            publisher = "Seix Barral", language = "es")
+        val news = launchNewsFromOpenLibrary(response, java.time.LocalDate.of(2026, 10, 25), publisher = "Seix Barral")
         assertEquals(listOf("Con portada"), news.map(::launchBookTitle))
+        assertEquals("2026-10-01", news.single().releaseDate)
+        assertEquals("https://covers.openlibrary.org/b/id/12-L.jpg", news.single().imageUrl)
+        assertEquals("https://openlibrary.org/works/OL1W", news.single().url)
+    }
+
+    @Test fun genresMapToOpenLibrarySubjects() {
+        assertEquals("science_fiction", openLibrarySubject("Ciencia ficción"))
+        assertEquals("fantasy", openLibrarySubject("Fantasía"))
+        assertEquals("historical_fiction", openLibrarySubject("Novela histórica"))
+        assertNull(openLibrarySubject("Otros"))
     }
 }

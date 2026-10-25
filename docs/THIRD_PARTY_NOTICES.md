@@ -11,8 +11,8 @@ Bookhollow utiliza componentes de software y consulta servicios externos. Este d
 
 ## Fuentes y servicios externos
 
-- Open Library y Google Books: metadatos y portadas.
-- Wikipedia y Wikcionario: biografías, argumentos y definiciones.
+- Open Library: metadatos, portadas, recomendaciones y novedades (datos bibliográficos CC0).
+- Wikipedia y Wikcionario: biografías, argumentos y definiciones (textos bajo CC BY-SA 4.0, con enlace a la fuente).
 - DLE de la Real Academia Española: consulta mediante enlace al sitio oficial.
 - Sitios de editoriales, librerías y catálogos literarios: noticias, reseñas y referencias públicas.
 - Davefx/sherpa-onnx: motor TTS opcional, descargado fuera de Bookhollow y sujeto a su propia licencia.

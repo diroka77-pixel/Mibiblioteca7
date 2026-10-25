@@ -15,7 +15,7 @@ internal fun currentReleaseNotes(): List<String> = listOf(
     "Wikipedia y diccionario en el idioma de la app, y galería adaptada a tablets.",
     "Novedades de las grandes editoriales de tu país, siempre con portada.",
     "Disponible en español, inglés, portugués, francés, alemán e italiano.",
-    "Solo fuentes abiertas y oficiales para portadas, fichas y novedades."
+    "Solo fuentes abiertas: Open Library, Wikipedia y Project Gutenberg."
 )
 
 internal fun legalNotices(): List<LegalNotice> = listOf(
@@ -23,10 +23,10 @@ internal fun legalNotices(): List<LegalNotice> = listOf(
     LegalNotice("Gson", "Biblioteca de serialización de Google distribuida bajo licencia Apache 2.0."),
     LegalNotice("jsoup", "Biblioteca de análisis HTML distribuida bajo licencia MIT."),
     LegalNotice("Google ML Kit", "Se utiliza para traducción, identificación de idioma y lectura de códigos ISBN. Su uso está sujeto a las condiciones de Google."),
-    LegalNotice("Open Library y Google Books", "Fuentes externas de metadatos y portadas. Los datos y las imágenes pertenecen a sus respectivos proveedores y titulares."),
+    LegalNotice("Open Library", "Fuente de fichas, portadas, recomendaciones y novedades, consultada mediante su API abierta. Los datos bibliográficos de Open Library son de dominio público (CC0); las portadas pertenecen a sus titulares."),
     LegalNotice("Project Gutenberg", "Los clásicos de ejemplo son obras de dominio público descargadas de gutenberg.org a petición del usuario. Project Gutenberg es una marca de la Project Gutenberg Literary Archive Foundation, que no está vinculada a esta aplicación."),
-    LegalNotice("Wikipedia y Wikcionario", "Fuentes externas para biografías, argumentos y definiciones. Cada contenido conserva las condiciones indicadas por Wikimedia."),
+    LegalNotice("Wikipedia y Wikcionario", "Fuentes de biografías, argumentos y definiciones. Sus textos se usan bajo la licencia Creative Commons Atribución-CompartirIgual 4.0 (CC BY-SA 4.0); cada texto indica su fuente y enlaza al original."),
     LegalNotice("DLE de la RAE", "{app} abre el sitio oficial para consultas voluntarias. La RAE y sus marcas no están vinculadas a esta aplicación."),
     LegalNotice("Davefx y sherpa-onnx", "Motor de voz opcional que no se incluye en {app}. Su página oficial se abre externamente y conserva su propia licencia."),
-    LegalNotice("Fuentes literarias", "Las novedades proceden de la API pública de Google Books. Los botones de Goodreads, Casa del Libro, YouTube y otras webs solo abren esas páginas cuando el usuario lo pide; la app no lee sus webs por su cuenta. Sus nombres y marcas pertenecen a sus titulares.")
+    LegalNotice("Fuentes literarias", "Las novedades proceden de la API abierta de Open Library. Los botones de Goodreads, Casa del Libro, YouTube y otras webs solo abren esas páginas cuando el usuario lo pide; la app no lee sus webs por su cuenta. Sus nombres y marcas pertenecen a sus titulares.")
 )
