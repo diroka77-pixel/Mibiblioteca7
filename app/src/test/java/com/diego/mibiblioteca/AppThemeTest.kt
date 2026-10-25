@@ -27,4 +27,11 @@ class AppThemeTest {
         assertEquals(ThemePreference.SYSTEM, ThemePreference.fromStored("rosa"))
         assertEquals(ThemePreference.DARK, ThemePreference.fromStored("DARK"))
     }
+
+    @Test fun galleryGetsMoreColumnsOnWiderScreens() {
+        assertEquals(2, galleryColumnsFor(411))
+        assertEquals(3, galleryColumnsFor(700))
+        assertEquals(4, galleryColumnsFor(1000))
+        assertEquals(5, galleryColumnsFor(1400))
+    }
 }

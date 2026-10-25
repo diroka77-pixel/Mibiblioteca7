@@ -58,3 +58,15 @@ internal object AppThemeState {
         refresh(context)
     }
 }
+
+/**
+ * Columnas de la galería según el ancho disponible (en dp), siguiendo los tamaños
+ * de ventana de Material: móvil 2, tablet pequeña o móvil en horizontal 3,
+ * tablet 4 y pantallas muy anchas 5.
+ */
+internal fun galleryColumnsFor(widthDp: Int): Int = when {
+    widthDp < 600 -> 2
+    widthDp < 840 -> 3
+    widthDp < 1200 -> 4
+    else -> 5
+}

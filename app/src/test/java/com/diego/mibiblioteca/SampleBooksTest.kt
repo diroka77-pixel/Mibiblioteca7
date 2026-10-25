@@ -5,14 +5,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SampleBooksTest {
-    @Test fun offersFiveDistinctClassics() {
-        assertEquals(5, sampleBooks.size)
-        assertEquals(sampleBooks.size, sampleBooks.map { it.gutenbergId }.distinct().size)
-        assertEquals(sampleBooks.size, sampleBooks.map { it.fileName }.distinct().size)
+    private val all = sampleBooksByLanguage.values.flatten()
+
+    @Test fun offersFiveClassicsInEveryAppLanguage() {
+        I18n.languages.forEach { language ->
+            assertEquals(language, 5, sampleBooksFor(language).size)
+        }
+    }
+
+    @Test fun classicsAreDistinctAcrossLanguages() {
+        assertEquals(all.size, all.map { it.gutenbergId }.distinct().size)
+        assertEquals(all.size, all.map { it.fileName }.distinct().size)
+    }
+
+    @Test fun unknownLanguageFallsBackToEnglish() {
+        assertEquals(sampleBooksFor("en"), sampleBooksFor("ja"))
     }
 
     @Test fun downloadsOnlyEpubFromGutenbergOverHttps() {
-        sampleBooks.forEach {
+        all.forEach {
             assertTrue(it.downloadUrl.startsWith("https://www.gutenberg.org/ebooks/"))
             assertTrue(it.downloadUrl.endsWith(".epub3.images"))
             assertTrue(it.fileName.endsWith(".epub"))

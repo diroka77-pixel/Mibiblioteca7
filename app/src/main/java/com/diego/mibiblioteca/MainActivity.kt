@@ -1702,13 +1702,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     /** Descarga e incorpora los clásicos de dominio público de [sampleBooks]. */
     fun importSampleBooks() {
         if (sampleBooksProgress != null) return
-        sampleBooksProgress = 0 to sampleBooks.size
+        val books = sampleBooks
+        sampleBooksProgress = 0 to books.size
         viewModelScope.launch {
             val folder = File(getApplication<Application>().cacheDir, "clasicos")
             var added = 0
             try {
-                sampleBooks.forEachIndexed { index, sample ->
-                    sampleBooksProgress = index to sampleBooks.size
+                books.forEachIndexed { index, sample ->
+                    sampleBooksProgress = index to books.size
                     val file = withContext(Dispatchers.IO) { downloadSampleBook(sample, folder) }
                     if (file != null) {
                         if (importLocalBookNow(Uri.fromFile(file), interactive = false)) added++
@@ -1719,8 +1720,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 sampleBooksProgress = null
                 message = when (added) {
                     0 -> tr("No se pudieron descargar los clásicos. Comprueba la conexión e inténtalo de nuevo.")
-                    sampleBooks.size -> trf("Se han añadido {0} clásicos gratuitos a tu biblioteca.", added)
-                    else -> trf("Se han añadido {0} de {1} clásicos. Puedes volver a intentarlo para los que faltan.", added, sampleBooks.size)
+                    books.size -> trf("Se han añadido {0} clásicos gratuitos a tu biblioteca.", added)
+                    else -> trf("Se han añadido {0} de {1} clásicos. Puedes volver a intentarlo para los que faltan.", added, books.size)
                 }
             }
         }
@@ -2856,7 +2857,7 @@ private fun fetchGoogleBookInfo(book: Book): Pair<String, String> {
     var bestAuthor = ""
     for (query in queries.distinct()) try {
         val url = "https://www.googleapis.com/books/v1/volumes?q=" +
-            java.net.URLEncoder.encode(query, "UTF-8") + "&langRestrict=es&maxResults=10"
+            java.net.URLEncoder.encode(query, "UTF-8") + "&langRestrict=" + I18n.currentLanguage() + "&maxResults=10"
         val items = getJson(url).optJSONArray("items")
         for (i in 0 until (items?.length() ?: 0)) {
             val info = items?.optJSONObject(i)?.optJSONObject("volumeInfo") ?: continue
@@ -2964,7 +2965,7 @@ private fun fetchSagaMetadata(book: Book): Pair<String, String> {
     try {
         val q = java.net.URLEncoder.encode("intitle:$plainTitle" +
             if (author.isNotBlank()) " inauthor:$author" else "", "UTF-8")
-        val items = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=40&country=ES")
+        val items = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=40&country=${deviceCountry()}")
             .optJSONArray("items")
         for (i in 0 until (items?.length() ?: 0)) {
             val volume = items?.optJSONObject(i) ?: continue
@@ -3040,16 +3041,18 @@ private fun fetchSagaCatalog(saga: String, reference: Book?): List<SagaVolume> {
         val escaped = saga.replace("\\", "\\\\").replace("\"", "\\\"")
         val authorFilter = reference?.let(::displayAuthor)?.takeUnless(::unknownAuthor)
             ?.replace("\\", "\\\\")?.replace("\"", "\\\"").orEmpty()
+        val labelLanguages = WikiLanguage.wikidataLanguages().joinToString(",") { "\"$it\"" }
         val query = "SELECT DISTINCT ?work ?workLabel ?ordinal WHERE { " +
             "?series rdfs:label ?seriesLabel . " +
-            "FILTER(LANG(?seriesLabel) IN (\"es\",\"en\")) " +
+            "FILTER(LANG(?seriesLabel) IN ($labelLanguages)) " +
             "FILTER(CONTAINS(LCASE(STR(?seriesLabel)), LCASE(\"$escaped\"))) " +
             "?work p:P179 ?statement . ?statement ps:P179 ?series . " +
             "OPTIONAL { ?statement pq:P1545 ?ordinal . } " +
             (if (authorFilter.isNotBlank())
                 "OPTIONAL { ?work wdt:P50 ?author . ?author rdfs:label ?authorLabel . " +
-                    "FILTER(LANG(?authorLabel) IN (\"es\",\"en\")) } " else "") +
-            "SERVICE wikibase:label { bd:serviceParam wikibase:language \"es,en\". } } LIMIT 100"
+                    "FILTER(LANG(?authorLabel) IN ($labelLanguages)) } " else "") +
+            "SERVICE wikibase:label { bd:serviceParam wikibase:language \"" +
+            WikiLanguage.wikidataLanguages().joinToString(",") + "\". } } LIMIT 100"
         val url = "https://query.wikidata.org/sparql?format=json&query=" +
             java.net.URLEncoder.encode(query, "UTF-8")
         val bindings = getJson(url).optJSONObject("results")?.optJSONArray("bindings")
@@ -3068,9 +3071,10 @@ private fun fetchSagaCatalog(saga: String, reference: Book?): List<SagaVolume> {
     }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title }).take(100)
 }
 
-private fun wikipediaPage(query: String, expected: String): Pair<String, String>? {
+private fun wikipediaPage(query: String, expected: String,
+                          language: String = WikiLanguage.current()): Pair<String, String>? {
     val term = java.net.URLEncoder.encode(query, "UTF-8")
-    val matches = getJson("https://es.wikipedia.org/w/api.php?action=query&list=search" +
+    val matches = getJson(WikiLanguage.wikipediaApi(language) + "?action=query&list=search" +
         "&srsearch=$term&srlimit=6&format=json").optJSONObject("query")?.optJSONArray("search")
     val plain: (String) -> String = { value ->
         java.text.Normalizer.normalize(value.lowercase(), java.text.Normalizer.Form.NFD)
@@ -3083,11 +3087,11 @@ private fun wikipediaPage(query: String, expected: String): Pair<String, String>
         val candidate = plain(title)
         if (!(candidate.contains(target) || target.contains(candidate))) continue
         val encoded = java.net.URLEncoder.encode(title, "UTF-8")
-        val page = getJson("https://es.wikipedia.org/w/api.php?action=query&prop=extracts" +
+        val page = getJson(WikiLanguage.wikipediaApi(language) + "?action=query&prop=extracts" +
             "&exintro=1&explaintext=1&redirects=1&format=json&formatversion=2&titles=$encoded")
             .optJSONObject("query")?.optJSONArray("pages")?.optJSONObject(0)
         val extract = page?.optString("extract").orEmpty().trim()
-        if (extract.isNotBlank() && !title.contains("desambiguación", true)) return title to extract
+        if (extract.isNotBlank() && !WikiLanguage.isDisambiguation(title)) return title to extract
     }
     return null
 }
@@ -3096,7 +3100,8 @@ private fun wikipediaPlot(book: Book): String {
     val title = displayTitle(book)
     val author = displayAuthor(book).takeUnless(::unknownAuthor).orEmpty()
     if (author.isBlank()) return ""
-    val page = try { wikipediaPage("$title $author", title) ?: wikipediaPage(title, title) }
+    val language = WikiLanguage.current()
+    val page = try { wikipediaPage("$title $author", title, language) ?: wikipediaPage(title, title, language) }
         catch (_: Exception) { null } ?: return ""
     // A title alone can also resolve to a film, a place or another book.
     if (author.isNotBlank()) {
@@ -3110,16 +3115,15 @@ private fun wikipediaPlot(book: Book): String {
     }
     return try {
         val encoded = java.net.URLEncoder.encode(page.first, "UTF-8")
-        val sections = getJson("https://es.wikipedia.org/w/api.php?action=parse&prop=sections" +
+        val sections = getJson(WikiLanguage.wikipediaApi(language) + "?action=parse&prop=sections" +
             "&format=json&page=$encoded").optJSONObject("parse")?.optJSONArray("sections")
         val index = (0 until (sections?.length() ?: 0)).mapNotNull { i ->
             sections?.optJSONObject(i)?.takeIf { section ->
-                Regex("(?i)^(argumento|sinopsis|trama|resumen)$")
-                    .containsMatchIn(section.optString("line"))
+                WikiLanguage.plotSection(language).containsMatchIn(section.optString("line"))
             }?.optString("index")
         }.firstOrNull()
         val body = if (index == null) "" else {
-            val html = getJson("https://es.wikipedia.org/w/api.php?action=parse&prop=text" +
+            val html = getJson(WikiLanguage.wikipediaApi(language) + "?action=parse&prop=text" +
                 "&format=json&page=$encoded&section=$index")
                 .optJSONObject("parse")?.optJSONObject("text")?.optString("*").orEmpty()
             Jsoup.parse(html).select("p").joinToString(" ") { it.text() }.trim()
@@ -3150,10 +3154,10 @@ private fun fetchSpanishInfo(book: Book): InfoCandidate {
     var bioSource = ""
     var bio = ""
     if (displayAuthor(book).isNotBlank() && !unknownAuthor(displayAuthor(book))) {
-        for (host in listOf("es", "en")) {
+        for (host in WikiLanguage.hosts()) {
             try {
                 val title = java.net.URLEncoder.encode(displayAuthor(book), "UTF-8")
-                val url = "https://$host.wikipedia.org/w/api.php?action=query&prop=extracts" +
+                val url = WikiLanguage.wikipediaApi(host) + "?action=query&prop=extracts" +
                     "&exintro=1&explaintext=1&redirects=1&format=json&formatversion=2&titles=$title"
                 val page = getJson(url).optJSONObject("query")?.optJSONArray("pages")?.optJSONObject(0)
                 if (page != null && !page.has("missing")) {
@@ -3165,7 +3169,7 @@ private fun fetchSpanishInfo(book: Book): InfoCandidate {
     }
     if (bio.isBlank() && displayAuthor(book).isNotBlank() && !unknownAuthor(displayAuthor(book))) try {
         val page = wikipediaPage(displayAuthor(book), displayAuthor(book))
-        if (page != null) { bio = page.second.take(900); bioSource = "Wikipedia (es)" }
+        if (page != null) { bio = page.second.take(900); bioSource = "Wikipedia (" + WikiLanguage.current() + ")" }
     } catch (_: Exception) {}
     if (bio.isBlank() && displayAuthor(book).isNotBlank() && !unknownAuthor(displayAuthor(book))) try {
         val q = java.net.URLEncoder.encode(displayAuthor(book), "UTF-8")
@@ -4196,6 +4200,8 @@ private fun openCasaDelLibro(context: Context) {
     // Secciones mantiene su propia vista, separada de Biblioteca.
     val activeViewScope: String? = if (tab == "Secciones") "__secciones__" else vm.selectedSection
     val activeViewMode = vm.viewModeFor(activeViewScope)
+    // Más columnas en tablets y con el móvil en horizontal.
+    val galleryColumns = galleryColumnsFor(LocalConfiguration.current.screenWidthDp)
     LaunchedEffect(vm.message) {
         if (vm.message != null && !libraryNoticeIsPersistent(vm.message, vm.lastDriveFailure)) {
             kotlinx.coroutines.delay(4000)
@@ -5788,7 +5794,8 @@ private fun openCasaDelLibro(context: Context) {
                                     else trf("Descargando clásicos {0}/{1}…", sampleProgress.first + 1, sampleProgress.second),
                                     color = Teal, textAlign = TextAlign.Center)
                             }
-                            Text(tr("Don Quijote, Lazarillo de Tormes, Marianela, Pepita Jiménez y Niebla. Son de dominio público y se descargan de Project Gutenberg."),
+                            Text(sampleBooks.joinToString(", ") { it.title } + ". " +
+                                tr("Son de dominio público y se descargan de Project Gutenberg."),
                                 color = Mahogany.copy(alpha = .8f), fontSize = 12.sp, textAlign = TextAlign.Center)
                         }
                     }
@@ -5941,26 +5948,22 @@ private fun openCasaDelLibro(context: Context) {
                         }
                     } else when (activeViewMode) {
                         "Galería" -> items(
-                            count = (ordered.size + 1) / 2,
-                            key = { index -> "grid:" + name + ":" + ordered[index * 2].uri },
+                            count = (ordered.size + galleryColumns - 1) / galleryColumns,
+                            key = { index -> "grid:$galleryColumns:" + name + ":" + ordered[index * galleryColumns].uri },
                             contentType = { "gallery" }
                         ) { index ->
-                            val first = ordered[index * 2]
-                            val second = ordered.getOrNull(index * 2 + 1)
+                            val rowBooks = ordered.subList(index * galleryColumns,
+                                minOf(ordered.size, (index + 1) * galleryColumns))
                             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                BookGalleryCard(first, Modifier.weight(1f), first.uri in offlineBookUris,
-                                    vm.readingPercent(first.uri), { bookMenu = first },
-                                    onToggleFavorite = { vm.toggleFavorite(first.uri) }) {
-                                    openBookFromList(first)
-                                }
-                                if (second != null) {
-                                    BookGalleryCard(second, Modifier.weight(1f), second.uri in offlineBookUris,
-                                        vm.readingPercent(second.uri), { bookMenu = second },
-                                        onToggleFavorite = { vm.toggleFavorite(second.uri) }) {
-                                        openBookFromList(second)
+                                rowBooks.forEach { book ->
+                                    BookGalleryCard(book, Modifier.weight(1f), book.uri in offlineBookUris,
+                                        vm.readingPercent(book.uri), { bookMenu = book },
+                                        onToggleFavorite = { vm.toggleFavorite(book.uri) }) {
+                                        openBookFromList(book)
                                     }
-                                } else Spacer(Modifier.weight(1f))
+                                }
+                                repeat(galleryColumns - rowBooks.size) { Spacer(Modifier.weight(1f)) }
                             }
                         }
                         else -> items(ordered, key = { name + ":" + it.uri },
@@ -6498,7 +6501,8 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
             modifier = Modifier.padding(start = 12.dp, top = 16.dp, bottom = 12.dp),
             style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
         BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val coverWidth = (maxWidth - 36.dp) / 2
+        val visible = galleryColumnsFor(maxWidth.value.toInt())
+        val coverWidth = (maxWidth - 12.dp * (visible + 1)) / visible
         LazyRow(Modifier.fillMaxWidth().pointerInput(Unit) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)

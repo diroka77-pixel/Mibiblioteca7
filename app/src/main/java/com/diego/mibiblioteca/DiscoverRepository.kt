@@ -106,15 +106,17 @@ fun externalBookRecommendations(
             seed.genres.map(String::trim).filter { it.length >= 3 }.take(3).forEach { add("subject:$it") }
         }
         // Garantiza variedad incluso si los EPUB aún no tienen género bien clasificado.
-        addAll(listOf("subject:fantasía", "subject:terror", "subject:aventuras",
-            "subject:romántica", "subject:drama", "subject:autoayuda"))
+        addAll(if (I18n.currentLanguage() == "es") listOf("subject:fantasía", "subject:terror",
+                "subject:aventuras", "subject:romántica", "subject:drama", "subject:autoayuda")
+            else listOf("subject:fantasy", "subject:horror", "subject:adventure",
+                "subject:romance", "subject:drama", "subject:self-help"))
     }.distinct().take(10)
     val results = mutableListOf<PublicBookResult>()
     queries.forEach { query ->
         runCatching {
             val encoded = java.net.URLEncoder.encode(query, "UTF-8")
             val items = getJson(
-                "https://www.googleapis.com/books/v1/volumes?q=$encoded&maxResults=30&printType=books&langRestrict=es&orderBy=newest"
+                "https://www.googleapis.com/books/v1/volumes?q=$encoded&maxResults=30&printType=books&langRestrict=${I18n.currentLanguage()}&orderBy=newest"
             ).optJSONArray("items")
             for (index in 0 until (items?.length() ?: 0)) {
                 val row = items?.optJSONObject(index) ?: continue
@@ -205,26 +207,26 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
             }
         }
         if ((bio.isBlank() || authorImageUrl.isBlank()) && result.author.isNotBlank()) {
-            val authorQ = java.net.URLEncoder.encode("\"" + result.author.trim() + "\" escritor autor", "UTF-8")
-            val hits = getJson("https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=$authorQ&format=json&origin=*").optJSONObject("query")?.optJSONArray("search")
+            val authorQ = java.net.URLEncoder.encode("\"" + result.author.trim() + "\" " + WikiLanguage.authorHint(), "UTF-8")
+            val hits = getJson(WikiLanguage.wikipediaApi() + "?action=query&list=search&srsearch=$authorQ&format=json&origin=*").optJSONObject("query")?.optJSONArray("search")
             val page = hits?.optJSONObject(0)?.optString("title").orEmpty()
             val expectedAuthorTerms = discoverNormalizeSearchText(result.author).split(' ')
                 .filter { it.length >= 3 }.toSet()
             val normalizedPage = discoverNormalizeSearchText(page)
             if (page.isNotBlank() && expectedAuthorTerms.any(normalizedPage::contains)) {
                 val title = java.net.URLEncoder.encode(page, "UTF-8")
-                val extract = getJson("https://es.wikipedia.org/w/api.php?action=query&prop=extracts|pageimages&piprop=thumbnail&pithumbsize=500&explaintext=1&exintro=1&titles=$title&format=json&origin=*").optJSONObject("query")?.optJSONObject("pages")
+                val extract = getJson(WikiLanguage.wikipediaApi() + "?action=query&prop=extracts|pageimages&piprop=thumbnail&pithumbsize=500&explaintext=1&exintro=1&titles=$title&format=json&origin=*").optJSONObject("query")?.optJSONObject("pages")
                 val key = extract?.keys()?.asSequence()?.firstOrNull()
                 val authorPage = key?.let { extract.optJSONObject(it) }
                 val wikipediaBio = authorPage?.optString("extract").orEmpty()
-                // La Wikipedia en español prevalece sobre biografías inglesas de Open Library.
+                // La Wikipedia en el idioma de la app prevalece sobre las biografías de Open Library.
                 if (wikipediaBio.isNotBlank()) bio = wikipediaBio
                 authorImageUrl = authorPage?.optJSONObject("thumbnail")?.optString("source").orEmpty()
                 if (bio.isNotBlank()) source = "$source · Wikipedia"
             }
         }
         val q = java.net.URLEncoder.encode("intitle:${result.title} inauthor:${result.author}", "UTF-8")
-        val volumes = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=20&country=ES").optJSONArray("items")
+        val volumes = getJson("https://www.googleapis.com/books/v1/volumes?q=$q&maxResults=20&country=${deviceCountry()}").optJSONArray("items")
         val wantedTitle = discoverNormalizeSearchText(result.title)
         val wantedAuthor = discoverNormalizeSearchText(result.author)
         val volumeRows = (0 until (volumes?.length() ?: 0)).mapNotNull { volumes?.optJSONObject(it) }
@@ -288,10 +290,10 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
         }
         if (summary.length < 80 && result.title.isNotBlank()) {
             val bookQuery = java.net.URLEncoder.encode(
-                "\"" + result.title.trim() + "\" " + result.author.trim() + " libro novela",
+                "\"" + result.title.trim() + "\" " + result.author.trim() + " " + WikiLanguage.bookHint(),
                 "UTF-8"
             )
-            val hits = getJson("https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=$bookQuery&format=json&origin=*")
+            val hits = getJson(WikiLanguage.wikipediaApi() + "?action=query&list=search&srsearch=$bookQuery&format=json&origin=*")
                 .optJSONObject("query")?.optJSONArray("search")
             val page = hits?.optJSONObject(0)?.optString("title").orEmpty()
             val wantedTerms = discoverNormalizeSearchText(result.title).split(' ')
@@ -300,14 +302,14 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
             if (page.isNotBlank() && wantedTerms.isNotEmpty() &&
                 wantedTerms.count(pageTerms::contains) * 2 >= wantedTerms.size) {
                 val encodedPage = java.net.URLEncoder.encode(page, "UTF-8")
-                val pagesJson = getJson("https://es.wikipedia.org/w/api.php?action=query&prop=extracts|pageimages&piprop=thumbnail&pithumbsize=800&explaintext=1&exintro=1&titles=$encodedPage&format=json&origin=*")
+                val pagesJson = getJson(WikiLanguage.wikipediaApi() + "?action=query&prop=extracts|pageimages&piprop=thumbnail&pithumbsize=800&explaintext=1&exintro=1&titles=$encodedPage&format=json&origin=*")
                     .optJSONObject("query")?.optJSONObject("pages")
                 val pageKey = pagesJson?.keys()?.asSequence()?.firstOrNull()
                 val bookPage = pageKey?.let { pagesJson.optJSONObject(it) }
                 val extract = bookPage?.optString("extract").orEmpty().trim()
                 if (extract.length >= 80) {
                     summary = cleanEditorialText(extract)
-                    source = "$source · Wikipedia en español"
+                    source = "$source · Wikipedia"
                 }
                 if (coverUrl.isBlank()) {
                     coverUrl = bookPage?.optJSONObject("thumbnail")?.optString("source").orEmpty()

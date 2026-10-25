@@ -319,7 +319,7 @@ private fun dictionaryDefinitions(context: Context, word: String): List<Dictiona
     if (normalized.isBlank()) return emptyList()
     val encoded = java.net.URLEncoder.encode(normalized, "UTF-8")
     val cache = context.getSharedPreferences("reader_dictionary", Context.MODE_PRIVATE)
-    val cacheKey = "entry_${normalized.lowercase(java.util.Locale.ROOT)}"
+    val cacheKey = "entry_${I18n.currentLanguage()}_${normalized.lowercase(java.util.Locale.ROOT)}"
     val now = System.currentTimeMillis()
     cache.getString(cacheKey, null)?.let { raw -> runCatching {
         val saved = JSONObject(raw)
@@ -340,8 +340,10 @@ private fun dictionaryDefinitions(context: Context, word: String): List<Dictiona
         finally { connection.disconnect() }
     } catch (_: Exception) { null }
 
-    // Consult the DLE data service first; keep Wiktionary as an independent fallback.
-    val rae = request("https://rae-api.com/api/words/$encoded")?.let { raw -> runCatching {
+    val language = WikiLanguage.current()
+    val wiktionary = WikiLanguage.wiktionaryName(language)
+    // In Spanish the DLE data service goes first; other languages use their own Wiktionary.
+    val rae = if (language != "es") emptyList() else request("https://rae-api.com/api/words/$encoded")?.let { raw -> runCatching {
         val root = JSONObject(raw)
         val data = root.optJSONObject("data") ?: JSONObject()
         val meanings = data.optJSONArray("meanings") ?: JSONArray()
@@ -367,12 +369,12 @@ private fun dictionaryDefinitions(context: Context, word: String): List<Dictiona
         return rae
     }
 
-    val parsed = request("https://es.wiktionary.org/w/api.php?action=parse&format=json&prop=text&page=$encoded")
+    val parsed = request(WikiLanguage.wiktionaryApi(language) + "?action=parse&format=json&prop=text&page=$encoded")
         ?.let { raw -> runCatching {
             Jsoup.parse(JSONObject(raw).getJSONObject("parse").getJSONObject("text").getString("*"))
                 .select(".mw-parser-output > ol > li, .mw-parser-output ol > li")
                 .map { it.text().trim() }.filter { it.length in 8..400 }.distinct().take(6)
-                .map { DictionaryDefinition("Wikcionario", it) }
+                .map { DictionaryDefinition(wiktionary, it) }
         }.getOrNull() }.orEmpty()
     if (parsed.isNotEmpty()) {
         val array = JSONArray().apply { parsed.forEach { put(JSONObject()
@@ -381,7 +383,7 @@ private fun dictionaryDefinitions(context: Context, word: String): List<Dictiona
         return parsed
     }
 
-    val fallback = request("https://es.wiktionary.org/w/api.php?action=query&format=json&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=$encoded")
+    val fallback = request(WikiLanguage.wiktionaryApi(language) + "?action=query&format=json&redirects=1&prop=extracts&explaintext=1&exsectionformat=plain&titles=$encoded")
         ?: return emptyList()
     val extracted = runCatching {
         val pages = JSONObject(fallback).getJSONObject("query").getJSONObject("pages")
@@ -389,9 +391,11 @@ private fun dictionaryDefinitions(context: Context, word: String): List<Dictiona
             .firstOrNull { !it.has("missing") } ?: return emptyList()
         page.optString("extract").lineSequence().map { it.trim().removePrefix("•").trim() }
             .filter { line -> line.length in 12..400 && !line.startsWith("==") &&
-                !line.startsWith("Etimología") && !line.startsWith("Pronunciación") &&
-                !line.startsWith("Sinónimos") }
-            .distinct().take(6).map { DictionaryDefinition("Wikcionario", it) }.toList()
+                listOf("Etimología", "Pronunciación", "Sinónimos", "Etymology", "Pronunciation",
+                    "Synonyms", "Étymologie", "Prononciation", "Synonymes", "Etimologia", "Pronúncia",
+                    "Pronuncia", "Sinonimi", "Sinônimos", "Herkunft", "Aussprache", "Synonyme")
+                    .none { line.startsWith(it) } }
+            .distinct().take(6).map { DictionaryDefinition(wiktionary, it) }.toList()
     }.getOrDefault(emptyList())
     if (extracted.isNotEmpty()) {
         val array = JSONArray().apply { extracted.forEach { put(JSONObject()
@@ -2413,9 +2417,12 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         }
                         Spacer(Modifier.height(12.dp))
                         when {
-                            definitions == null -> Text(tr("Buscando en Wikcionario y la RAE…"))
+                            definitions == null -> Text(if (I18n.currentLanguage() == "es")
+                                tr("Buscando en Wikcionario y la RAE…") else tr("Buscando en el diccionario…"))
                             definitions!!.isEmpty() -> Text(
-                                tr("Para ver definiciones sin conexión, abre el diccionario español de Android o consulta la RAE."))
+                                if (I18n.currentLanguage() == "es")
+                                    tr("Para ver definiciones sin conexión, abre el diccionario español de Android o consulta la RAE.")
+                                else tr("No se encontraron definiciones para esta palabra."))
                             else -> definitions!!.forEachIndexed { i, definition ->
                                 Column(Modifier.padding(bottom = 12.dp)) {
                                     if (i == 0 || definitions!![i - 1].source != definition.source)
@@ -2440,8 +2447,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 }) { Text(tr("Español")) }
                                 FilledIconButton(onClick = {
                                     try { context.startActivity(Intent(Intent.ACTION_VIEW,
-                                        Uri.parse("https://es.wiktionary.org/wiki/" +
-                                            java.net.URLEncoder.encode(word, "UTF-8")))) }
+                                        Uri.parse(WikiLanguage.wiktionaryPage(word)))) }
                                     catch (_: Exception) { }
                                 }) { Text("↓") }
                             }
@@ -2449,7 +2455,8 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                Text(tr("Consulta local de Wikcionario y acceso al DLE de la RAE."),
+                Text(if (I18n.currentLanguage() == "es") tr("Consulta local de Wikcionario y acceso al DLE de la RAE.")
+                    else trf("Definiciones de {0}.", WikiLanguage.wiktionaryName()),
                     style = MaterialTheme.typography.bodySmall,
                     color = foreground.copy(alpha = 0.72f))
                 when {
@@ -2462,12 +2469,17 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         saveNotebookEntry("«$word» — " +
                             (definitions?.firstOrNull()?.text ?: "palabra consultada en el diccionario"))
                     }) { Text(tr("Guardar en mi libreta")) }
-                    TextButton(onClick = {
+                    if (I18n.currentLanguage() == "es") TextButton(onClick = {
                         try { context.startActivity(Intent(Intent.ACTION_VIEW,
                             Uri.parse("https://dle.rae.es/" +
                                 java.net.URLEncoder.encode(word, "UTF-8")))) }
                         catch (_: Exception) {}
                     }) { Text(tr("Consultar RAE")) }
+                    else TextButton(onClick = {
+                        try { context.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse(WikiLanguage.wiktionaryPage(word)))) }
+                        catch (_: Exception) {}
+                    }) { Text(WikiLanguage.wiktionaryName()) }
                 }
             }
         }
@@ -2479,7 +2491,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         ModalBottomSheet(onDismissRequest = { translationQuote = null },
             containerColor = background, contentColor = foreground) {
             Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 36.dp)) {
-                Text(tr("Traducción al castellano"), fontFamily = FontFamily.Serif,
+                Text(tr("Traducción"), fontFamily = FontFamily.Serif,
                     fontSize = 21.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(12.dp))
                 Text("«${quote.take(500)}»", fontSize = 13.sp)

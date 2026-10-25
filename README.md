@@ -1,5 +1,8 @@
 # Bookhollow (antes MiBiblioteca)
 
+## Versión 1.0.85
+- Wikipedia, diccionario y clásicos gratuitos en el idioma de la app, y galería adaptada a tablets. Detalles en `docs/CAMBIOS_1.0.85.md`.
+
 ## Versión 1.0.84
 - Traducción automática al idioma de la app, sin reseñas inventadas y más textos traducidos. Detalles en `docs/CAMBIOS_1.0.84.md`.
 
