@@ -1,5 +1,8 @@
 # Bookhollow (antes MiBiblioteca)
 
+## Versión 1.0.84
+- Traducción automática al idioma de la app, sin reseñas inventadas y más textos traducidos. Detalles en `docs/CAMBIOS_1.0.84.md`.
+
 ## Versión 1.0.83
 - Selector de idioma en Ajustes y novedades con Open Library como respaldo. Detalles en `docs/CAMBIOS_1.0.83.md`.
 

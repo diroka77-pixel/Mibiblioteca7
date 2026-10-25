@@ -8,6 +8,10 @@ enum class ReadingStatus(val label: String) {
     READ("Leído")
 }
 
+/** Estado de lectura traducido para mostrarlo. [ReadingStatus.label] sigue en español
+ *  porque también identifica el icono. */
+internal val ReadingStatus.displayLabel: String get() = tr(label)
+
 /** Registro persistente de un libro. Los campos custom siempre prevalecen. */
 data class Book(
     val uri: Uri,

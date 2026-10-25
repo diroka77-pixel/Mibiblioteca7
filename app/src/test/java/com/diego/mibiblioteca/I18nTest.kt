@@ -58,4 +58,16 @@ class I18nTest {
         assertEquals("Sfondo: ", parsed.getValue("Fondo: ")[5])
         assertEquals("Background: ", parsed.getValue("Fondo: ")[1])
     }
+
+    @Test fun genresAndStatusesHaveTranslations() {
+        listOf("Fantasía", "Ciencia ficción", "Terror", "Thriller", "Misterio", "Romance",
+            "Novela histórica", "Aventuras", "Juvenil", "Infantil", "Clásicos", "Biografía",
+            "Historia", "Ensayo", "Divulgación", "Humor", "Poesía", "Teatro",
+            "Cómic y novela gráfica", "No ficción", "Otros", "Sin clasificar").forEach { genre ->
+            assertTrue("Falta el género $genre", rows.containsKey("género|$genre"))
+        }
+        assertEquals("Fantasy", I18n.translate("género|Fantasía", "en"))
+        ReadingStatus.values().forEach { assertTrue("Falta el estado ${it.label}", rows.containsKey(it.label)) }
+        assertEquals("Lu", I18n.translate("Leído", "fr"))
+    }
 }

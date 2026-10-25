@@ -2474,7 +2474,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
     }
     translationQuote?.let { quote ->
         val translation by produceState<String?>(null, quote) {
-            value = withContext(Dispatchers.IO) { ensureSpanish(quote) }
+            value = withContext(Dispatchers.IO) { ensureAppLanguage(quote) }
         }
         ModalBottomSheet(onDismissRequest = { translationQuote = null },
             containerColor = background, contentColor = foreground) {

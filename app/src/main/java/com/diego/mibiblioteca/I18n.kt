@@ -131,3 +131,15 @@ internal object AppLanguage {
         activity.recreate()
     }
 }
+
+/** Géneros y fondos que se muestran traducidos (internamente siguen en español). */
+private val translatableGenreNames = setOf(
+    "Fantasía", "Ciencia ficción", "Terror", "Thriller", "Misterio", "Romance",
+    "Novela histórica", "Aventuras", "Juvenil", "Infantil", "Clásicos", "Biografía",
+    "Historia", "Ensayo", "Divulgación", "Humor", "Poesía", "Teatro",
+    "Cómic y novela gráfica", "No ficción", "Otros", "Sin clasificar",
+    "Automático", "Clásico", "Portada")
+
+/** Nombre de género o de fondo en el idioma de la app; otros nombres (sagas, autores) no cambian. */
+internal fun genreLabel(name: String): String =
+    if (name in translatableGenreNames) tr(name, "género") else name

@@ -179,7 +179,7 @@ Número en la saga	Number in series	Número na série	Numéro dans la saga	Numme
 Editar géneros	Edit genres	Editar gêneros	Modifier les genres	Genres bearbeiten	Modifica i generi
 Escribe varios géneros separados por comas.	Type several genres separated by commas.	Digite vários gêneros separados por vírgulas.	Saisissez plusieurs genres séparés par des virgules.	Mehrere Genres durch Kommas getrennt eingeben.	Scrivi più generi separati da virgole.
 Géneros	Genres	Gêneros	Genres	Genres	Generi
-Editar ficha en castellano	Edit Spanish-language details	Editar ficha em espanhol	Modifier la fiche en espagnol	Spanische Angaben bearbeiten	Modifica la scheda in spagnolo
+Editar ficha en castellano	Edit book details	Editar ficha	Modifier la fiche	Angaben bearbeiten	Modifica la scheda
 Biografía del autor	Author biography	Biografia do autor	Biographie de l'auteur	Biografie des Autors	Biografia dell'autore
 Disponible sin conexión	Available offline	Disponível offline	Disponible hors ligne	Offline verfügbar	Disponibile offline
 Borrar copia	Delete copy	Excluir cópia	Supprimer la copie	Kopie löschen	Elimina copia
@@ -293,7 +293,7 @@ Español	Spanish	Espanhol	Espagnol	Spanisch	Spagnolo
 Consulta local de Wikcionario y acceso al DLE de la RAE.	Local Wiktionary lookup and access to the RAE dictionary.	Consulta local do Wikcionário e acesso ao dicionário da RAE.	Consultation locale du Wiktionnaire et accès au dictionnaire de la RAE.	Lokale Wiktionary-Suche und Zugang zum RAE-Wörterbuch.	Consultazione locale di Wikizionario e accesso al dizionario RAE.
 Guardar en mi libreta	Save to my notebook	Salvar no meu caderno	Enregistrer dans mon carnet	In meinem Notizbuch speichern	Salva nel mio quaderno
 Consultar RAE	Check RAE	Consultar RAE	Consulter la RAE	RAE öffnen	Consulta la RAE
-Traducción al castellano	Translation into Spanish	Tradução para o espanhol	Traduction en espagnol	Übersetzung ins Spanische	Traduzione in spagnolo
+Traducción al castellano	Translation	Tradução	Traduction	Übersetzung	Traduzione
 No se pudo traducir este fragmento.	Could not translate this passage.	Não foi possível traduzir este trecho.	Impossible de traduire ce passage.	Diese Stelle konnte nicht übersetzt werden.	Impossibile tradurre questo brano.
 Guardar frase en mi libreta	Save sentence to my notebook	Salvar frase no meu caderno	Enregistrer la phrase dans mon carnet	Satz in meinem Notizbuch speichern	Salva la frase nel mio quaderno
 Brillo de lectura	Reading brightness	Brilho de leitura	Luminosité de lecture	Lesehelligkeit	Luminosità di lettura
@@ -427,10 +427,10 @@ Saga completa según el catálogo consultado.	Series complete according to the c
 Te faltan {0} volúmenes:	You're missing {0} volumes:	Faltam {0} volumes:	Il vous manque {0} volumes :	Dir fehlen {0} Bände:	Ti mancano {0} volumi:
 {app} está revisando el catálogo completo en segundo plano.	{app} is checking the full catalog in the background.	O {app} está revisando o catálogo completo em segundo plano.	{app} vérifie le catalogue complet en arrière-plan.	{app} prüft den gesamten Katalog im Hintergrund.	{app} sta controllando il catalogo completo in background.
 Faltan entre los números conocidos: {0}.	Missing among known numbers: {0}.	Faltam entre os números conhecidos: {0}.	Manquants parmi les numéros connus : {0}.	Fehlend unter den bekannten Nummern: {0}.	Mancano tra i numeri noti: {0}.
-Buscando argumento en castellano…	Looking for a Spanish plot summary…	Buscando sinopse em espanhol…	Recherche d'un résumé en espagnol…	Suche spanische Inhaltsangabe…	Ricerca della trama in spagnolo…
-Argumento en castellano pendiente. Puedes escribirlo.	Spanish plot summary pending. You can write it.	Sinopse em espanhol pendente. Você pode escrevê-la.	Résumé en espagnol manquant. Vous pouvez l'écrire.	Spanische Inhaltsangabe fehlt. Du kannst sie schreiben.	Trama in spagnolo mancante. Puoi scriverla.
-Buscando biografía en castellano…	Looking for a Spanish biography…	Buscando biografia em espanhol…	Recherche d'une biographie en espagnol…	Suche spanische Biografie…	Ricerca della biografia in spagnolo…
-Biografía en castellano pendiente. Puedes escribirla.	Spanish biography pending. You can write it.	Biografia em espanhol pendente. Você pode escrevê-la.	Biographie en espagnol manquante. Vous pouvez l'écrire.	Spanische Biografie fehlt. Du kannst sie schreiben.	Biografia in spagnolo mancante. Puoi scriverla.
+Buscando argumento en castellano…	Looking for a plot summary…	Buscando sinopse…	Recherche d'un résumé…	Suche Inhaltsangabe…	Ricerca della trama…
+Argumento en castellano pendiente. Puedes escribirlo.	Plot summary pending. You can write it.	Sinopse pendente. Você pode escrevê-la.	Résumé manquant. Vous pouvez l'écrire.	Inhaltsangabe fehlt. Du kannst sie schreiben.	Trama mancante. Puoi scriverla.
+Buscando biografía en castellano…	Looking for a biography…	Buscando biografia…	Recherche d'une biographie…	Suche Biografie…	Ricerca della biografia…
+Biografía en castellano pendiente. Puedes escribirla.	Biography pending. You can write it.	Biografia pendente. Você pode escrevê-la.	Biographie manquante. Vous pouvez l'écrire.	Biografie fehlt. Du kannst sie schreiben.	Biografia mancante. Puoi scriverla.
 En tu biblioteca: {0} libros	In your library: {0} books	Na sua biblioteca: {0} livros	Dans votre bibliothèque : {0} livres	In deiner Bibliothek: {0} Bücher	Nella tua biblioteca: {0} libri
 Pausar lectura	Pause reading	Pausar leitura	Mettre la lecture en pause	Vorlesen pausieren	Metti in pausa la lettura
 Leer en voz alta	Read aloud	Ler em voz alta	Lire à voix haute	Vorlesen	Leggi ad alta voce
@@ -556,3 +556,53 @@ Normal	Normal	Normal	Normale	Normal	Normale
 Grande	Large	Grande	Grande	Groß	Grande
 Muy grande	Extra large	Muito grande	Très grande	Sehr groß	Molto grande
 Se eliminará la sección «{0}». Los libros permanecerán en la biblioteca.	The section “{0}” will be deleted. The books will stay in the library.	A seção “{0}” será excluída. Os livros continuarão na biblioteca.	La section « {0} » sera supprimée. Les livres resteront dans la bibliothèque.	Der Bereich „{0}“ wird gelöscht. Die Bücher bleiben in der Bibliothek.	La sezione «{0}» verrà eliminata. I libri resteranno nella biblioteca.
+No se ha encontrado un resumen de este libro en las fuentes públicas.	No summary of this book was found in public sources.	Nenhum resumo deste livro foi encontrado nas fontes públicas.	Aucun résumé de ce livre n'a été trouvé dans les sources publiques.	In öffentlichen Quellen wurde keine Zusammenfassung dieses Buchs gefunden.	Nessun riassunto di questo libro trovato nelle fonti pubbliche.
+Buscando resumen…	Looking for a summary…	Buscando resumo…	Recherche d'un résumé…	Suche Zusammenfassung…	Ricerca del riassunto…
+Ocultar resumen	Hide summary	Ocultar resumo	Masquer le résumé	Zusammenfassung ausblenden	Nascondi il riassunto
+Resumen del libro	Book summary	Resumo do livro	Résumé du livre	Zusammenfassung des Buchs	Riassunto del libro
+Resumen	Summary	Resumo	Résumé	Zusammenfassung	Riassunto
+Todos los libros agrupados como «{0}» usarán el nuevo nombre.	All books grouped as “{0}” will use the new name.	Todos os livros agrupados como “{0}” usarão o novo nome.	Tous les livres regroupés sous « {0} » utiliseront le nouveau nom.	Alle als „{0}“ gruppierten Bücher erhalten den neuen Namen.	Tutti i libri raggruppati come «{0}» useranno il nuovo nome.
+Descargando libro · {0} %	Downloading book · {0}%	Baixando livro · {0}%	Téléchargement du livre · {0} %	Buch wird geladen · {0} %	Download del libro · {0}%
+{0} libros	{0} books	{0} livros	{0} livres	{0} Bücher	{0} libri
+Crea una sección para organizar tus libros.	Create a section to organize your books.	Crie uma seção para organizar seus livros.	Créez une section pour organiser vos livres.	Erstelle einen Bereich, um deine Bücher zu ordnen.	Crea una sezione per organizzare i tuoi libri.
+Elige tu carpeta de libros en Drive	Choose your book folder in Drive	Escolha sua pasta de livros no Drive	Choisissez votre dossier de livres dans Drive	Wähle deinen Bücherordner in Drive	Scegli la cartella dei libri in Drive
+La primera lectura crea el catálogo. Las siguientes sincronizaciones solo incorporan cambios.	The first scan builds the catalog. Later syncs only add changes.	A primeira leitura cria o catálogo. As sincronizações seguintes só incorporam alterações.	La première analyse crée le catalogue. Les synchronisations suivantes n'ajoutent que les changements.	Der erste Durchlauf erstellt den Katalog. Spätere Synchronisierungen übernehmen nur Änderungen.	La prima lettura crea il catalogo. Le sincronizzazioni successive aggiungono solo le modifiche.
+No has marcado ningún género. Abre el filtro y selecciona los que quieras ver.	You haven't selected any genre. Open the filter and choose the ones you want to see.	Você não marcou nenhum gênero. Abra o filtro e selecione os que quer ver.	Vous n'avez coché aucun genre. Ouvrez le filtre et choisissez ceux à afficher.	Du hast kein Genre ausgewählt. Öffne den Filter und wähle die gewünschten aus.	Non hai selezionato nessun genere. Apri il filtro e scegli quelli da vedere.
+Preparando la biblioteca…	Preparing the library…	Preparando a biblioteca…	Préparation de la bibliothèque…	Bibliothek wird vorbereitet…	Preparazione della biblioteca…
+Mejor mes: {0}	Best month: {0}	Melhor mês: {0}	Meilleur mois : {0}	Bester Monat: {0}	Mese migliore: {0}
+ ({0} libros)	 ({0} books)	 ({0} livros)	 ({0} livres)	 ({0} Bücher)	 ({0} libri)
+ · nº {0}	 · no. {0}	 · nº {0}	 · nº {0}	 · Nr. {0}	 · n. {0}
+Buscando portada…	Finding cover…	Buscando capa…	Recherche de la couverture…	Cover wird gesucht…	Ricerca della copertina…
+Saga: {0}	Series: {0}	Série: {0}	Saga : {0}	Reihe: {0}	Saga: {0}
+Descargando en el teléfono · {0} %	Downloading to phone · {0}%	Baixando no celular · {0}%	Téléchargement sur le téléphone · {0} %	Wird aufs Telefon geladen · {0} %	Download sul telefono · {0}%
+Estado	Status	Status	Statut	Status	Stato
+Consultando catálogos…	Checking catalogs…	Consultando catálogos…	Consultation des catalogues…	Kataloge werden abgefragt…	Consultazione dei cataloghi…
+Buscar en Internet	Search online	Buscar na internet	Rechercher en ligne	Online suchen	Cerca online
+Relecturas: {0}	Rereads: {0}	Releituras: {0}	Relectures : {0}	Erneut gelesen: {0}	Riletture: {0}
+Pendiente	To read	Pendente	À lire	Ungelesen	Da leggere
+Leído	Read	Lido	Lu	Gelesen	Letto
+género|Fantasía	Fantasy	Fantasia	Fantasy	Fantasy	Fantasy
+género|Ciencia ficción	Science fiction	Ficção científica	Science-fiction	Science-Fiction	Fantascienza
+género|Terror	Horror	Terror	Horreur	Horror	Horror
+género|Thriller	Thriller	Thriller	Thriller	Thriller	Thriller
+género|Misterio	Mystery	Mistério	Mystère	Krimi	Giallo
+género|Romance	Romance	Romance	Romance	Liebesroman	Rosa
+género|Novela histórica	Historical fiction	Romance histórico	Roman historique	Historischer Roman	Romanzo storico
+género|Aventuras	Adventure	Aventura	Aventure	Abenteuer	Avventura
+género|Juvenil	Young adult	Juvenil	Jeunesse	Jugendbuch	Young adult
+género|Infantil	Children's	Infantil	Enfants	Kinderbuch	Per ragazzi
+género|Clásicos	Classics	Clássicos	Classiques	Klassiker	Classici
+género|Biografía	Biography	Biografia	Biographie	Biografie	Biografia
+género|Historia	History	História	Histoire	Geschichte	Storia
+género|Ensayo	Essay	Ensaio	Essai	Essay	Saggio
+género|Divulgación	Popular science	Divulgação	Vulgarisation	Sachbuch Wissenschaft	Divulgazione
+género|Humor	Humor	Humor	Humour	Humor	Umorismo
+género|Poesía	Poetry	Poesia	Poésie	Lyrik	Poesia
+género|Teatro	Drama	Teatro	Théâtre	Theater	Teatro
+género|Cómic y novela gráfica	Comics and graphic novels	Quadrinhos e graphic novels	BD et romans graphiques	Comics und Graphic Novels	Fumetti e graphic novel
+género|No ficción	Nonfiction	Não ficção	Non-fiction	Sachbuch	Saggistica
+género|Otros	Other	Outros	Autres	Sonstige	Altro
+género|Sin clasificar	Unclassified	Sem classificação	Non classé	Nicht zugeordnet	Non classificato
+género|Automático	Automatic	Automático	Automatique	Automatisch	Automatico
+género|Clásico	Classic	Clássico	Classique	Klassisch	Classico
+género|Portada	Cover	Capa	Couverture	Cover	Copertina

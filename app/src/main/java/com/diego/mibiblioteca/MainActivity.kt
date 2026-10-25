@@ -858,7 +858,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 val rows = buildString {
                     appendLine("Título;Autor;Saga;Número;Géneros;ISBN;Estado;Valoración;Inicio;Fin;Secciones;Etiquetas;Prestado a;Fecha préstamo;Relecturas;Citas;Notas")
                     books.forEach { b -> appendLine(listOf(displayTitle(b), displayAuthor(b), b.saga,
-                        b.sagaOrder, b.genre, b.isbn, b.status.label, b.rating.toString(),
+                        b.sagaOrder, b.genre, b.isbn, b.status.displayLabel, b.rating.toString(),
                         b.startedDate, b.finishedDate, bookSections(b).joinToString(", "), b.tags.joinToString(", "),
                         b.loanTo, b.loanDate, b.rereadCount.toString(),
                         b.quotes, b.notes).joinToString(";") { cell(it) }) }
@@ -2107,12 +2107,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         val rawPlot = found.plot.ifBlank { improved.plot.ifBlank { google.second } }
                         val plotSource = if (found.plot.isNotBlank()) found.plotSource else
                             improved.plotSource.ifBlank { "Google Libros" }
-                        val plot = if (rawPlot.isBlank()) "" else if (plotSource == "Google Libros" ||
-                            plotSource == "Wikipedia en español") rawPlot else ensureSpanish(rawPlot)
+                        val plot = if (rawPlot.isBlank()) "" else if (I18n.currentLanguage() == "es" &&
+                            (plotSource == "Google Libros" || plotSource == "Wikipedia en español")) rawPlot
+                            else ensureAppLanguage(rawPlot).ifBlank { rawPlot }
                         val rawBio = found.bio.ifBlank { improved.bio }
                         val bioSource = found.bioSource.ifBlank { improved.bioSource }
-                        val bio = if (rawBio.isBlank()) "" else if (bioSource == "Wikipedia (es)")
-                            rawBio else ensureSpanish(rawBio)
+                        val bio = if (rawBio.isBlank()) "" else if (I18n.currentLanguage() == "es" &&
+                            bioSource == "Wikipedia (es)") rawBio else ensureAppLanguage(rawBio).ifBlank { rawBio }
                         val current = books.firstOrNull { it.uri == uri }
                         if (current != null) {
                             val replaceInfo = force && !prefs.getBoolean("manual_info_" + uri, false)
@@ -2180,8 +2181,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 val fallback = withContext(Dispatchers.IO) {
                     fetchSpanishInfo(book.copy(customAuthor = resolvedAuthor))
                 }
-                val plot = ensureSpanish(google.second.ifBlank { fallback.plot })
-                val bio = ensureSpanish(fallback.bio)
+                val plot = ensureAppLanguage(google.second.ifBlank { fallback.plot })
+                val bio = ensureAppLanguage(fallback.bio)
                 if (google.first.isBlank() && plot.isBlank() && bio.isBlank()) {
                     message = null
                 } else {
@@ -2233,8 +2234,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             prefs.edit().putBoolean("info_attempt_v9_" + book.uri, true).apply()
             try {
                 val found = withContext(Dispatchers.IO) { fetchSpanishInfo(book) }
-                val plot = ensureSpanish(found.plot)
-                val bio = ensureSpanish(found.bio)
+                val plot = ensureAppLanguage(found.plot)
+                val bio = ensureAppLanguage(found.bio)
                 books = books.map { if (it.uri == book.uri) it.copy(
                     spanishPlot = plot, authorBio = bio,
                     plotSource = if (plot.isNotBlank()) found.plotSource else it.plotSource,
@@ -2251,7 +2252,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val title = books.firstOrNull { it.uri == uri }?.let(::displayTitle).orEmpty()
         books = books.map { if (it.uri == uri) it.copy(status=status) else it }
         saveBooks()
-        if (title.isNotBlank()) addActivity("$title · ${status.label}")
+        if (title.isNotBlank()) addActivity("$title · ${status.displayLabel}")
     }
     fun chooseViewMode(mode: String, section: String? = selectedSection) {
         val scope = section ?: "general"
@@ -3127,7 +3128,11 @@ private fun wikipediaPlot(book: Book): String {
     } catch (_: Exception) { page.second.take(1100) }
 }
 
-private suspend fun fetchSpanishBookReview(book: Book): String = withContext(Dispatchers.IO) {
+/**
+ * Resumen del libro en el idioma de la app, a partir de fuentes públicas.
+ * Antes se envolvía en una frase de plantilla y se presentaba como «reseña».
+ */
+private suspend fun fetchBookSummary(book: Book): String = withContext(Dispatchers.IO) {
     val public = runCatching {
         searchPublicBooks(displayTitle(book), displayAuthor(book)).firstOrNull()
     }.getOrNull()
@@ -3137,17 +3142,7 @@ private suspend fun fetchSpanishBookReview(book: Book): String = withContext(Dis
     val raw = publicSummary.ifBlank { book.spanishPlot }.ifBlank {
         runCatching { fetchSpanishInfo(book).plot }.getOrDefault("")
     }
-    val summary = ensureSpanish(raw).ifBlank { raw }.trim()
-    if (summary.isBlank()) return@withContext ""
-    buildString {
-        append('«').append(displayTitle(book)).append("», de ")
-            .append(displayAuthor(book)).append(", ")
-        val genres = normalizeBookGenres(book.genre)
-        if (genres.isNotEmpty()) append("es una obra de ")
-            .append(genres.take(2).joinToString(" y ").lowercase()).append(". ")
-        else append("es una obra cuya propuesta se desarrolla así: ")
-        append(summary)
-    }.take(3200)
+    ensureAppLanguage(raw).ifBlank { raw }.trim().take(3200)
 }
 
 private fun fetchSpanishInfo(book: Book): InfoCandidate {
@@ -3223,16 +3218,23 @@ private suspend fun <T> com.google.android.gms.tasks.Task<T>.awaitResult(): T =
         addOnFailureListener { continuation.resumeWithException(it) }
     }
 
-internal suspend fun ensureSpanish(text: String): String {
+/**
+ * Devuelve el texto en el idioma de la app, traduciéndolo en el teléfono con
+ * Google ML Kit si hace falta. Antes siempre traducía al español, también para
+ * quien usa la app en inglés, francés…
+ */
+internal suspend fun ensureAppLanguage(text: String): String {
     if (text.isBlank()) return ""
+    val target = I18n.currentLanguage()
     val identifier = LanguageIdentification.getClient()
     val tag = try { identifier.identifyLanguage(text.take(1000)).awaitResult() }
         catch (_: Exception) { "und" }
         finally { identifier.close() }
-    if (tag == "es") return text
+    if (tag == target) return text
     val source = TranslateLanguage.fromLanguageTag(tag) ?: return ""
+    val targetLanguage = TranslateLanguage.fromLanguageTag(target) ?: return text
     val options = TranslatorOptions.Builder()
-        .setSourceLanguage(source).setTargetLanguage(TranslateLanguage.SPANISH).build()
+        .setSourceLanguage(source).setTargetLanguage(targetLanguage).build()
     val translator = Translation.getClient(options)
     return try {
         translator.downloadModelIfNeeded().awaitResult()
@@ -3243,8 +3245,8 @@ internal suspend fun ensureSpanish(text: String): String {
 
 private suspend fun localizedPublicBookDetails(result: PublicBookResult): PublicBookDetails {
     val details = withContext(Dispatchers.IO) { loadPublicBookDetails(result) }
-    val translatedSummary = ensureSpanish(details.summary).ifBlank { details.summary }
-    val translatedBio = ensureSpanish(details.authorBio).ifBlank { details.authorBio }
+    val translatedSummary = ensureAppLanguage(details.summary).ifBlank { details.summary }
+    val translatedBio = ensureAppLanguage(details.authorBio).ifBlank { details.authorBio }
     return details.copy(summary = translatedSummary, authorBio = translatedBio)
 }
 
@@ -3713,7 +3715,7 @@ private fun openCasaDelLibro(context: Context) {
                     }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = vm.wallpaperMode == mode,
                             onClick = { vm.chooseWallpaper(mode); wallpaperPickerOpen = false })
-                        Text(mode, color = Mahogany)
+                        Text(genreLabel(mode), color = Mahogany)
                     }
                 }
             }
@@ -3870,7 +3872,7 @@ private fun openCasaDelLibro(context: Context) {
         onDismissRequest = { sagaRenameSource = null },
         title = { Text(tr("Unificar nombre de saga")) },
         text = { Column {
-            Text("Todos los libros agrupados como «$source» usarán el nuevo nombre.")
+            Text(trf("Todos los libros agrupados como «{0}» usarán el nuevo nombre.", source))
             OutlinedTextField(sagaRenameTarget, { sagaRenameTarget = it },
                 label = { Text(tr("Nombre definitivo")) }, singleLine = true)
         } },
@@ -4395,7 +4397,7 @@ private fun openCasaDelLibro(context: Context) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Checkbox(checked = checked, onCheckedChange = null)
-                            Text(genre, modifier = Modifier.weight(1f))
+                            Text(genreLabel(genre), modifier = Modifier.weight(1f))
                         }
                     }
                     if (matchingGenres.isEmpty()) item {
@@ -5147,7 +5149,7 @@ private fun openCasaDelLibro(context: Context) {
                             onClick = { if (!vm.genreClassifying) vm.classifyGenres() })
                         HorizontalDivider(Modifier.padding(vertical = 12.dp))
                         Text(tr("Fondo de las pantallas"), color = Teal, fontWeight = FontWeight.Bold)
-                        NavigationDrawerItem(label = { Text(tr("Fondo: ") + vm.wallpaperMode) },
+                        NavigationDrawerItem(label = { Text(tr("Fondo: ") + genreLabel(vm.wallpaperMode)) },
                             selected = false, icon = { Icon(Icons.Outlined.Wallpaper, null) },
                             onClick = { wallpaperPickerOpen = true })
                         NavigationDrawerItem(label = { Text(tr("Animaciones: ") + vm.animationMode) },
@@ -5461,7 +5463,7 @@ private fun openCasaDelLibro(context: Context) {
                     contentDescription = tr("Descarga del libro")
                     stateDescription = percentDescription("Descarga", vm.offlineDownloadPercent)
                 }, color = Teal)
-            WallpaperLabel("Descargando libro · ${vm.offlineDownloadPercent} %",
+            WallpaperLabel(trf("Descargando libro · {0} %", vm.offlineDownloadPercent),
                 modifier = Modifier.padding(horizontal = 16.dp), fontSize = 12.sp)
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -5627,7 +5629,7 @@ private fun openCasaDelLibro(context: Context) {
                     }
                     if (vm.coverUpdateRunning && (tab == "Inicio" || tab == "Biblioteca")) {
                         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Teal)
-                        WallpaperLabel("Buscando portadas ${vm.coverUpdateDone}/${vm.coverUpdateTotal}…",
+                        WallpaperLabel(trf("Buscando portadas {0}/{1}…", vm.coverUpdateDone, vm.coverUpdateTotal),
                             fontSize = 12.sp)
                     }
                     if (tab == "Biblioteca") {
@@ -5690,7 +5692,7 @@ private fun openCasaDelLibro(context: Context) {
                                 }, fontFamily = FontFamily.Serif, fontSize = 24.sp,
                                     fontWeight = FontWeight.Bold, color = Color.White,
                                     style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
-                                WallpaperLabel("${if (showWishList) vm.wishList.size else smartBooks.size} libros",
+                                WallpaperLabel(trf("{0} libros", if (showWishList) vm.wishList.size else smartBooks.size),
                                     fontSize = 13.sp)
                             }
                             if (!showWishList) {
@@ -5726,7 +5728,7 @@ private fun openCasaDelLibro(context: Context) {
                         Text(tr("Tus secciones"), color = Color.White.copy(alpha = .82f),
                             fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
                         if (vm.sections.isEmpty()) {
-                            WallpaperLabel("Crea una sección para organizar tus libros.", fontSize = 12.sp)
+                            WallpaperLabel(tr("Crea una sección para organizar tus libros."), fontSize = 12.sp)
                         } else {
                             Row(Modifier.horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -5813,9 +5815,9 @@ private fun openCasaDelLibro(context: Context) {
                     Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             AppIcon("Libros", tint = Color.White, size = 48.dp)
-                            WallpaperLabel("Elige tu carpeta de libros en Drive", fontSize = 16.sp,
+                            WallpaperLabel(tr("Elige tu carpeta de libros en Drive"), fontSize = 16.sp,
                                 fontWeight = FontWeight.SemiBold)
-                            WallpaperLabel("La primera lectura crea el catálogo. Las siguientes sincronizaciones solo incorporan cambios.",
+                            WallpaperLabel(tr("La primera lectura crea el catálogo. Las siguientes sincronizaciones solo incorporan cambios."),
                                 modifier = Modifier.padding(horizontal = 24.dp), fontSize = 12.sp)
                             Spacer(Modifier.height(12.dp))
                             Button(onClick = { folderPicker.launch(null) }) { Text(tr("Elegir carpeta")) }
@@ -5837,7 +5839,7 @@ private fun openCasaDelLibro(context: Context) {
                 }
             } else if (tab == "Géneros" && !genreAllSelected && selectedGenres.isEmpty()) {
                 item(key = "no-genres-selected") {
-                    WallpaperLabel("No has marcado ningún género. Abre el filtro y selecciona los que quieras ver.",
+                    WallpaperLabel(tr("No has marcado ningún género. Abre el filtro y selecciona los que quieras ver."),
                         modifier = Modifier.padding(20.dp))
                 }
             } else if (tab == "Secciones" && genreDisplayGroups.isEmpty()) {
@@ -5864,13 +5866,13 @@ private fun openCasaDelLibro(context: Context) {
                 }
             } else if (genreDisplayGroups.isEmpty()) {
                 item(key = "organizing-books") {
-                    WallpaperLabel("Preparando la biblioteca…",
+                    WallpaperLabel(tr("Preparando la biblioteca…"),
                         modifier = Modifier.padding(20.dp))
                 }
             } else {
                 genreDisplayGroups.forEach { (name, group) ->
                     if (name.isNotBlank()) item(key = "group:$name") {
-                        Text(name, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                        Text(genreLabel(name), fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
                             color = Color.White,
                             modifier = Modifier.padding(start = 12.dp, top = 10.dp)
                                 .then(if (tab == "Secciones") Modifier.clickable {
@@ -6181,9 +6183,13 @@ private fun ReadingStatisticsPage(
             rereadCount = book.rereadCount
         )
     }, today, annualGoal)
-    val months = listOf("E", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D")
-    val monthNames = listOf("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
+    // Nombres de los meses en el idioma de la app (antes, siempre en español).
+    val appLocale = java.util.Locale(I18n.currentLanguage())
+    val monthNames = java.time.Month.values().map {
+        it.getDisplayName(java.time.format.TextStyle.FULL_STANDALONE, appLocale)
+            .replaceFirstChar { c -> c.titlecase(appLocale) }
+    }
+    val months = monthNames.map { it.take(1).uppercase(appLocale) }
     val maxMonth = stats.completedByMonth.maxOrNull()?.coerceAtLeast(1) ?: 1
     Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -6242,9 +6248,9 @@ private fun ReadingStatisticsPage(
                     color = Mahogany)
                 Text(comparison, color = if (stats.yearOverYearDelta >= 0) Teal else Mahogany,
                     fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                val bestMonthText = stats.bestMonth?.let { monthNames[it - 1] } ?: "Sin datos"
-                Text("Mejor mes: $bestMonthText" +
-                    if (stats.bestMonthCount > 0) " (${stats.bestMonthCount} libros)" else "",
+                val bestMonthText = stats.bestMonth?.let { monthNames[it - 1] } ?: tr("Sin datos")
+                Text(trf("Mejor mes: {0}", bestMonthText) +
+                    if (stats.bestMonthCount > 0) trf(" ({0} libros)", stats.bestMonthCount) else "",
                     color = Mahogany, fontSize = 12.sp)
                 Text(trf("Has terminado el {0} % de tu biblioteca", stats.catalogReadPercent),
                     color = Mahogany, fontSize = 12.sp)
@@ -6455,7 +6461,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
             items(books, key = { "recommendation:" + it.second.uri }) { (recommendation, book) ->
                 Column(Modifier.width(112.dp)
                     .semantics {
-                        contentDescription = "${displayTitle(book)}, ${displayAuthor(book)}. ${book.status.label}"
+                        contentDescription = "${displayTitle(book)}, ${displayAuthor(book)}. ${book.status.displayLabel}"
                         role = Role.Button
                     }
                     .combinedClickable(onClick = { onOpen(book) },
@@ -6507,7 +6513,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
             items(books, key = { "reading:" + it.uri }) { book ->
                 Card(Modifier.width(coverWidth)
                     .semantics {
-                        contentDescription = "${displayTitle(book)}, ${displayAuthor(book)}. ${book.status.label}"
+                        contentDescription = "${displayTitle(book)}, ${displayAuthor(book)}. ${book.status.displayLabel}"
                         role = Role.Button
                     }
                     .combinedClickable(onClick = { onOpen(book) },
@@ -6547,7 +6553,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
     val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
     Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-        .semantics { contentDescription = "$title, $author. ${book.status.label}"; role = Role.Button }
+        .semantics { contentDescription = "$title, $author. ${book.status.displayLabel}"; role = Role.Button }
         .combinedClickable(onClick = onClick, onLongClickLabel = "Más opciones", onLongClick = onLongPress),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
         colors = CardDefaults.cardColors(containerColor = Paper),
@@ -6583,7 +6589,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
     val title = remember(book.title, book.author, book.customTitle, book.customAuthor) { displayTitle(book) }
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
     Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-        .semantics { contentDescription = "$title, $author. ${book.status.label}"; role = Role.Button }
+        .semantics { contentDescription = "$title, $author. ${book.status.displayLabel}"; role = Role.Button }
         .combinedClickable(onClick = onClick, onLongClickLabel = "Más opciones", onLongClick = onLongPress),
         colors = CardDefaults.cardColors(containerColor = Paper),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
@@ -6616,7 +6622,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
     BoxWithConstraints(modifier.padding(bottom = 8.dp)) {
         val coverWidth = maxWidth
         Card(Modifier.fillMaxWidth()
-            .semantics { contentDescription = "$title, $author. ${book.status.label}"; role = Role.Button }
+            .semantics { contentDescription = "$title, $author. ${book.status.displayLabel}"; role = Role.Button }
             .combinedClickable(onClick = onClick, onLongClickLabel = "Más opciones", onLongClick = onLongPress),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
             colors = CardDefaults.cardColors(containerColor = Paper),
@@ -6664,7 +6670,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         AppIcon(book.status.label, tint = Color.White, size = 14.dp)
-                        Text(if (book.status == ReadingStatus.READ) tr("Completado") else book.status.label,
+                        Text(if (book.status == ReadingStatus.READ) tr("Completado") else book.status.displayLabel,
                             fontSize = 11.sp, color = Color.White)
                     }
                 }
@@ -7652,7 +7658,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(3.dp))
                         .background(Brass))
                     if (book.cover == null && coverSearching)
-                        WallpaperLabel("Buscando portada…", fontSize = 11.sp)
+                        WallpaperLabel(tr("Buscando portada…"), fontSize = 11.sp)
                     Spacer(Modifier.height(10.dp))
                     Text(displayTitle(book), fontSize = 18.sp, lineHeight = 22.sp,
                         modifier = Modifier.graphicsLayer {
@@ -7664,8 +7670,8 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
                     Spacer(Modifier.height(4.dp))
                     WallpaperLabel(displayAuthor(book), fontSize = 14.sp)
-                    if (book.saga.isNotBlank()) WallpaperLabel("Saga: ${book.saga}" +
-                        book.sagaOrder.takeIf { it.isNotBlank() }?.let { " · nº $it" }.orEmpty(),
+                    if (book.saga.isNotBlank()) WallpaperLabel(trf("Saga: {0}", book.saga) +
+                        book.sagaOrder.takeIf { it.isNotBlank() }?.let { trf(" · nº {0}", it) }.orEmpty(),
                         fontSize = 12.sp)
                     Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -7715,7 +7721,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 if (offlineDownloading) {
                     LinearProgressIndicator(progress = { offlineDownloadPercent / 100f },
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp), color = Teal)
-                    WallpaperLabel("Descargando en el teléfono · $offlineDownloadPercent %",
+                    WallpaperLabel(trf("Descargando en el teléfono · {0} %", offlineDownloadPercent),
                         fontSize = 12.sp)
                 } else if (offlineDownloadMessage != null) {
                     WallpaperLabel(offlineDownloadMessage, fontSize = 12.sp)
@@ -7796,10 +7802,10 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 }
             }
             item {
-                WallpaperLabel("Estado", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                WallpaperLabel(tr("Estado"), fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ReadingStatus.entries.forEach { status ->
-                        CatalogChip(status.label, book.status == status) { setStatus(status) }
+                        CatalogChip(status.displayLabel, book.status == status) { setStatus(status) }
                     }
                 }
             }
@@ -7867,11 +7873,11 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
             }
             item {
                 BookPanel(tr("Géneros"), book.uri.toString(), initiallyExpanded = true) {
-                    Text(normalizeBookGenres(book.genre).joinToString(" · ")
-                        .ifBlank { "Sin clasificar" }, fontSize = 13.sp, color = Mahogany)
+                    Text(normalizeBookGenres(book.genre).joinToString(" · ") { genreLabel(it) }
+                        .ifBlank { genreLabel("Sin clasificar") }, fontSize = 13.sp, color = Mahogany)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         LibraryTextButton(onClick = searchGenre, enabled = !genreSearching) {
-                            ActionLabel(if (genreSearching) "Consultando catálogos…" else "Buscar en Internet",
+                            ActionLabel(if (genreSearching) tr("Consultando catálogos…") else tr("Buscar en Internet"),
                                 "Buscar", 12.sp)
                         }
                         LibraryTextButton(onClick = { genreDraft = book.genre; editGenre = true }) {
@@ -7959,7 +7965,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                             label = { Text(tr("Fecha")) }, placeholder = { Text(tr("AAAA-MM-DD")) })
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Relecturas: $rereadDraft", modifier = Modifier.weight(1f), color = Mahogany)
+                        Text(trf("Relecturas: {0}", rereadDraft), modifier = Modifier.weight(1f), color = Mahogany)
                         IconButton(onClick = { rereadDraft = (rereadDraft - 1).coerceAtLeast(0) }) {
                             Icon(Icons.Outlined.Remove, "Restar relectura", tint = Mahogany)
                         }
@@ -8013,10 +8019,10 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         else if (!reviewLoading) scope.launch {
                             reviewLoading = true
                             reviewError = null
-                            reviewText = fetchSpanishBookReview(book)
+                            reviewText = fetchBookSummary(book)
                             reviewVisible = reviewText.isNotBlank()
                             if (reviewText.isBlank()) reviewError =
-                                "No se ha encontrado una reseña en castellano para este libro."
+                                tr("No se ha encontrado un resumen de este libro en las fuentes públicas.")
                             reviewLoading = false
                         }
                     }, enabled = !reviewLoading,
@@ -8026,9 +8032,9 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                             containerColor = Paper.copy(alpha = .94f),
                             contentColor = Mahogany)) {
                         ActionLabel(when {
-                            reviewLoading -> tr("Buscando reseña en castellano…")
-                            reviewVisible -> tr("Ocultar reseña del libro")
-                            else -> tr("Obtener reseña del libro")
+                            reviewLoading -> tr("Buscando resumen…")
+                            reviewVisible -> tr("Ocultar resumen")
+                            else -> tr("Resumen del libro")
                         }, "Reseña")
                     }
                     if (reviewVisible && reviewText.isNotBlank()) Surface(
@@ -8036,7 +8042,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Brass.copy(alpha = .45f))) {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text(tr("Reseña"), color = Mahogany, fontFamily = FontFamily.Serif,
+                            Text(tr("Resumen"), color = Mahogany, fontFamily = FontFamily.Serif,
                                 fontWeight = FontWeight.Bold, fontSize = 22.sp)
                             Text(reviewText, color = Ink, fontSize = 15.sp, lineHeight = 22.sp)
                         }

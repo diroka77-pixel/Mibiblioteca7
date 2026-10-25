@@ -330,14 +330,8 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
             if (summary.isNotBlank()) source = "$source · Open Library ampliado"
         }
     }
-    if (review.isBlank() && summary.length >= 100) {
-        val premise = cleanEditorialText(summary).take(420).trim().trimEnd('.', ',', ';')
-        review = "${result.title} parte de ${premise.replaceFirstChar { it.lowercase() }}. " +
-            "La obra se presenta como una lectura en la que importan tanto el desarrollo de la premisa como " +
-            "el tono, el ritmo y la construcción de sus personajes. Esta reseña se ha elaborado con la " +
-            "información editorial y bibliográfica disponible, evitando adelantar giros importantes. " +
-            "La ficha permite comparar ediciones, fecha, editorial y pertenencia a saga antes de decidir si encaja con tus lecturas."
-    }
+    // Ya no se redacta una «reseña» con una plantilla a partir de la sinopsis: se
+    // presentaba como reseña un texto que nadie había escrito. Solo se muestran datos reales.
     return PublicBookDetails(cleanEditorialText(summary), bio.trim(), published, pages, language, publisher,
         source, authorImageUrl, coverUrl, saga, sagaOrder, review, editions)
 }
