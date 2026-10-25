@@ -52,8 +52,9 @@ class ExternalRecommendationsTest {
     @Test fun acceptsOnlyFullReleaseDatesFromGoogleBooks() {
         assertEquals("2026-11-12", googleBooksReleaseDate("2026-11-12"))
         assertEquals("2026-11-01", googleBooksReleaseDate("2026-11"))
-        assertNull(googleBooksReleaseDate("2026"))
+        assertEquals("2026", googleBooksReleaseDate("2026"))
         assertNull(googleBooksReleaseDate("2026-13"))
+        assertNull(googleBooksReleaseDate("noviembre"))
     }
 
     @Test fun readsRecentSpanishReleasesFromGoogleBooksResponse() {
@@ -77,5 +78,21 @@ class ExternalRecommendationsTest {
         assertTrue(news.single().imageUrl.startsWith("https://"))
         assertFalse(news.single().imageUrl.contains("edge=curl"))
         assertTrue(news.single().url.startsWith("https://"))
+    }
+
+    @Test fun readsReleasesFromOpenLibraryAsFallback() {
+        val response = org.json.JSONObject("""
+            {"docs": [
+              {"key": "/works/OL1W", "title": "Novela nueva", "author_name": ["Ana Autora"],
+               "first_publish_year": 2026, "cover_i": 123},
+              {"key": "/works/OL2W", "title": "Novela vieja", "author_name": ["Otro"],
+               "first_publish_year": 1990}
+            ]}
+        """.trimIndent())
+        val news = launchNewsFromOpenLibrary(response, java.time.LocalDate.of(2026, 10, 25))
+        assertEquals(1, news.size)
+        assertEquals("Novela nueva", launchBookTitle(news.single()))
+        assertEquals("https://covers.openlibrary.org/b/id/123-M.jpg", news.single().imageUrl)
+        assertEquals("2026", news.single().releaseDate)
     }
 }

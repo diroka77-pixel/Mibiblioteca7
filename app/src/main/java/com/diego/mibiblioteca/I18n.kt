@@ -1,5 +1,8 @@
 package com.diego.mibiblioteca
 
+import android.app.Activity
+import android.content.Context
+import android.os.Build
 import java.util.Locale
 
 /**
@@ -40,9 +43,13 @@ internal object I18n {
         } }
         .associate { it[0] to it }
 
-    /** Idioma que se usará: el del teléfono si está en la tabla; si no, inglés. */
+    /** Idioma elegido dentro de la app (Ajustes → Idioma); null = el del teléfono. */
+    @Volatile var chosenLanguage: String? = null
+
+    /** Idioma que se usará: el elegido en la app; si no, el del teléfono; si no está, inglés. */
     fun currentLanguage(locale: Locale = Locale.getDefault()): String =
-        locale.language.lowercase().let { if (it in languages) it else FALLBACK }
+        chosenLanguage?.takeIf { it in languages }
+            ?: locale.language.lowercase().let { if (it in languages) it else FALLBACK }
 
     fun translate(spanish: String, language: String = currentLanguage()): String {
         if (language == "es") return spanish
@@ -87,4 +94,40 @@ internal fun trf(spanish: String, vararg args: Any?): String {
     var result = trApp(spanish)
     args.forEachIndexed { index, value -> result = result.replace("{$index}", value.toString()) }
     return result
+}
+
+/**
+ * Selector de idioma de la app (Ajustes → Idioma). Se guarda en el teléfono y, en
+ * Android 13 o posterior, se comunica también al sistema para que el nombre de los
+ * accesos directos y los textos de Android sigan el mismo idioma.
+ */
+internal object AppLanguage {
+    private const val PREFS = "apariencia"
+    private const val KEY = "idioma"
+
+    /** Nombre de cada idioma escrito en ese mismo idioma, como es costumbre en los selectores. */
+    val nativeNames = linkedMapOf("es" to "Español", "en" to "English", "pt" to "Português",
+        "fr" to "Français", "de" to "Deutsch", "it" to "Italiano")
+
+    fun load(context: Context) {
+        I18n.chosenLanguage = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY, null)?.takeIf { it in I18n.languages }
+    }
+
+    /** Cambia el idioma (null = el del teléfono) y vuelve a dibujar la app. */
+    fun choose(activity: Activity, language: String?) {
+        activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY, language).apply()
+        I18n.chosenLanguage = language
+        if (Build.VERSION.SDK_INT >= 33) {
+            runCatching {
+                activity.getSystemService(android.app.LocaleManager::class.java)?.applicationLocales =
+                    if (language == null) android.os.LocaleList.getEmptyLocaleList()
+                    else android.os.LocaleList.forLanguageTags(if (language == "pt") "pt-BR" else language)
+            }
+        }
+        // En Android 13+ el sistema ya recrea la pantalla al cambiar el idioma; recrearla
+        // también aquí es inofensivo y garantiza el cambio en versiones anteriores.
+        activity.recreate()
+    }
 }

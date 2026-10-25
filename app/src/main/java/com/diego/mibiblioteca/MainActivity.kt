@@ -671,8 +671,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 val books = async(Dispatchers.IO) { fetchGoogleBooksReleases() }
                 val results = books.await()
                 val sorted = results.distinctBy { cleanCatalogText(it.title).lowercase() }
-                    .sortedByDescending { it.releaseDate }.take(8)
-                if (sorted.isNotEmpty()) launchNews = sorted
+                    .sortedByDescending { it.releaseDate }.take(12)
+                // Si las fuentes no devuelven nada, no se marca como consultado:
+                // se vuelve a intentar la próxima vez que se abra la app.
+                if (sorted.isEmpty()) return@launch
+                launchNews = sorted
                 val array = org.json.JSONArray()
                 launchNews.forEach { array.put(JSONObject().put("source", it.source)
                     .put("title", it.title).put("url", it.url)
@@ -3299,6 +3302,7 @@ class MainActivity : ComponentActivity() {
         // El tema se lee antes de dibujar para que no haya un parpadeo claro/oscuro.
         // Si cambia el modo oscuro del sistema, Android recrea la actividad y se recalcula.
         AppThemeState.load(this)
+        AppLanguage.load(this)
         libraryVm = ViewModelProvider(this)[LibraryViewModel::class.java]
         handleSharedBook(intent)
         setContent {
@@ -3694,6 +3698,7 @@ private fun openCasaDelLibro(context: Context) {
     var wallpaperPickerOpen by remember { mutableStateOf(false) }
     var animationPickerOpen by remember { mutableStateOf(false) }
     var textSizePickerOpen by remember { mutableStateOf(false) }
+    var languagePickerOpen by remember { mutableStateOf(false) }
     var sagaRenameSource by remember { mutableStateOf<String?>(null) }
     var sagaRenameTarget by remember { mutableStateOf("") }
     if (wallpaperPickerOpen) AlertDialog(
@@ -3743,7 +3748,7 @@ private fun openCasaDelLibro(context: Context) {
                 }.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(selected = kotlin.math.abs(vm.interfaceTextScale - scale) < .01f,
                         onClick = { vm.chooseInterfaceTextScale(scale); textSizePickerOpen = false })
-                    Text(label, fontSize = 16.sp)
+                    Text(tr(label), fontSize = 16.sp)
                 }
             }
             Text(tr("Se suma al tamaño de letra configurado en Android."),
@@ -3751,6 +3756,26 @@ private fun openCasaDelLibro(context: Context) {
                 modifier = Modifier.padding(top = 8.dp))
         } },
         confirmButton = { LibraryTextButton(onClick = { textSizePickerOpen = false }) { Text(tr("Cerrar")) } })
+    if (languagePickerOpen) AlertDialog(
+        onDismissRequest = { languagePickerOpen = false },
+        title = { Text(tr("Idioma")) },
+        text = { Column(Modifier.verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            (listOf<Pair<String?, String>>(null to tr("Automático (idioma del teléfono)")) +
+                AppLanguage.nativeNames.map { (code, name) -> code to name }).forEach { (code, name) ->
+                val choose = {
+                    languagePickerOpen = false
+                    (context as? android.app.Activity)?.let { AppLanguage.choose(it, code) }
+                    Unit
+                }
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = choose)
+                    .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = I18n.chosenLanguage == code, onClick = choose)
+                    Text(name, fontSize = 16.sp)
+                }
+            }
+        } },
+        confirmButton = { LibraryTextButton(onClick = { languagePickerOpen = false }) { Text(tr("Cerrar")) } })
     if (addingSection) AlertDialog(
         onDismissRequest = { addingSection = false },
         title = { Text(tr("Nueva sección")) },
@@ -3761,7 +3786,7 @@ private fun openCasaDelLibro(context: Context) {
     sectionToDelete?.let { name -> AlertDialog(
         onDismissRequest = { sectionToDelete = null },
         title = { Text(tr("Eliminar sección")) },
-        text = { Text("Se eliminará la sección «$name». Los libros permanecerán en la biblioteca.") },
+        text = { Text(trf("Se eliminará la sección «{0}». Los libros permanecerán en la biblioteca.", name)) },
         confirmButton = { LibraryTextButton(onClick = { vm.deleteSection(name); sectionToDelete = null }) { Text(tr("Eliminar")) } },
         dismissButton = { LibraryTextButton(onClick = { sectionToDelete = null }) { Text(tr("Cancelar")) } }
     ) }
@@ -5129,12 +5154,16 @@ private fun openCasaDelLibro(context: Context) {
                             selected = false, icon = { Icon(Icons.Outlined.Animation, null) },
                             onClick = { animationPickerOpen = true })
                         NavigationDrawerItem(label = { Text(tr("Tamaño del texto: ") + when {
-                            vm.interfaceTextScale >= 1.29f -> "Muy grande"
-                            vm.interfaceTextScale >= 1.14f -> "Grande"
-                            else -> "Normal"
+                            vm.interfaceTextScale >= 1.29f -> tr("Muy grande")
+                            vm.interfaceTextScale >= 1.14f -> tr("Grande")
+                            else -> tr("Normal")
                         }) }, selected = false, icon = { Icon(Icons.Outlined.FormatSize, null) },
                             onClick = { textSizePickerOpen = true })
                         // Cada pulsación pasa a la siguiente opción: Automático → Claro → Oscuro.
+                        NavigationDrawerItem(label = { Text(tr("Idioma: ") + (I18n.chosenLanguage
+                            ?.let { AppLanguage.nativeNames[it] } ?: tr("Automático"))) },
+                            selected = false, icon = { Icon(Icons.Outlined.Language, null) },
+                            onClick = { languagePickerOpen = true })
                         NavigationDrawerItem(label = { Text(tr("Tema: ") + tr(AppThemeState.preference.label)) },
                             selected = false, icon = { Icon(Icons.Outlined.DarkMode, null) },
                             onClick = { AppThemeState.cycle(context) })

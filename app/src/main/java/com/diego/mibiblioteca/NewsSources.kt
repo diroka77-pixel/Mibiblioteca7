@@ -71,15 +71,26 @@ internal fun releasesUrl(language: String = I18n.currentLanguage(),
         "?q=subject:fiction&orderBy=newest&langRestrict=$language&printType=books&maxResults=40$countryParam"
 }
 
-/** Convierte "2026-11-12" o "2026-11" en una fecha ISO; un año solo no basta. */
+/**
+ * Fecha de publicación aceptada: "2026-11-12", "2026-11" (se toma el día 1) o solo el
+ * año ("2026"), que se conserva tal cual y se muestra como año.
+ */
 internal fun googleBooksReleaseDate(value: String): String? {
     val clean = value.trim()
     return when {
-        Regex("""\d{4}-\d{2}-\d{2}""").matches(clean) -> clean
-        Regex("""\d{4}-\d{2}""").matches(clean) -> "$clean-01"
+        Regex("""\d{4}-\d{2}-\d{2}""").matches(clean) ->
+            clean.takeIf { runCatching { java.time.LocalDate.parse(it) }.isSuccess }
+        Regex("""\d{4}-\d{2}""").matches(clean) ->
+            "$clean-01".takeIf { runCatching { java.time.LocalDate.parse(it) }.isSuccess }
+        Regex("""\d{4}""").matches(clean) -> clean
         else -> null
-    }?.takeIf { runCatching { java.time.LocalDate.parse(it) }.isSuccess }
+    }
 }
+
+/** ¿La fecha cae entre cuatro meses atrás y un año adelante? Con solo el año: este año o el siguiente. */
+private fun isRecentRelease(date: String, today: java.time.LocalDate): Boolean =
+    if (date.length == 4) date.toInt() in today.year..(today.year + 1)
+    else java.time.LocalDate.parse(date).let { !it.isBefore(today.minusDays(120)) && !it.isAfter(today.plusDays(365)) }
 
 /** Extrae las novedades de una respuesta de Google Books (sin red: se puede probar). */
 internal fun launchNewsFromGoogleBooks(
@@ -87,23 +98,60 @@ internal fun launchNewsFromGoogleBooks(
     today: java.time.LocalDate = java.time.LocalDate.now()
 ): List<LaunchNews> {
     val items = response.optJSONArray("items") ?: return emptyList()
-    val oldest = today.minusDays(120)
-    val newest = today.plusDays(365)
     return (0 until items.length()).mapNotNull { index ->
         val info = items.optJSONObject(index)?.optJSONObject("volumeInfo") ?: return@mapNotNull null
         val title = info.optString("title").trim()
         val author = info.optJSONArray("authors")?.optString(0).orEmpty().trim()
         val date = googleBooksReleaseDate(info.optString("publishedDate")) ?: return@mapNotNull null
-        val day = java.time.LocalDate.parse(date)
         val cover = info.optJSONObject("imageLinks")?.optString("thumbnail").orEmpty()
             .replace("http://", "https://").replace("&edge=curl", "")
         val link = info.optString("infoLink").replace("http://", "https://")
-        if (title.isBlank() || author.isBlank() || cover.isBlank() || !link.startsWith("https://") ||
-            day.isBefore(oldest) || day.isAfter(newest)) null
+        if (title.isBlank() || author.isBlank() || !link.startsWith("https://") ||
+            !isRecentRelease(date, today)) null
         else LaunchNews(LAUNCH_SOURCE, "$title · $author", link, cover, date)
     }.distinctBy { (launchBookTitle(it) + "|" + launchBookAuthor(it)).lowercase() }
 }
 
-/** Descarga las novedades. Se ejecuta fuera del hilo principal. */
-internal fun fetchGoogleBooksReleases(): List<LaunchNews> =
-    runCatching { launchNewsFromGoogleBooks(getJson(releasesUrl())) }.getOrDefault(emptyList())
+/** Código de idioma de Open Library (ISO 639-2) para cada idioma de la app. */
+private val openLibraryLanguages = mapOf("es" to "spa", "en" to "eng", "pt" to "por",
+    "fr" to "fre", "de" to "ger", "it" to "ita")
+
+internal fun openLibraryReleasesUrl(language: String = I18n.currentLanguage()): String {
+    val lang = openLibraryLanguages[language] ?: "eng"
+    // sort=new ordena del más reciente al más antiguo; los años se filtran en la app.
+    return "https://openlibrary.org/search.json?q=subject%3Afiction&language=$lang&sort=new&limit=60" +
+        "&fields=key,title,author_name,cover_i,first_publish_year"
+}
+
+/** Segunda fuente de novedades: Open Library (abierta y sin cupo diario). */
+internal fun launchNewsFromOpenLibrary(
+    response: JSONObject,
+    today: java.time.LocalDate = java.time.LocalDate.now()
+): List<LaunchNews> {
+    val docs = response.optJSONArray("docs") ?: return emptyList()
+    return (0 until docs.length()).mapNotNull { index ->
+        val doc = docs.optJSONObject(index) ?: return@mapNotNull null
+        val title = doc.optString("title").trim()
+        val author = doc.optJSONArray("author_name")?.optString(0).orEmpty().trim()
+        val year = doc.optInt("first_publish_year", 0)
+        val key = doc.optString("key")
+        val coverId = doc.optInt("cover_i", 0)
+        if (title.isBlank() || author.isBlank() || !key.startsWith("/works/") ||
+            year !in (today.year - 1)..(today.year + 1)) null
+        else LaunchNews(LAUNCH_SOURCE, "$title · $author", "https://openlibrary.org$key",
+            if (coverId > 0) "https://covers.openlibrary.org/b/id/$coverId-M.jpg" else "", year.toString())
+    }.distinctBy { (launchBookTitle(it) + "|" + launchBookAuthor(it)).lowercase() }
+}
+
+/**
+ * Descarga las novedades. Primero Google Books; si no responde (por ejemplo, porque
+ * se ha agotado su cupo diario gratuito) o trae pocas, se completa con Open Library.
+ * Se ejecuta fuera del hilo principal.
+ */
+internal fun fetchGoogleBooksReleases(): List<LaunchNews> {
+    val google = runCatching { launchNewsFromGoogleBooks(getJson(releasesUrl())) }.getOrDefault(emptyList())
+    if (google.size >= 6) return google
+    val openLibrary = runCatching { launchNewsFromOpenLibrary(getJson(openLibraryReleasesUrl())) }
+        .getOrDefault(emptyList())
+    return (google + openLibrary).distinctBy { (launchBookTitle(it) + "|" + launchBookAuthor(it)).lowercase() }
+}

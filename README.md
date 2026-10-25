@@ -1,5 +1,8 @@
 # Bookhollow (antes MiBiblioteca)
 
+## Versión 1.0.83
+- Selector de idioma en Ajustes y novedades con Open Library como respaldo. Detalles en `docs/CAMBIOS_1.0.83.md`.
+
 ## Versión 1.0.82
 - Escáner de ISBN nuevo (Google Play services) y búsqueda del libro escaneado. Detalles en `docs/CAMBIOS_1.0.82.md`.
 

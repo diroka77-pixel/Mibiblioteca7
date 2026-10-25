@@ -549,3 +549,10 @@ Automático	Automatic	Automático	Automatique	Automatisch	Automatico
 Claro	Light	Claro	Clair	Hell	Chiaro
 Oscuro	Dark	Escuro	Sombre	Dunkel	Scuro
 Ese código no es el ISBN de un libro. Busca el código de barras que empieza por 978 o 979.	That code isn't a book ISBN. Look for the barcode that starts with 978 or 979.	Esse código não é o ISBN de um livro. Procure o código de barras que começa com 978 ou 979.	Ce code n'est pas l'ISBN d'un livre. Cherchez le code-barres qui commence par 978 ou 979.	Dieser Code ist keine Buch-ISBN. Suche den Barcode, der mit 978 oder 979 beginnt.	Questo codice non è l'ISBN di un libro. Cerca il codice a barre che inizia con 978 o 979.
+Idioma: 	Language: 	Idioma: 	Langue : 	Sprache: 	Lingua:
+Idioma	Language	Idioma	Langue	Sprache	Lingua
+Automático (idioma del teléfono)	Automatic (phone language)	Automático (idioma do celular)	Automatique (langue du téléphone)	Automatisch (Telefonsprache)	Automatico (lingua del telefono)
+Normal	Normal	Normal	Normale	Normal	Normale
+Grande	Large	Grande	Grande	Groß	Grande
+Muy grande	Extra large	Muito grande	Très grande	Sehr groß	Molto grande
+Se eliminará la sección «{0}». Los libros permanecerán en la biblioteca.	The section “{0}” will be deleted. The books will stay in the library.	A seção “{0}” será excluída. Os livros continuarão na biblioteca.	La section « {0} » sera supprimée. Les livres resteront dans la bibliothèque.	Der Bereich „{0}“ wird gelöscht. Die Bücher bleiben in der Bibliothek.	La sezione «{0}» verrà eliminata. I libri resteranno nella biblioteca.
