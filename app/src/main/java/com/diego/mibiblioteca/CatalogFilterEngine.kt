@@ -95,7 +95,7 @@ internal fun filterBooks(
             hasCover = book.cover != null,
             hasPlot = book.spanishPlot.isNotBlank(),
             hasBiography = book.authorBio.isNotBlank(),
-            hasKnownAuthor = displayAuthor(book) != "Biblioteca de Diroka77",
+            hasKnownAuthor = !unknownAuthor(displayAuthor(book)),
             needsReview = book.uri in pending,
             status = status,
             favoritesOnly = favorites,

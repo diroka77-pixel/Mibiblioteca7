@@ -2,7 +2,7 @@
 
 Última actualización: 19 de octubre de 2026.
 
-MiBiblioteca es una aplicación personal de organización y lectura. No incluye publicidad, rastreadores ni analítica de uso, y no exige crear una cuenta propia.
+MiBiblioteca es una aplicación personal de organización y lectura. No incluye publicidad ni analítica propia, y no exige crear una cuenta. Las funciones de Google ML Kit (escáner ISBN, traducción e identificación de idioma) pueden enviar a Google datos técnicos de uso y rendimiento conforme a sus condiciones; nunca el contenido de los libros ni las notas.
 
 ## Datos que guarda
 

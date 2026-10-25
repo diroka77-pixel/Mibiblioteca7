@@ -334,7 +334,7 @@ private fun dictionaryDefinitions(context: Context, word: String): List<Dictiona
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.connectTimeout = 4500
         connection.readTimeout = 5500
-        connection.setRequestProperty("User-Agent", "MiBiblioteca/0.72 (Android reader)")
+        connection.setRequestProperty("User-Agent", AppBrand.API_USER_AGENT)
         connection.setRequestProperty("Accept", "application/json")
         try { connection.inputStream.bufferedReader().use { it.readText() } }
         finally { connection.disconnect() }
@@ -1235,7 +1235,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
         ) {
             Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState())
                 .padding(horizontal = 18.dp, vertical = 22.dp)) {
-                Text("BookNook", color = Color(0xFF8A623C),
+                Text(AppBrand.NAME, color = Color(0xFF8A623C),
                     style = MaterialTheme.typography.labelLarge)
                 val openingTitle = book.customTitle.ifBlank { book.title }
                 Text(openingTitle,
@@ -1533,7 +1533,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 android.widget.Toast.LENGTH_LONG).show()
                         }
                     }) { Text("Abrir con otra aplicación") }
-                    TextButton(onClick = onBack) { Text("Volver a BookNook") }
+                    TextButton(onClick = onBack) { Text("Volver a ${AppBrand.NAME}") }
                 }
             }
             is ReadingDocument.PdfDocument -> {
@@ -2328,13 +2328,13 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                     Uri.parse(DAVEFX_DOWNLOAD_URL)))
                             } catch (_: Exception) {
                                 android.widget.Toast.makeText(context,
-                                    "No se pudo abrir la descarga de Davefx.",
+                                    "No se pudo abrir la página de Davefx.",
                                     android.widget.Toast.LENGTH_LONG).show()
                             }
                         }
                     }
                     if (!hasDavefxEngine(context)) Text(
-                        "Al elegir Davefx se abrirá su descarga oficial en el navegador. La instalación la gestiona Android fuera de MiBiblioteca.",
+                        "Davefx es un motor de voz externo y opcional. Al elegirlo se abrirá la página oficial del proyecto sherpa-onnx en el navegador.",
                         style = MaterialTheme.typography.bodySmall)
                     RadioVoiceOption("Predeterminada", selectedVoiceName.isBlank()) {
                         if (audioActive) {
@@ -2509,8 +2509,9 @@ private fun RadioVoiceOption(label: String, selected: Boolean, onClick: () -> Un
 }
 
 private const val DAVEFX_ENGINE = "com.k2fsa.sherpa.onnx.tts.engine"
-private const val DAVEFX_DOWNLOAD_URL =
-    "https://huggingface.co/csukuangfj2/sherpa-onnx-apk/resolve/main/tts-engine-new/1.13.8/sherpa-onnx-1.13.8-arm64-v8a-spa-tts-engine-vits-piper-es_ES-davefx-medium.apk"
+// Se abre la página del proyecto, no un .apk directo: Google Play no permite
+// que una app empuje a instalar aplicaciones descargadas fuera de la tienda.
+private const val DAVEFX_DOWNLOAD_URL = "https://github.com/k2-fsa/sherpa-onnx"
 
 private fun hasDavefxEngine(context: Context): Boolean = try {
     context.packageManager.getPackageInfo(DAVEFX_ENGINE, 0)

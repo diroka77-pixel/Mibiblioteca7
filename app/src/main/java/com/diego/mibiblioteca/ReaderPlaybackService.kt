@@ -30,7 +30,7 @@ class ReaderPlaybackService : Service() {
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
     private var hasAudioFocus = false
-    private var title = "BookNook"
+    private var title = AppBrand.NAME
     private var author = "Lectura en voz alta"
     private var position = 0L
     private var speed = 1f
@@ -80,7 +80,7 @@ class ReaderPlaybackService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_UPDATE -> {
-                title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "BookNook" }
+                title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { AppBrand.NAME }
                 author = intent.getStringExtra(EXTRA_AUTHOR).orEmpty().ifBlank { "Lectura en voz alta" }
                 position = intent.getLongExtra(EXTRA_POSITION, position)
                 speed = intent.getFloatExtra(EXTRA_SPEED, speed)

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - desarrollo/optimizacion-integral
+      - mejoras-comerciales
 permissions:
   contents: read
   actions: read
@@ -45,7 +46,7 @@ jobs:
         env:
           MIBIBLIOTECA_KEYSTORE_PATH: ${{ runner.temp }}/mibiblioteca.p12
           MIBIBLIOTECA_KEYSTORE_PASSWORD: ${{ secrets.MIBIBLIOTECA_KEYSTORE_PASSWORD }}
-        run: gradle :app:assembleRelease --no-daemon
+        run: gradle :app:assembleRelease :app:bundleRelease --no-daemon
       - name: Verificar firma y alineación de la APK
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
@@ -60,6 +61,12 @@ jobs:
         with:
           name: MiBiblioteca-v${{ steps.app_version.outputs.version }}-firmada
           path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+      - name: Guardar paquete AAB para Google Play
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiBiblioteca-v${{ steps.app_version.outputs.version }}-google-play-aab
+          path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
       - name: Dividir APK para descarga directa
         run: |

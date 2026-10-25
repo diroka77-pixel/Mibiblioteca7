@@ -6,7 +6,11 @@ plugins {
 
 android { namespace = "com.diego.mibiblioteca"; compileSdk = 35
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 35; versionCode = 174; versionName = "1.0.74" }
+    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 35; versionCode = 175; versionName = "1.0.75"
+        // Solo procesadores de móviles reales (ARM). Se descartan x86/x86_64,
+        // que solo usan emuladores de PC: la APK pasa de ~94 MB a unos 45-50 MB.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+    }
     val persistentKeyPath = System.getenv("MIBIBLIOTECA_KEYSTORE_PATH")
     val persistentSigning = if (!persistentKeyPath.isNullOrBlank()) signingConfigs.create("persistent") {
         storeFile = file(persistentKeyPath)

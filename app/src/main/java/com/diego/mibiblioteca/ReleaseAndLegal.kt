@@ -22,7 +22,7 @@ internal fun legalNotices(): List<LegalNotice> = listOf(
     LegalNotice("Google ML Kit", "Se utiliza para traducción, identificación de idioma y lectura de códigos ISBN. Su uso está sujeto a las condiciones de Google."),
     LegalNotice("Open Library y Google Books", "Fuentes externas de metadatos y portadas. Los datos y las imágenes pertenecen a sus respectivos proveedores y titulares."),
     LegalNotice("Wikipedia y Wikcionario", "Fuentes externas para biografías, argumentos y definiciones. Cada contenido conserva las condiciones indicadas por Wikimedia."),
-    LegalNotice("DLE de la RAE", "MiBiblioteca abre el sitio oficial para consultas voluntarias. La RAE y sus marcas no están vinculadas a esta aplicación."),
-    LegalNotice("Davefx y sherpa-onnx", "Motor de voz opcional que no se incluye en MiBiblioteca. Su descarga se abre externamente y conserva su propia licencia."),
+    LegalNotice("DLE de la RAE", "${AppBrand.NAME} abre el sitio oficial para consultas voluntarias. La RAE y sus marcas no están vinculadas a esta aplicación."),
+    LegalNotice("Davefx y sherpa-onnx", "Motor de voz opcional que no se incluye en ${AppBrand.NAME}. Su página oficial se abre externamente y conserva su propia licencia."),
     LegalNotice("Fuentes literarias", "Las noticias y enlaces de editoriales, librerías y catálogos se muestran como referencias externas; sus nombres y marcas pertenecen a sus titulares.")
 )

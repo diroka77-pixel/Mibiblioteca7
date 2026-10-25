@@ -81,7 +81,7 @@ internal fun articleImageUrl(address: String): String? = try {
     val connection = URL(address).openConnection() as HttpURLConnection
     connection.connectTimeout = 5000
     connection.readTimeout = 6000
-    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+    connection.setRequestProperty("User-Agent", AppBrand.WEB_USER_AGENT)
     val doc = try { connection.inputStream.use { Jsoup.parse(it, "UTF-8", address) } }
         finally { connection.disconnect() }
     listOf("meta[property=og:image]", "meta[property=og:image:secure_url]",
@@ -96,7 +96,7 @@ internal fun fetchFeaturedNews(source: String, address: String): List<LaunchNews
     val connection = URL(address).openConnection() as HttpURLConnection
     connection.connectTimeout = 6500
     connection.readTimeout = 8000
-    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+    connection.setRequestProperty("User-Agent", AppBrand.WEB_USER_AGENT)
     val doc = try { connection.inputStream.use { Jsoup.parse(it, "UTF-8", address) } }
         finally { connection.disconnect() }
     val host = Uri.parse(address).host.orEmpty().removePrefix("www.")
@@ -138,18 +138,6 @@ internal fun isLowQualityFeaturedNews(news: LaunchNews): Boolean =
         news.title.contains("logo", true) || news.title.equals(news.source, true) ||
         news.title.startsWith("Revista ${news.source}", true) || news.title.length < 16)
 
-internal val starterNews = listOf(
-    LaunchNews("Clara", "Las 25 novedades en libros más esperadas del otoño de 2026",
-        "https://www.clara.es/estilo-de-vida/novedades-libros-esperadas-otono-2026_49129",
-        "https://www.bing.com/th?id=ONUT.GHE09UlTMubiIlAklf_Jbw&pid=News", "2026-09-27"),
-    LaunchNews("Cosmopolitan", "Diez libros nuevos para leer en octubre",
-        "https://www.cosmopolitan.com/es/entretenimiento-cultura/g73876578/libros-recomendados-octubre-2026/",
-        "https://www.bing.com/th?id=ONUT.kbO_qElBMGBPxEkKw6CKIg&pid=News", "2026-09-28"),
-    LaunchNews("El Independiente", "Grandes lanzamientos literarios de octubre",
-        "https://www.msn.com/es-es/noticias/otras/de-p%C3%A9rez-reverte-y-almod%C3%B3var-a-jon-fosse-los-grandes-lanzamientos-literarios-para-octubre/ar-AA2dczPZ",
-        "https://www.bing.com/th?id=ONUT.m7bQKzY3qjbARUUJY99_lA&pid=News", "2026-09-29")
-)
-
 internal fun newsQueries(includeLatest: Boolean = false): List<String> {
     val today = java.time.LocalDate.now()
     val next = today.plusMonths(1).format(java.time.format.DateTimeFormatter.ofPattern("MMMM yyyy",
@@ -172,7 +160,7 @@ internal fun fetchLiteraryNews(query: String): List<LaunchNews> = try {
     val connection = URL(address).openConnection() as HttpURLConnection
     connection.connectTimeout = 7000
     connection.readTimeout = 8000
-    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+    connection.setRequestProperty("User-Agent", AppBrand.WEB_USER_AGENT)
     connection.useCaches = false
     connection.setRequestProperty("Cache-Control", "no-cache")
     val doc = try { connection.inputStream.use { stream ->
@@ -210,7 +198,7 @@ internal fun fetchCasaUpcomingBooks(): List<LaunchNews> = try {
     connection.readTimeout = 9000
     connection.useCaches = false
     connection.setRequestProperty("Cache-Control", "no-cache")
-    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+    connection.setRequestProperty("User-Agent", AppBrand.WEB_USER_AGENT)
     val doc = try { connection.inputStream.use { stream ->
         Jsoup.parse(stream, "UTF-8", address)
     } } finally { connection.disconnect() }
@@ -258,7 +246,7 @@ internal fun fetchLaunchBookDetails(result: PublicBookResult): PublicBookDetails
     val connection = URL(result.sourceUrl).openConnection() as HttpURLConnection
     connection.connectTimeout = 7000
     connection.readTimeout = 9000
-    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+    connection.setRequestProperty("User-Agent", AppBrand.WEB_USER_AGENT)
     val doc = try { connection.inputStream.use { Jsoup.parse(it, "UTF-8", result.sourceUrl) } }
         finally { connection.disconnect() }
     val description = listOf("[itemprop=description]", ".product-description", ".sinopsis",

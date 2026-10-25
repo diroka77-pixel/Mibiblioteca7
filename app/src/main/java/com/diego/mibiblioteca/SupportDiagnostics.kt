@@ -17,7 +17,7 @@ internal data class SupportDiagnosticInput(
 )
 
 internal fun buildSupportDiagnostic(input: SupportDiagnosticInput): String = buildString {
-    appendLine("Diagnóstico de MiBiblioteca")
+    appendLine("Diagnóstico de ${AppBrand.NAME}")
     appendLine("Versión: ${input.appVersion} (${input.versionCode})")
     appendLine("Android: ${input.androidVersion}")
     appendLine("Dispositivo: ${input.deviceModel.ifBlank { "No identificado" }}")

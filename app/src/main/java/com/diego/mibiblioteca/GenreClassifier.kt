@@ -49,7 +49,7 @@ internal fun fetchGenresOnline(book: Book): GenreResult {
     val found = linkedSetOf<String>()
     found += local
     val isbn = book.isbn.filter { it.isDigit() || it == 'X' || it == 'x' }
-    val author = displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty()
+    val author = displayAuthor(book).takeUnless(::unknownAuthor).orEmpty()
     val title = displayTitle(book)
     var usedGoogle = false
     var usedOpenLibrary = false

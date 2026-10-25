@@ -225,11 +225,7 @@ internal fun extractSagaFromText(raw: String): Pair<String, String>? {
 
 private fun sagaGroupKey(book: Book): String = normalizeSagaName(inferredSaga(book).first)
 
-private fun sagaDisplayName(value: String): String = when {
-    normalizeSagaName(value).contains("antonia scott") &&
-        normalizeSagaName(value).contains("jon gutierrez") -> "Reina Roja"
-    else -> value
-}
+private fun sagaDisplayName(value: String): String = value
 
 private val publicImageCache = object : LruCache<String, Bitmap>(16 * 1024) {
     override fun sizeOf(key: String, value: Bitmap): Int =
@@ -256,7 +252,7 @@ private fun rememberPublicCover(url: String): State<Bitmap?> {
                         connectTimeout = 6500
                         readTimeout = 9000
                         instanceFollowRedirects = true
-                        setRequestProperty("User-Agent", "MiBiblioteca/1.0 Android")
+                        setRequestProperty("User-Agent", AppBrand.API_USER_AGENT)
                         setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
                     }
                     try {
@@ -400,7 +396,7 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                     Spacer(Modifier.height(20.dp))
                     Text("Tráileres y presentaciones", fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
-                    Text("Reproduce el vídeo sin salir de BookNook", color = Mahogany.copy(alpha = .72f),
+                    Text("Reproduce el vídeo sin salir de ${AppBrand.NAME}", color = Mahogany.copy(alpha = .72f),
                         fontSize = 12.sp)
                     Spacer(Modifier.height(10.dp))
                     Surface(Modifier.fillMaxWidth(), color = Color(0xFF111318),
@@ -852,7 +848,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         ?.bufferedWriter()?.use { it.write(payload) }
                         ?: throw IllegalStateException("No se pudo escribir el respaldo")
                 }
-                message = "Respaldo de MiBiblioteca guardado."
+                message = "Respaldo de ${AppBrand.NAME} guardado."
             } catch (e: Exception) { message = "No se pudo exportar: ${e.localizedMessage}" }
         }
     }
@@ -1453,7 +1449,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun needsDetails(book: Book) = book.cover == null || book.spanishPlot.isBlank() ||
-        book.authorBio.isBlank() || displayAuthor(book) == "Biblioteca de Diroka77"
+        book.authorBio.isBlank() || unknownAuthor(displayAuthor(book))
 
     private fun markForReview(uri: Uri) {
         reviewPending = reviewPending + uri
@@ -1652,7 +1648,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                         ?: source.lastPathSegment.orEmpty().substringAfterLast('/')
                     val mime = context.contentResolver.getType(source).orEmpty().substringBefore(';')
                     val format = detectImportedBookFormat(name, mime)
-                        ?: error("BookNook puede abrir archivos EPUB, PDF, MOBI, AZW y FB2.")
+                        ?: error("${AppBrand.NAME} puede abrir archivos EPUB, PDF, MOBI, AZW y FB2.")
                     val extension = format.extension
                     val safeName = name.ifBlank { "Libro.$extension" }
                     val folder = File(context.filesDir, "imported").apply { mkdirs() }
@@ -1683,7 +1679,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 saveBooks()
                 importedBookUri = imported.uri
                 val format = detectImportedBookFormat(imported.uri.lastPathSegment.orEmpty(), "")
-                message = "${format?.label ?: "Libro"} añadido a BookNook"
+                message = "${format?.label ?: "Libro"} añadido a ${AppBrand.NAME}"
             } catch (e: Exception) {
                 message = "No se pudo abrir el archivo: ${e.localizedMessage ?: "archivo no válido"}"
             }
@@ -2041,7 +2037,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val needCover = initial.cover == null && !coverBlocked &&
             (force || retry || now - prefs.getLong("auto_cover_v28_" + uri, 0L) > cooldown)
         val needInfo = (force || initial.spanishPlot.isBlank() || initial.authorBio.isBlank() ||
-                displayAuthor(initial) == "Biblioteca de Diroka77") &&
+                unknownAuthor(displayAuthor(initial))) &&
             !prefs.getBoolean("manual_info_" + uri, false) &&
             (force || retry || now - prefs.getLong("auto_info_v39_" + uri, 0L) > cooldown)
         if (!needCover && !needInfo) { autoJobs.remove(uri); return }
@@ -2057,11 +2053,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                             fetchSpanishInfo(latest)
                         }
                         val google = if (found.plot.isBlank() ||
-                            displayAuthor(latest) == "Biblioteca de Diroka77")
+                            unknownAuthor(displayAuthor(latest)))
                             withContext(Dispatchers.IO) { fetchGoogleBookInfo(latest) }
                         else "" to ""
                         val catalogAuthor = if (google.first.isBlank() &&
-                            displayAuthor(latest) == "Biblioteca de Diroka77")
+                            unknownAuthor(displayAuthor(latest)))
                             withContext(Dispatchers.IO) { fetchOpenLibraryAuthor(latest) } else ""
                         val author = google.first.ifBlank { catalogAuthor.ifBlank { displayAuthor(latest) } }
                         val improved = if (found.bio.isBlank() && author != displayAuthor(latest))
@@ -2082,8 +2078,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                             val replaceInfo = force && !prefs.getBoolean("manual_info_" + uri, false)
                             val updated = current.copy(
                                 customAuthor = if ((current.customAuthor.isBlank() ||
-                                    current.customAuthor == "Biblioteca de Diroka77") &&
-                                    author != "Biblioteca de Diroka77" &&
+                                    unknownAuthor(current.customAuthor)) &&
+                                    !unknownAuthor(author) &&
                                     author.isNotBlank()) author else current.customAuthor,
                                 spanishPlot = if (replaceInfo && plot.isNotBlank()) plot else
                                     current.spanishPlot.ifBlank { plot },
@@ -2165,7 +2161,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun acceptCandidate(uri: Uri, candidate: InfoCandidate) {
         val current = books.firstOrNull { it.uri == uri } ?: return
         val updated = current.copy(
-            customAuthor = candidate.author.takeIf { it.isNotBlank() && it != "Biblioteca de Diroka77" }
+            customAuthor = candidate.author.takeIf { it.isNotBlank() && !unknownAuthor(it) }
                 ?: current.customAuthor,
             spanishPlot = candidate.plot.ifBlank { current.spanishPlot },
             authorBio = candidate.bio.ifBlank { current.authorBio },
@@ -2300,14 +2296,14 @@ private fun LibraryStatusBanner(
 
 internal fun displayAuthor(book: Book): String =
     cleanCatalogText(book.customAuthor.ifBlank { book.author })
-        .takeUnless(::unknownAuthor) ?: "Biblioteca de Diroka77"
+        .takeUnless(::unknownAuthor) ?: UNKNOWN_AUTHOR_LABEL
 
 internal fun displayTitle(book: Book): String {
     val author = displayAuthor(book)
     var title = cleanCatalogText(book.customTitle.ifBlank { book.title })
         .replace(Regex("""(?i)\b(?:isbn(?:-1[03])?|autor|editorial|publicad[oa]|idioma|formato|páginas|paginas|sinopsis|descripci[oó]n)\s*[:=].*$"""), "")
         .trim()
-    if (author != "Biblioteca de Diroka77") {
+    if (!unknownAuthor(author)) {
         // Remove an author only at a filename boundary; preserve real subtitles.
         title = title.replace(Regex("^" + Regex.escape(author) + "\\s*[-–—|:]\\s*", RegexOption.IGNORE_CASE), "")
             .replace(Regex("\\s*[-–—|]\\s*" + Regex.escape(author) + "$", RegexOption.IGNORE_CASE), "")
@@ -2715,7 +2711,7 @@ private fun downloadImage(url: String): ByteArray? {
     val connection = URL(url.replace("http://", "https://")).openConnection() as HttpURLConnection
     connection.connectTimeout = 6000
     connection.readTimeout = 8000
-    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca/0.51)")
+    connection.setRequestProperty("User-Agent", AppBrand.WEB_USER_AGENT)
     connection.setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
     return try {
         if (connection.responseCode != 200 || connection.contentLengthLong > 16_000_000) return null
@@ -2756,25 +2752,11 @@ private fun fetchPublicCover(book: Book): ByteArray? {
             publicCoverImages(publicCoverPage(url), url, title, author, isbn).firstNotNullOfOrNull(::downloadImage)
         } catch (_: Exception) { null }
     }
+    // Solo se consulta la página que el propio usuario ha vinculado. Ya no se
+    // leen en segundo plano los resultados de Google, Bing, DuckDuckGo ni la
+    // búsqueda de Goodreads: incumple sus condiciones y se rompe con facilidad.
+    // Las portadas automáticas proceden de Open Library y Google Books.
     if (book.goodreadsUrl.isNotBlank()) tryPage(book.goodreadsUrl)?.let { return it }
-    val query = java.net.URLEncoder.encode("\"$title\" $author portada " +
-        "(site:casadellibro.com OR site:planetadelibros.com OR site:penguinlibros.com OR " +
-        "site:goodreads.com OR site:fnac.es OR site:kobo.com OR site:anagrama-ed.es OR site:alianzaeditorial.es)", "UTF-8")
-    val engines = listOf("https://www.google.com/search?hl=es&num=8&q=$query",
-        "https://www.bing.com/search?format=rss&q=$query",
-        "https://html.duckduckgo.com/html/?q=$query")
-    for (engine in engines) {
-        val links = try { coverSearchLinks(publicCoverPage(engine), engine) }
-            catch (_: Exception) { emptyList() }
-        for (link in links.take(5)) tryPage(link)?.let { return it }
-    }
-    // Goodreads' own search is independent of the search engines.
-    try {
-        val url = "https://www.goodreads.com/search?q=" +
-            java.net.URLEncoder.encode("$title $author", "UTF-8")
-        for (link in coverSearchLinks(publicCoverPage(url), url).take(3))
-            tryPage(link)?.let { return it }
-    } catch (_: Exception) {}
     return null
 }
 
@@ -2788,7 +2770,7 @@ private fun fetchCover(book: Book): ByteArray? {
     }
     try {
         val q = "title=" + java.net.URLEncoder.encode(displayTitle(book), "UTF-8") +
-            "&author=" + java.net.URLEncoder.encode(displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty(), "UTF-8")
+            "&author=" + java.net.URLEncoder.encode(displayAuthor(book).takeUnless(::unknownAuthor).orEmpty(), "UTF-8")
         val docs = getJson("https://openlibrary.org/search.json?$q&fields=cover_i,title,author_name&limit=10")
             .optJSONArray("docs")
         for (i in 0 until (docs?.length() ?: 0)) {
@@ -2803,7 +2785,7 @@ private fun fetchCover(book: Book): ByteArray? {
         }
     } catch (_: Exception) {}
     try {
-        val author = displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty()
+        val author = displayAuthor(book).takeUnless(::unknownAuthor).orEmpty()
         val queries = listOfNotNull(
             "isbn:$isbn".takeIf { isbn.length == 10 || isbn.length == 13 },
             "intitle:${displayTitle(book)}" + if (author.isNotBlank()) " inauthor:$author" else "",
@@ -2835,7 +2817,7 @@ internal fun getJson(url: String): JSONObject {
     val connection = URL(url).openConnection() as HttpURLConnection
     connection.connectTimeout = 10000
     connection.readTimeout = 12000
-    connection.setRequestProperty("User-Agent", "MiBiblioteca/0.39 (https://github.com/diroka77-pixel/Mibiblioteca7)")
+    connection.setRequestProperty("User-Agent", AppBrand.API_USER_AGENT)
     return try {
         if (connection.responseCode == 429 && url.contains("www.googleapis.com/books")) {
             googleBooksRetryAt = System.currentTimeMillis() + 60 * 60 * 1000L
@@ -2850,7 +2832,7 @@ internal fun getJson(url: String): JSONObject {
 private fun fetchGoogleBookInfo(book: Book): Pair<String, String> {
     val isbn = book.isbn.filter { it.isDigit() || it == 'X' || it == 'x' }
     val title = displayTitle(book)
-    val knownAuthor = displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty()
+    val knownAuthor = displayAuthor(book).takeUnless(::unknownAuthor).orEmpty()
     val queries = if (isbn.length == 10 || isbn.length == 13) listOf("isbn:$isbn", "intitle:$title")
         else listOf("intitle:$title" + if (knownAuthor.isNotBlank()) " inauthor:$knownAuthor" else "", "intitle:$title")
     var bestAuthor = ""
@@ -3094,7 +3076,7 @@ private fun wikipediaPage(query: String, expected: String): Pair<String, String>
 
 private fun wikipediaPlot(book: Book): String {
     val title = displayTitle(book)
-    val author = displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty()
+    val author = displayAuthor(book).takeUnless(::unknownAuthor).orEmpty()
     if (author.isBlank()) return ""
     val page = try { wikipediaPage("$title $author", title) ?: wikipediaPage(title, title) }
         catch (_: Exception) { null } ?: return ""
@@ -3136,12 +3118,12 @@ private fun goodreadsPlot(book: Book): String {
     try {
         val search = Jsoup.connect("https://www.goodreads.com/search?q=" +
             java.net.URLEncoder.encode(title + " " + displayAuthor(book), "UTF-8"))
-            .timeout(6500).userAgent("Mozilla/5.0 (Android; MiBiblioteca)").get()
+            .timeout(6500).userAgent(AppBrand.WEB_USER_AGENT).get()
         search.select("a[href*='/book/show/']").firstOrNull()?.absUrl("href")?.let(urls::add)
     } catch (_: Exception) {}
     for (url in urls.distinct()) try {
         val page = Jsoup.connect(url).timeout(6500)
-            .userAgent("Mozilla/5.0 (Android; MiBiblioteca)").get()
+            .userAgent(AppBrand.WEB_USER_AGENT).get()
         if (!page.title().contains(title, ignoreCase = true)) continue
         val description = page.selectFirst("meta[property='og:description']")
             ?.attr("content").orEmpty().trim()
@@ -3177,7 +3159,7 @@ private fun fetchSpanishInfo(book: Book): InfoCandidate {
     var plotSource = ""
     var bioSource = ""
     var bio = ""
-    if (displayAuthor(book).isNotBlank() && displayAuthor(book) != "Biblioteca de Diroka77") {
+    if (displayAuthor(book).isNotBlank() && !unknownAuthor(displayAuthor(book))) {
         for (host in listOf("es", "en")) {
             try {
                 val title = java.net.URLEncoder.encode(displayAuthor(book), "UTF-8")
@@ -3191,11 +3173,11 @@ private fun fetchSpanishInfo(book: Book): InfoCandidate {
             } catch (_: Exception) {}
         }
     }
-    if (bio.isBlank() && displayAuthor(book).isNotBlank() && displayAuthor(book) != "Biblioteca de Diroka77") try {
+    if (bio.isBlank() && displayAuthor(book).isNotBlank() && !unknownAuthor(displayAuthor(book))) try {
         val page = wikipediaPage(displayAuthor(book), displayAuthor(book))
         if (page != null) { bio = page.second.take(900); bioSource = "Wikipedia (es)" }
     } catch (_: Exception) {}
-    if (bio.isBlank() && displayAuthor(book).isNotBlank() && displayAuthor(book) != "Biblioteca de Diroka77") try {
+    if (bio.isBlank() && displayAuthor(book).isNotBlank() && !unknownAuthor(displayAuthor(book))) try {
         val q = java.net.URLEncoder.encode(displayAuthor(book), "UTF-8")
         val authorDocs = getJson("https://openlibrary.org/search/authors.json?q=$q")
             .optJSONArray("docs")
@@ -3379,7 +3361,7 @@ private fun findGoodreadsBook(book: Book): String? {
             val connection = URL("https://www.goodreads.com/book/isbn/$isbn").openConnection() as HttpURLConnection
             connection.connectTimeout = 8000; connection.readTimeout = 8000
             connection.instanceFollowRedirects = true
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+            connection.setRequestProperty("User-Agent", AppBrand.WEB_USER_AGENT)
             val exact = connection.inputStream.use { connection.url.toString() }
             connection.disconnect()
             if (exact.contains("/book/show/")) return exact
@@ -3389,7 +3371,7 @@ private fun findGoodreadsBook(book: Book): String? {
         val query = java.net.URLEncoder.encode(displayTitle(book) + " " + displayAuthor(book), "UTF-8")
         val connection = URL("https://www.goodreads.com/search?q=$query").openConnection() as HttpURLConnection
         connection.connectTimeout = 8000; connection.readTimeout = 8000
-        connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; MiBiblioteca)")
+        connection.setRequestProperty("User-Agent", AppBrand.WEB_USER_AGENT)
         val html = try {
             connection.inputStream.use { it.readLimited(2L * 1024 * 1024).toString(Charsets.UTF_8) }
         } finally { connection.disconnect() }
@@ -3465,7 +3447,7 @@ private fun searchInGoogleApp(context: Context, query: String) {
 }
 
 private fun searchCoverImages(context: Context, book: Book) {
-    val query = listOf(displayTitle(book), displayAuthor(book).takeUnless { it == "Biblioteca de Diroka77" }.orEmpty(),
+    val query = listOf(displayTitle(book), displayAuthor(book).takeUnless(::unknownAuthor).orEmpty(),
         "portada libro").filter(String::isNotBlank).joinToString(" ")
     val url = Uri.parse("https://www.google.com/search?tbm=isch&q=" +
         java.net.URLEncoder.encode(query, "UTF-8"))
@@ -3861,7 +3843,7 @@ private fun openCasaDelLibro(context: Context) {
     }
     if (vm.showFirstRunGuide) AlertDialog(
         onDismissRequest = vm::dismissFirstRunGuide,
-        title = { Text("Bienvenido a BookNook", fontFamily = FontFamily.Serif,
+        title = { Text("Bienvenido a ${AppBrand.NAME}", fontFamily = FontFamily.Serif,
             fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -3882,7 +3864,7 @@ private fun openCasaDelLibro(context: Context) {
                         Text(instruction, color = Ink, modifier = Modifier.weight(1f))
                     }
                 }
-                Text("BookNook no mueve ni elimina tus archivos durante la sincronización.",
+                Text("${AppBrand.NAME} no mueve ni elimina tus archivos durante la sincronización.",
                     color = Mahogany.copy(alpha = .78f), fontSize = 12.sp)
             }
         },
@@ -3893,7 +3875,7 @@ private fun openCasaDelLibro(context: Context) {
     )
     if (vm.showReleaseNotes && !vm.showFirstRunGuide) AlertDialog(
         onDismissRequest = vm::dismissReleaseNotes,
-        title = { Text("Novedades de MiBiblioteca") },
+        title = { Text("Novedades de ${AppBrand.NAME}") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             currentReleaseNotes().forEach { note -> Text("• $note", fontSize = 13.sp) }
         } },
@@ -4593,7 +4575,7 @@ private fun openCasaDelLibro(context: Context) {
             LibraryTextButton(onClick = {
                 val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
                 clipboard?.setPrimaryClip(android.content.ClipData.newPlainText(
-                    "Diagnóstico de MiBiblioteca", vm.driveDiagnosticText()))
+                    "Diagnóstico de ${AppBrand.NAME}", vm.driveDiagnosticText()))
                 android.widget.Toast.makeText(context, "Diagnóstico copiado", android.widget.Toast.LENGTH_SHORT).show()
             }) { Text("Copiar diagnóstico") }
         },
@@ -4607,7 +4589,7 @@ private fun openCasaDelLibro(context: Context) {
         }
         val reportText = remember(health) {
             buildString {
-                appendLine("Estado de MiBiblioteca")
+                appendLine("Estado de ${AppBrand.NAME}")
                 appendLine("Salud del catálogo: ${health.healthScore} %")
                 appendLine("Libros analizados: ${health.total}")
                 appendLine("Fichas completas: ${health.healthy}")
@@ -4736,7 +4718,7 @@ private fun openCasaDelLibro(context: Context) {
                 LibraryTextButton(onClick = {
                     val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
                     clipboard?.setPrimaryClip(android.content.ClipData.newPlainText(
-                        "Estado de MiBiblioteca", reportText))
+                        "Estado de ${AppBrand.NAME}", reportText))
                     android.widget.Toast.makeText(context, "Informe copiado",
                         android.widget.Toast.LENGTH_SHORT).show()
                 }) { Text("Copiar informe") }
@@ -4845,7 +4827,7 @@ private fun openCasaDelLibro(context: Context) {
     if (privacyOpen) AlertDialog(onDismissRequest = { privacyOpen = false },
         title = { Text("Privacidad y datos") },
         text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
-            Text("Resumen claro de cómo funciona MiBiblioteca.", color = Mahogany)
+            Text("Resumen claro de cómo funciona ${AppBrand.NAME}.", color = Mahogany)
             Spacer(Modifier.height(10.dp))
             privacyDisclosures().forEach { disclosure ->
                 Text(disclosure.title, fontWeight = FontWeight.Bold, color = Teal)
@@ -4861,7 +4843,7 @@ private fun openCasaDelLibro(context: Context) {
         AlertDialog(onDismissRequest = { supportOpen = false },
             title = { Text("Acerca de y soporte") },
             text = { Column(Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState())) {
-                Text("BookNook", fontFamily = FontFamily.Serif, fontSize = 22.sp,
+                Text(AppBrand.NAME, fontFamily = FontFamily.Serif, fontSize = 22.sp,
                     fontWeight = FontWeight.Bold, color = Mahogany)
                 Spacer(Modifier.height(12.dp))
                 Text(diagnostic, fontSize = 12.sp, lineHeight = 18.sp)
@@ -4869,7 +4851,7 @@ private fun openCasaDelLibro(context: Context) {
             dismissButton = { LibraryTextButton(onClick = {
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "Diagnóstico de MiBiblioteca")
+                    putExtra(Intent.EXTRA_SUBJECT, "Diagnóstico de ${AppBrand.NAME}")
                     putExtra(Intent.EXTRA_TEXT, diagnostic)
                 }
                 try { context.startActivity(Intent.createChooser(send, "Compartir diagnóstico")) }
@@ -4881,7 +4863,7 @@ private fun openCasaDelLibro(context: Context) {
             confirmButton = { LibraryTextButton(onClick = { supportOpen = false }) { Text("Cerrar") } })
     }
     if (helpOpen) AlertDialog(onDismissRequest = { helpOpen = false },
-        title = { Text("Ayuda de MiBiblioteca") },
+        title = { Text("Ayuda de ${AppBrand.NAME}") },
         text = { Column(Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState())) {
             libraryHelpSections().forEach { section ->
                 Text(section.title, fontWeight = FontWeight.Bold, color = Teal,
@@ -4902,7 +4884,7 @@ private fun openCasaDelLibro(context: Context) {
     if (legalOpen) AlertDialog(onDismissRequest = { legalOpen = false },
         title = { Text("Información legal y licencias") },
         text = { Column(Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState())) {
-            Text("BookNook", color = Mahogany,
+            Text(AppBrand.NAME, color = Mahogany,
                 fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
             legalNotices().forEach { notice ->
                 Text(notice.name, fontWeight = FontWeight.Bold, color = Teal,
@@ -5146,7 +5128,7 @@ private fun openCasaDelLibro(context: Context) {
                     Surface(color = Mahogany,
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)) {
                         Column(Modifier.fillMaxWidth().padding(18.dp)) {
-                            Text("BookNook", color = Color.White, fontSize = 23.sp,
+                            Text(AppBrand.NAME, color = Color.White, fontSize = 23.sp,
                                 fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
                             Text("Tu espacio de lectura", color = Color(0xFFF4E8D8),
                                 style = MaterialTheme.typography.bodySmall)
@@ -5289,12 +5271,12 @@ private fun openCasaDelLibro(context: Context) {
                     NavigationDrawerItem(label = { Text("Exportar catálogo para Excel") }, selected = false,
                         icon = { Icon(Icons.Outlined.TableView, null) }, onClick = {
                             scope.launch { drawerState.close() }
-                            catalogExport.launch("MiBiblioteca-catalogo.csv")
+                            catalogExport.launch("${AppBrand.NAME}-catalogo.csv")
                         })
                     NavigationDrawerItem(label = { Text("Exportar notas y subrayados") }, selected = false,
                         icon = { Icon(Icons.Outlined.EditNote, null) }, onClick = {
                             scope.launch { drawerState.close() }
-                            notebookExport.launch("MiBiblioteca-cuaderno.txt")
+                            notebookExport.launch("${AppBrand.NAME}-cuaderno.txt")
                         })
                     NavigationDrawerItem(label = { Text("Ajustes") }, selected = false,
                         icon = { AppIcon("Ajustes") }, onClick = { settingsOpen = true })
@@ -5318,7 +5300,7 @@ private fun openCasaDelLibro(context: Context) {
                             .semantics { contentDescription = "Abrir menú" }) {
                         Icon(Icons.Outlined.Menu, "Abrir menú", tint = Color.White)
                     }
-                    Text("BookNook", modifier = Modifier.align(Alignment.Center),
+                    Text(AppBrand.NAME, modifier = Modifier.align(Alignment.Center),
                         color = Color.White, fontSize = 26.sp,
                         fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Serif,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -5697,7 +5679,7 @@ private fun openCasaDelLibro(context: Context) {
                             Text("Exporta tus datos antes de cambiar de teléfono: no se copian automáticamente.",
                                 modifier = Modifier.width(280.dp).padding(horizontal = 16.dp), fontSize = 12.sp)
                             DropdownMenuItem(text = { Text("Exportar mis datos") }, onClick = {
-                                backupMenu = false; backupExport.launch("MiBiblioteca-respaldo.json")
+                                backupMenu = false; backupExport.launch("${AppBrand.NAME}-respaldo.json")
                             })
                             DropdownMenuItem(text = { Text("Restaurar respaldo") }, onClick = {
                                 backupMenu = false; backupImport.launch(arrayOf("application/json"))
@@ -7533,7 +7515,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
     LibraryWallpaper(wallpaperMode, book)
     Scaffold(containerColor = Color.Transparent, topBar = {
         TopAppBar(
-            title = { Text("BookNook", fontFamily = FontFamily.Serif, color = Paper,
+            title = { Text(AppBrand.NAME, fontFamily = FontFamily.Serif, color = Paper,
                 style = MaterialTheme.typography.titleLarge.copy(shadow = WallpaperTextShadow)) },
             navigationIcon = { IconButton(onClick = back) { AppIcon("Volver", "Volver", tint = Paper) } },
             actions = {
@@ -7788,7 +7770,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                             }
                             Spacer(Modifier.height(6.dp))
                             Text(if (sagaMissing.isEmpty())
-                                "BookNook está revisando el catálogo completo en segundo plano."
+                                "${AppBrand.NAME} está revisando el catálogo completo en segundo plano."
                             else "Faltan entre los números conocidos: ${sagaMissing.joinToString(", ")}.",
                                 fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                                 color = if (sagaMissing.isEmpty()) Mahogany else Color(0xFF9A4C32))

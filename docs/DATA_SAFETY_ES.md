@@ -26,12 +26,16 @@ Este documento sirve para completar el formulario de seguridad de datos de una t
 
 Las búsquedas de metadatos, portadas, noticias, diccionario o traducción pueden enviar los términos necesarios al proveedor consultado. No deben enviarse notas, subrayados ni el contenido completo de la biblioteca. Los proveedores se identifican en «Información legal» dentro de la aplicación.
 
+## Google ML Kit
+
+La app incluye Google ML Kit para el escáner ISBN, la traducción y la identificación de idioma. Según la documentación de Google, estas bibliotecas pueden enviar a Google datos técnicos (información del dispositivo y de la app, métricas de rendimiento y uso de la API) para su mantenimiento. No envían el contenido de los libros ni las notas. Antes de publicar, consulta la página de divulgación de datos de ML Kit y decláralo en el formulario («Información y rendimiento de la app» / «Diagnóstico»). Por este motivo los textos de la app ya no dicen «sin seguimiento», sino «sin publicidad ni analítica propia».
+
 ## Respuestas previstas para la ficha pública
 
 - Recopilación por un servidor propio de MiBiblioteca: no.
 - Venta de datos: no.
 - Publicidad personalizada: no.
-- Analítica de uso: no.
+- Analítica de uso propia: no. Diagnóstico técnico de Google ML Kit: declarar según su documentación.
 - Eliminación de datos locales: disponible desde los ajustes de Android y mediante las funciones de gestión de la aplicación.
 - Cifrado en tránsito: las consultas de red configuradas utilizan HTTPS; el tráfico sin cifrar está desactivado en el manifiesto.
 

@@ -68,7 +68,7 @@ private fun findPromotionalVideo(title: String, author: String): String {
             .openConnection() as java.net.HttpURLConnection).apply {
             connectTimeout = 6500
             readTimeout = 8000
-            setRequestProperty("User-Agent", "Mozilla/5.0 (Android; BookNook)")
+            setRequestProperty("User-Agent", AppBrand.WEB_USER_AGENT)
             setRequestProperty("Accept-Language", "es-ES,es;q=0.9")
         }
         val html = try { connection.inputStream.bufferedReader().use { it.readText() } }
@@ -190,22 +190,6 @@ fun externalBookRecommendations(
         .take(limit)
 }
 
-private fun curatedPublicResult(title: String, author: String): PublicBookResult? {
-    val normalizedTitle = java.text.Normalizer.normalize(title, java.text.Normalizer.Form.NFD)
-        .replace(Regex("\\p{M}+"), "").trim().lowercase()
-    val normalizedAuthor = java.text.Normalizer.normalize(author, java.text.Normalizer.Form.NFD)
-        .replace(Regex("\\p{M}+"), "").trim().lowercase()
-    if (normalizedTitle != "hija del cielo" || (normalizedAuthor.isNotBlank() && !normalizedAuthor.contains("rodrigo cortes"))) return null
-    return PublicBookResult(
-        title = "Hija del cielo", author = "Rodrigo Cortés", year = "2026",
-        isbn = "9788439747369",
-        coverUrl = "https://covers.openlibrary.org/isbn/9788439747369-L.jpg",
-        sourceUrl = "https://www.penguinlibros.com/es/libros/631609-hija-del-cielo-9788439747369",
-        summary = "Gabaón es un pueblo al borde de un cortado, frente al mar, pero también un colegio, un orfelinato y un monasterio. Allí conviven sesenta y una monjas, tres curas y una niña acaso endemoniada en una habitación sin ventanas. Rodrigo Cortés construye una novela sobre un lugar, una niña y un amor, contada a través de dos voces: la del narrador y la de la propia niña.",
-        publishDates = "3 de septiembre de 2026"
-    )
-}
-
 fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
     var summary = cleanEditorialText(result.summary)
     var bio = ""
@@ -228,14 +212,6 @@ fun loadPublicBookDetails(result: PublicBookResult): PublicBookDetails {
         publisher = catalog.publisher
         source = catalog.source
         coverUrl = catalog.coverUrl.ifBlank { coverUrl }
-    }
-    if (result.author.equals("Rodrigo Cortés", true) && result.title.equals("Hija del cielo", true)) {
-        bio = "Rodrigo Cortés (Pazos Hermos, 1973) es director, actor, productor y guionista español. Como escritor ha publicado A las 3 son las 2, Sí importa el modo en que un hombre se hunde, Dormir es de patos, Los años extraordinarios y Cuentos telúricos. También escribe para ABC y participa en los pódcast Aquí hay dragones y Todopoderosos."
-        published = "2026"
-        pages = "248"
-        language = "Español"
-        publisher = "Random House"
-        source = "Penguin Random House · Open Library"
     }
     runCatching {
         val key = result.sourceUrl.substringAfter("/works/", "").substringBefore("?")
@@ -400,7 +376,6 @@ fun searchPublicBooks(titleQuery: String, authorQuery: String = ""): List<Public
     val wantedAuthor = authorQuery.trim()
     if (wantedTitle.isBlank() && wantedAuthor.isBlank()) return emptyList()
     val candidates = mutableListOf<PublicBookResult>()
-    curatedPublicResult(wantedTitle, wantedAuthor)?.let(candidates::add)
     val wantedIsbn = wantedTitle.filter(Char::isDigit).takeIf { it.length in setOf(10, 13) }.orEmpty()
 
     fun confidence(title: String, author: String, isbn: String = "") =

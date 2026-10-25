@@ -22,6 +22,11 @@ internal fun cleanCatalogText(value: String): String {
         .replace(Regex("""\s+"""), " ").trim(' ', '-', '|', '·', '–', '—')
 }
 
+/** Texto visible cuando un libro no tiene autor identificado. */
+internal const val UNKNOWN_AUTHOR_LABEL = "Autor desconocido"
+
+// "biblioteca de diroka77" se conserva solo para reconocer datos guardados
+// por versiones anteriores; ya no se muestra nunca al usuario.
 internal fun unknownAuthor(value: String): Boolean = value.trim().lowercase() in setOf(
     "", "autor desconocido", "desconocido", "unknown", "unknown author", "sin autor",
     "biblioteca de diroka77", "anonymous", "none", "null")
