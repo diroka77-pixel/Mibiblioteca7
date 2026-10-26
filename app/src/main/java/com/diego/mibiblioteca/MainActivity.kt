@@ -6376,15 +6376,18 @@ private fun HomeExternalRecommendations(
     val currentYear = java.time.LocalDate.now().year
     val upcoming = books.filter { it.source == "Catálogo editorial" ||
         it.publishDates.take(4).toIntOrNull()?.let { year -> year > currentYear } == true }
-    val newReleases = books.filterNot { it in upcoming }.filter {
-        it.publishDates.take(4).toIntOrNull()?.let { year -> year in (currentYear - 1)..currentYear } == true }
-    val suggestions = books.filterNot { it in upcoming || it in newReleases }
+    // Primero lo más reciente (año actual y anterior); después, el resto.
+    val isRecent = { book: PublicBookResult ->
+        book.publishDates.take(4).toIntOrNull()?.let { year -> year in (currentYear - 1)..currentYear } == true }
+    val nonUpcoming = books.filterNot { it in upcoming }
+    val suggestions = (nonUpcoming.filter(isRecent) + nonUpcoming.filterNot(isRecent)).take(12)
+    val newReleases = nonUpcoming.filter(isRecent).filterNot { it in suggestions }
     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
         Text(tr("Descubre tu próxima lectura"), fontFamily = FontFamily.Serif,
             fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Color.White,
             modifier = Modifier.padding(horizontal = 12.dp),
             style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
-        if (suggestions.isNotEmpty()) ExternalBooksRow(suggestions.take(12), "recomendada", onOpen)
+        if (suggestions.isNotEmpty()) ExternalBooksRow(suggestions, "recomendada", onOpen)
         if (newReleases.isNotEmpty()) {
             ExternalSectionTitle(tr("Novedades", "sección"), onSeeAllReleases)
             ExternalBooksRow(newReleases, "novedad", onOpen)

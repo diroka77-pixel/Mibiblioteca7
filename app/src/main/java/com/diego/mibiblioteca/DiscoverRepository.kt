@@ -109,33 +109,46 @@ fun externalBookRecommendations(
     }.distinct().take(8)
     val language = I18n.currentLanguage()
     val olLanguage = openLibraryLanguageCode(language)
-    val sinceYear = java.time.LocalDate.now().year - 25
+    val currentYear = java.time.LocalDate.now().year
+    val sinceYear = currentYear - 25
+    val recentIds = mutableSetOf<String>()
     val results = mutableListOf<PublicBookResult>()
+    // Dos pasadas por género: libros del año actual y del anterior, y después los de los
+    // últimos 25 años (los que mejor valoración tienen), para no ofrecer solo lo antiguo.
     subjects.forEach { subject ->
-        runCatching {
-            val q = java.net.URLEncoder.encode(
-                "subject:\"${subject.replace('_', ' ')}\" language:$olLanguage first_publish_year:[$sinceYear TO *]", "UTF-8")
-            val docs = getJson("https://openlibrary.org/search.json?q=$q&lang=$language&sort=rating&limit=25" +
-                "&fields=key,title,author_name,author_key,cover_i,first_publish_year,subject,publisher," +
-                "editions,editions.key,editions.title,editions.cover_i,editions.language")
-                .optJSONArray("docs")
-            for (index in 0 until (docs?.length() ?: 0)) {
-                val doc = docs?.optJSONObject(index) ?: continue
-                val book = openLibraryDocToResult(doc, language, confidence = 70, source = "Open Library")
-                    ?: continue
-                if (isLikelyOwnedRecommendation(book.title, book.author, ownedBooks)) continue
-                // No propone otras ediciones de los autores usados como semilla.
-                if (discoverNormalizeSearchText(book.author) in ownedAuthors &&
-                    seeds.any { discoverNormalizeSearchText(it.author) == discoverNormalizeSearchText(book.author) }) continue
-                results += book
+        listOf(currentYear - 1 to 15, sinceYear to 25).forEach { (fromYear, rows) ->
+            runCatching {
+                val q = java.net.URLEncoder.encode(
+                    "subject:\"${subject.replace('_', ' ')}\" language:$olLanguage first_publish_year:[$fromYear TO *]", "UTF-8")
+                val docs = getJson("https://openlibrary.org/search.json?q=$q&lang=$language&sort=rating&limit=$rows" +
+                    "&fields=key,title,author_name,author_key,cover_i,first_publish_year,subject,publisher," +
+                    "editions,editions.key,editions.title,editions.cover_i,editions.language")
+                    .optJSONArray("docs")
+                for (index in 0 until (docs?.length() ?: 0)) {
+                    val doc = docs?.optJSONObject(index) ?: continue
+                    val book = openLibraryDocToResult(doc, language, confidence = 70, source = "Open Library")
+                        ?: continue
+                    if (isLikelyOwnedRecommendation(book.title, book.author, ownedBooks)) continue
+                    // No propone otras ediciones de los autores usados como semilla.
+                    if (discoverNormalizeSearchText(book.author) in ownedAuthors &&
+                        seeds.any { discoverNormalizeSearchText(it.author) == discoverNormalizeSearchText(book.author) }) continue
+                    if (fromYear == currentYear - 1) recentIds += publicIdentity(book.title, book.author)
+                    results += book
+                }
             }
         }
     }
-    // Se alternan los géneros para que la fila no sea de un único tema.
-    return results.distinctBy { publicIdentity(it.title, it.author) }
-        .filter { it.coverUrl.isNotBlank() }
-        .shuffled(java.util.Random(java.time.LocalDate.now().toEpochDay()))
-        .take(limit)
+    // Se mezclan: dos libros recientes por cada uno anterior, barajados por día.
+    val unique = results.distinctBy { publicIdentity(it.title, it.author) }.filter { it.coverUrl.isNotBlank() }
+    val random = java.util.Random(java.time.LocalDate.now().toEpochDay())
+    val recent = unique.filter { publicIdentity(it.title, it.author) in recentIds }.shuffled(random).toMutableList()
+    val older = unique.filterNot { publicIdentity(it.title, it.author) in recentIds }.shuffled(random).toMutableList()
+    val mixed = mutableListOf<PublicBookResult>()
+    while (recent.isNotEmpty() || older.isNotEmpty()) {
+        repeat(2) { if (recent.isNotEmpty()) mixed += recent.removeAt(0) }
+        if (older.isNotEmpty()) mixed += older.removeAt(0)
+    }
+    return mixed.take(limit)
 }
 
 /** Género de la app → «subject key» de Open Library (que está en inglés). */

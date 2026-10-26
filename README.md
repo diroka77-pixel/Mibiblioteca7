@@ -1,5 +1,8 @@
 # Bookhollow (antes MiBiblioteca)
 
+## Versión 1.0.88
+- «Descubre tu próxima lectura» prioriza publicaciones del año actual y anterior y las combina con recomendaciones anteriores. Detalles en `docs/CAMBIOS_1.0.88.md`.
+
 ## Versión 1.0.87
 - Sin Google Books ni RAE API (todo con Open Library, Wikipedia y Wiktionary, con sus licencias), para poder cobrar por la app; tarjetas con un diseño más cuidado. Detalles en `docs/CAMBIOS_1.0.87.md`.
 
