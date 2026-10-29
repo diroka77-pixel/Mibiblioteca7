@@ -1,0 +1,11 @@
+• New name and icon: Bookhollow.
+• Dark mode (Settings → Theme).
+• Five free public-domain classics in your language to get started.
+• Available in six languages.
+• Open sources only.
+• Ready for Android 16.
+• Wikipedia and dictionary in the app language.
+• Gallery adapted to tablets.
+• New releases from major publishers in your country, always with a cover.
+• Reader menus easier to read in dark mode.
+• Free classics always on the Home screen.

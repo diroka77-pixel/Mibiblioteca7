@@ -1746,29 +1746,68 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     /** Progreso de la descarga de clásicos: null cuando no hay descarga en curso. */
     var sampleBooksProgress by mutableStateOf<Pair<Int, Int>?>(null); private set
 
-    /** Descarga e incorpora los clásicos de dominio público de [sampleBooks]. */
-    fun importSampleBooks() {
-        if (sampleBooksProgress != null) return
-        val books = sampleBooks
-        sampleBooksProgress = 0 to books.size
+    /**
+     * URI que tendrá un clásico una vez añadido. importLocalBookNow guarda cada libro en
+     * files/imported con un nombre calculado a partir del archivo de origen, así que se
+     * puede saber sin guardar nada más si ya está en la biblioteca.
+     */
+    private fun sampleLibraryUri(sample: SampleBook): Uri {
+        val app = getApplication<Application>()
+        val source = Uri.fromFile(File(File(app.cacheDir, "clasicos"), sample.fileName))
+        val hash = MessageDigest.getInstance("SHA-256").digest(source.toString().toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        return Uri.fromFile(File(File(app.filesDir, "imported"), "book-$hash.epub"))
+    }
+
+    /** El libro de la biblioteca que corresponde a este clásico, si ya se añadió. */
+    fun sampleInLibrary(sample: SampleBook): Book? = sampleLibraryUri(sample).let { uri ->
+        books.firstOrNull { it.uri == uri }
+    }
+
+    /** Clásico que se está descargando ahora mismo desde la estantería de Inicio. */
+    var downloadingSampleId by mutableStateOf<Int?>(null); private set
+
+    private suspend fun downloadAndImport(sample: SampleBook): Boolean {
+        val folder = File(getApplication<Application>().cacheDir, "clasicos")
+        val file = withContext(Dispatchers.IO) { downloadSampleBook(sample, folder) } ?: return false
+        return try { importLocalBookNow(Uri.fromFile(file), interactive = false) }
+        finally { withContext(Dispatchers.IO) { file.delete() } }
+    }
+
+    /** Añade un solo clásico (estantería «Clásicos gratuitos» de Inicio). */
+    fun importSampleBook(sample: SampleBook) {
+        if (downloadingSampleId != null || sampleBooksProgress != null || sampleInLibrary(sample) != null) return
+        downloadingSampleId = sample.gutenbergId
         viewModelScope.launch {
-            val folder = File(getApplication<Application>().cacheDir, "clasicos")
+            try {
+                message = if (downloadAndImport(sample)) trf("«{0}» se ha añadido a tu biblioteca.", sample.title)
+                    else tr("No se pudieron descargar los clásicos. Comprueba la conexión e inténtalo de nuevo.")
+            } finally { downloadingSampleId = null }
+        }
+    }
+
+    /** Descarga e incorpora los clásicos de [sampleBooks] que aún no estén en la biblioteca. */
+    fun importSampleBooks() {
+        if (sampleBooksProgress != null || downloadingSampleId != null) return
+        val pending = sampleBooks.filter { sampleInLibrary(it) == null }
+        if (pending.isEmpty()) {
+            message = tr("Ya tienes todos los clásicos gratuitos en tu biblioteca.")
+            return
+        }
+        sampleBooksProgress = 0 to pending.size
+        viewModelScope.launch {
             var added = 0
             try {
-                books.forEachIndexed { index, sample ->
-                    sampleBooksProgress = index to books.size
-                    val file = withContext(Dispatchers.IO) { downloadSampleBook(sample, folder) }
-                    if (file != null) {
-                        if (importLocalBookNow(Uri.fromFile(file), interactive = false)) added++
-                        withContext(Dispatchers.IO) { file.delete() }
-                    }
+                pending.forEachIndexed { index, sample ->
+                    sampleBooksProgress = index to pending.size
+                    if (downloadAndImport(sample)) added++
                 }
             } finally {
                 sampleBooksProgress = null
                 message = when (added) {
                     0 -> tr("No se pudieron descargar los clásicos. Comprueba la conexión e inténtalo de nuevo.")
-                    books.size -> trf("Se han añadido {0} clásicos gratuitos a tu biblioteca.", added)
-                    else -> trf("Se han añadido {0} de {1} clásicos. Puedes volver a intentarlo para los que faltan.", added, books.size)
+                    pending.size -> trf("Se han añadido {0} clásicos gratuitos a tu biblioteca.", added)
+                    else -> trf("Se han añadido {0} de {1} clásicos. Puedes volver a intentarlo para los que faltan.", added, pending.size)
                 }
             }
         }
@@ -5532,6 +5571,12 @@ private fun openCasaDelLibro(context: Context) {
                     onLongPress = { bookMenu = it }, onCarouselTouch = { startedOnCarousel = true }) { book ->
                     startReader(book)
                 } }
+            // Los clásicos gratuitos siempre están a mano en Inicio, aunque la biblioteca
+            // ya tenga libros: los que ya tienes se abren, los demás se añaden con un toque.
+            if (tab == "Inicio") item(key = "free-classics") {
+                FreeClassicsShelf(sampleBooks, vm::sampleInLibrary, vm.downloadingSampleId,
+                    onAdd = vm::importSampleBook, onOpen = { startReader(it) })
+            }
             if (tab == "Inicio" && homeRecommendations.isNotEmpty())
                 item(key = "external-recommendations") {
                     HomeExternalRecommendations(homeRecommendations,
@@ -6396,6 +6441,65 @@ private fun HomeExternalRecommendations(
             ExternalSectionTitle(tr("Novedades y próximos lanzamientos"),
                 onSeeAllReleases.takeIf { newReleases.isEmpty() })
             ExternalBooksRow(upcoming, "proximo", onOpen)
+        }
+    }
+}
+
+/**
+ * Estantería «Clásicos gratuitos» de Inicio: los cinco clásicos de dominio público del
+ * idioma de la app, con su portada de Project Gutenberg. Los que ya están en la
+ * biblioteca muestran «Leer»; los demás, «Añadir».
+ */
+@Composable
+private fun FreeClassicsShelf(samples: List<SampleBook>, inLibrary: (SampleBook) -> Book?,
+    downloadingId: Int?, onAdd: (SampleBook) -> Unit, onOpen: (Book) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp)) {
+        Text(tr("Clásicos gratuitos"), fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+            fontSize = 21.sp, color = Color.White, modifier = Modifier.padding(horizontal = 12.dp),
+            style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+        Text(tr("Dominio público · Project Gutenberg"), color = Color.White.copy(alpha = .8f),
+            fontSize = 11.sp, modifier = Modifier.padding(horizontal = 12.dp))
+        LazyRow(Modifier.fillMaxWidth().padding(top = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp)) {
+            items(samples, key = { "classic:" + it.gutenbergId }) { sample ->
+                val owned = inLibrary(sample)
+                val cover by rememberPublicCover(sample.coverUrl)
+                Card(Modifier.width(124.dp).clickable(enabled = downloadingId == null || owned != null) {
+                        if (owned != null) onOpen(owned) else onAdd(sample)
+                    },
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = Paper),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) {
+                    Box(Modifier.fillMaxWidth().height(176.dp).background(CoverPlaceholder),
+                        contentAlignment = Alignment.Center) {
+                        if (cover != null) Image(cover!!.asImageBitmap(),
+                            contentDescription = trf("Portada de {0}", sample.title),
+                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        else Text(sample.title, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                            color = Mahogany, fontSize = 14.sp, textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(10.dp))
+                        if (downloadingId == sample.gutenbergId) Box(Modifier.fillMaxSize()
+                            .background(Color.Black.copy(alpha = .45f)), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(32.dp))
+                        }
+                    }
+                    Column(Modifier.padding(horizontal = 9.dp, vertical = 8.dp)) {
+                        Text(sample.title, color = Ink, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp, lineHeight = 15.sp, minLines = 2, maxLines = 2,
+                            overflow = TextOverflow.Ellipsis)
+                        Text(sample.author, color = Mahogany.copy(alpha = .82f), fontSize = 10.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(6.dp))
+                        Surface(color = if (owned != null) Teal else InkFixed,
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)) {
+                            Text(if (owned != null) tr("Leer") else tr("Añadir"), color = Color.White,
+                                fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                        }
+                    }
+                }
+            }
         }
     }
 }

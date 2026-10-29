@@ -16,6 +16,8 @@ import java.net.URL
 internal data class SampleBook(val gutenbergId: Int, val title: String, val author: String) {
     val downloadUrl: String get() = "https://www.gutenberg.org/ebooks/$gutenbergId.epub3.images"
     val fileName: String get() = "clasico-$gutenbergId.epub"
+    /** Portada que publica Project Gutenberg para cada libro. */
+    val coverUrl: String get() = "https://www.gutenberg.org/cache/epub/$gutenbergId/pg$gutenbergId.cover.medium.jpg"
 }
 
 internal val sampleBooksByLanguage: Map<String, List<SampleBook>> = mapOf(

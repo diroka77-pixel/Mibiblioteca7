@@ -29,4 +29,10 @@ class SampleBooksTest {
             assertTrue(it.fileName.endsWith(".epub"))
         }
     }
+
+    @Test fun coversComeFromGutenbergOverHttps() {
+        all.forEach {
+            assertTrue(it.coverUrl.startsWith("https://www.gutenberg.org/cache/epub/${it.gutenbergId}/"))
+        }
+    }
 }

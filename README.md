@@ -1,5 +1,8 @@
 # Bookhollow (antes MiBiblioteca)
 
+## Versión 1.0.89
+- Estantería «Clásicos gratuitos» siempre visible en Inicio: los clásicos no desaparecen al añadir más libros. Detalles en `docs/CAMBIOS_1.0.89.md`.
+
 ## Versión 1.0.88
 - «Descubre tu próxima lectura» prioriza publicaciones del año actual y anterior y las combina con recomendaciones anteriores. Detalles en `docs/CAMBIOS_1.0.88.md`.
 
