@@ -1,7 +1,7 @@
 # Bookhollow (antes MiBiblioteca)
 
 ## Versión 1.0.94
-- Bookhollow Premium: app gratuita con un pago único (1,99 €) que desbloquea vincular y sincronizar una carpeta de libros. Detalles en `docs/CAMBIOS_1.0.94.md`.
+- Bookhollow Premium: app gratuita con un pago único (1,99 €) que desbloquea vincular y sincronizar una carpeta en la nube (Drive, Dropbox, OneDrive…). Las carpetas del teléfono (Descargas, memoria interna, SD) son gratis. Detalles en `docs/CAMBIOS_1.0.94.md` y `docs/CAMBIOS_1.0.95.md`.
 
 ## Versión 1.0.93
 - El fondo automático ya no muestra el reflejo de una portada detrás de la cabecera. Detalles en `docs/CAMBIOS_1.0.93.md`.

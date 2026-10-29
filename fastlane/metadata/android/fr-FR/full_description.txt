@@ -21,4 +21,4 @@ Bookhollow n'a ni publicité ni outil d'analyse propre et ne demande pas de comp
 
 Les couvertures, fiches et nouveautés proviennent de sources ouvertes et officielles : Open Library, Wikipédia et Project Gutenberg.
 
-Bookhollow est gratuit. Lier et synchroniser un dossier de livres (Google Drive ou autre) nécessite Bookhollow Premium, un paiement unique sans abonnement.
+Bookhollow est gratuit, y compris ouvrir et lier les livres enregistrés sur votre téléphone ou tablette (Téléchargements, mémoire interne ou carte SD). Lier et synchroniser un dossier dans le cloud (Google Drive, Dropbox, OneDrive ou autre) nécessite Bookhollow Premium, un paiement unique sans abonnement.

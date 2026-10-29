@@ -21,4 +21,4 @@ Bookhollow no incluye anuncios ni analítica propia y no exige crear una cuenta.
 
 Las portadas, fichas y novedades proceden de fuentes abiertas y oficiales: Open Library, Wikipedia y Project Gutenberg.
 
-Bookhollow es gratis. Vincular y sincronizar una carpeta de libros (Google Drive u otra) requiere Bookhollow Premium, un pago único sin suscripción.
+Bookhollow es gratis, también abrir y vincular tus libros guardados en el teléfono o la tablet (Descargas, memoria interna o tarjeta SD). Vincular y sincronizar una carpeta en la nube (Google Drive, Dropbox, OneDrive u otra) requiere Bookhollow Premium, un pago único sin suscripción.

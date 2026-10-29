@@ -21,4 +21,4 @@ Bookhollow non include pubblicità né analisi proprie e non richiede un account
 
 Copertine, schede e novità provengono da fonti aperte e ufficiali: Open Library, Wikipedia e Project Gutenberg.
 
-Bookhollow è gratuita. Collegare e sincronizzare una cartella di libri (Google Drive o un'altra) richiede Bookhollow Premium, un pagamento unico senza abbonamento.
+Bookhollow è gratuita, anche per aprire e collegare i libri salvati sul telefono o sul tablet (Download, memoria interna o scheda SD). Collegare e sincronizzare una cartella nel cloud (Google Drive, Dropbox, OneDrive o un'altra) richiede Bookhollow Premium, un pagamento unico senza abbonamento.

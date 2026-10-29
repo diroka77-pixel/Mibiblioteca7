@@ -14,7 +14,8 @@ internal fun currentReleaseNotes(): List<String> = listOf(
     "Cinco clásicos gratuitos de dominio público en tu idioma para empezar a leer.",
     "Wikipedia y diccionario en el idioma de la app, y galería adaptada a tablets.",
     "Novedades de las grandes editoriales de tu país, siempre con portada.",
-    "Bookhollow Premium: un pago único para vincular y sincronizar tu carpeta de libros.",
+    "Abre y vincula gratis tus libros del teléfono: Descargas, memoria interna o tarjeta SD.",
+    "Bookhollow Premium: un pago único para vincular tu carpeta en la nube (Drive, Dropbox, OneDrive…).",
     "Disponible en español, inglés, portugués, francés, alemán e italiano.",
     "Solo fuentes abiertas: Open Library, Wikipedia y Project Gutenberg."
 )

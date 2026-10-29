@@ -1,6 +1,6 @@
 # Cómo publicar Bookhollow en Google Play
 
-Guía paso a paso de lo que queda por hacer fuera del código (versión 1.0.91). Todo se puede
+Guía paso a paso de lo que queda por hacer fuera del código (versión 1.0.95). Todo se puede
 hacer desde el móvil, aunque Play Console es más cómodo en un ordenador o una tablet.
 
 ## Lo que ya está preparado
@@ -49,13 +49,15 @@ Contacto público de la app: **bookhollow.app@gmail.com** (política, ficha de P
 ## 3 bis. Bookhollow Premium (pago único de 1,99 €)
 
 La app es **gratuita** y tiene una compra dentro de la app: **Bookhollow Premium**, que
-desbloquea vincular y sincronizar una carpeta de libros. El código ya está listo; en Play
+desbloquea vincular y sincronizar una carpeta **en la nube** (Google Drive, Dropbox, OneDrive
+u otra). Abrir y vincular libros del propio teléfono o tablet (Descargas, memoria interna o
+tarjeta SD) es gratis. El código ya está listo; en Play
 Console hay que crear el producto con **exactamente** este identificador:
 
 1. **Configuración → Perfil de pagos**: créalo si no lo tienes (hace falta para cobrar).
 2. **Monetizar con Play → Productos → Productos únicos → Crear producto único**:
    - ID del producto: **bookhollow_premium** (no se puede cambiar después).
-   - Nombre: «Bookhollow Premium». Descripción: «Vincula y sincroniza tu carpeta de libros».
+   - Nombre: «Bookhollow Premium». Descripción: «Vincula y sincroniza tu carpeta de libros en la nube (Drive, Dropbox, OneDrive…)».
    - Opción de compra: compra (no alquiler), precio **1,99 EUR**; Google calcula el resto de países.
    - **Activar**.
 3. Para probar la compra sin pagar: **Configuración → Probar licencias** → añade tu Gmail y
@@ -89,7 +91,7 @@ ficha tus datos de contacto, que pueden incluir dirección y teléfono.
 - Violencia, sexo, lenguaje malsonante, drogas, apuestas: **No** (la app no incluye contenido
   propio de ese tipo; los libros los aporta el usuario o son clásicos de dominio público).
 - ¿Los usuarios pueden interactuar o intercambiar contenido entre sí? **No**.
-- ¿Comparte la ubicación? **No**. ¿Compras digitales? **No** (cámbialo si añades premium).
+- ¿Comparte la ubicación? **No**. ¿Compras digitales? **Sí** (Bookhollow Premium).
 - ¿Navegador web sin restricciones? **No** (los enlaces se abren en el navegador del teléfono).
 
 ## 6. Declaración de servicio en primer plano (lectura en voz alta)
@@ -130,7 +132,7 @@ Categoría de la app: **Libros y obras de consulta**.
 ## 8. Prueba cerrada obligatoria (cuentas personales nuevas)
 
 1. **Pruebas → Prueba cerrada** → crea un canal (por ejemplo «Amigos»).
-2. Sube el **AAB** (artefacto *Bookhollow-v1.0.91-google-play-aab* de GitHub Actions).
+2. Sube el **AAB** (artefacto *Bookhollow-v1.0.95-google-play-aab* (o el de la versión más reciente) de GitHub Actions).
    Al subirlo por primera vez, acepta la **Firma de aplicaciones de Google Play**: Google
    guarda la clave de firma definitiva y tu clave actual queda como clave de subida.
 3. Añade **al menos 12 testers** (sus correos de Google, o un Grupo de Google) y comparte el

@@ -1812,8 +1812,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun selectFolder(uri: Uri) {
-        // Vincular una carpeta es la función de Bookhollow Premium (pago único).
-        if (!Premium.unlocked) { message = tr("Vincular una carpeta de libros es una función de Bookhollow Premium."); return }
+        // Las carpetas del teléfono son gratis; las de la nube son Bookhollow Premium.
+        if (!Premium.canUseFolder(uri)) { message = tr("Vincular una carpeta en la nube es una función de Bookhollow Premium."); return }
         if (syncing) { message = tr("Espera a que termine la sincronización antes de cambiar de carpeta."); return }
         dismissFirstRunGuide()
         val app = getApplication<Application>()
@@ -1848,9 +1848,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun sync(uri: Uri? = prefs.getString(folderKey, null)?.let(Uri::parse), changedFolder: Boolean = false) {
-        if (!Premium.unlocked) {
-            if (uri != null) message = tr("Sincronizar la carpeta de libros es una función de Bookhollow Premium.")
-            else message = tr("Selecciona primero tu carpeta de libros.")
+        if (uri != null && !Premium.canUseFolder(uri)) {
+            message = tr("Sincronizar una carpeta en la nube es una función de Bookhollow Premium.")
             return
         }
         if (uri == null) {
@@ -3929,17 +3928,32 @@ private fun openCasaDelLibro(context: Context) {
         }, enabled = sagaRenameTarget.isNotBlank()) { Text(tr("Unificar")) } },
         dismissButton = { LibraryTextButton(onClick = { sagaRenameSource = null }) { Text(tr("Cancelar")) } }
     ) }
-    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
-    // Vincular carpeta = Premium: sin compra se muestra la pantalla de Bookhollow Premium.
+    // Carpetas del teléfono (Descargas, memoria interna, SD): gratis. Carpetas en la nube
+    // (Drive, Dropbox, OneDrive…): sin Premium se muestra su pantalla y, si el usuario
+    // compra, la carpeta elegida se vincula sola.
     var premiumOpen by remember { mutableStateOf(false) }
-    fun requestFolderAccess() { if (Premium.unlocked) folderPicker.launch(null) else premiumOpen = true }
+    var pendingCloudFolder by remember { mutableStateOf<Uri?>(null) }
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        if (Premium.canUseFolder(uri)) vm.selectFolder(uri)
+        else { pendingCloudFolder = uri; premiumOpen = true }
+    }
+    LaunchedEffect(Premium.unlocked) {
+        val pending = pendingCloudFolder
+        if (Premium.unlocked && pending != null) {
+            pendingCloudFolder = null
+            premiumOpen = false
+            vm.selectFolder(pending)
+        }
+    }
+    fun requestFolderAccess() { folderPicker.launch(null) }
     LaunchedEffect(Premium.notice) {
         Premium.notice?.let {
             android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show()
             Premium.notice = null
         }
     }
-    if (premiumOpen) PremiumDialog(onDismiss = { premiumOpen = false },
+    if (premiumOpen) PremiumDialog(onDismiss = { premiumOpen = false; pendingCloudFolder = null },
         onBuy = { (context as? android.app.Activity)?.let(Premium::buy) },
         onRestore = { Premium.refreshPurchases(fromUser = true) })
     val bookPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -6483,9 +6497,9 @@ private fun PremiumDialog(onDismiss: () -> Unit, onBuy: () -> Unit, onRestore: (
         title = { Text(tr("Bookhollow Premium"), fontFamily = FontFamily.Serif) },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) {
             if (Premium.unlocked) {
-                Text(tr("Premium está activado. Ya puedes vincular tu carpeta de libros y sincronizarla."))
+                Text(tr("Premium está activado. Ya puedes vincular tu carpeta en la nube y sincronizarla."))
             } else {
-                Text(tr("Vincula tu carpeta de libros (Google Drive u otra) y Bookhollow catalogará y sincronizará toda tu biblioteca automáticamente."))
+                Text(tr("Vincula tu carpeta de libros en la nube (Google Drive, Dropbox, OneDrive u otra) y Bookhollow catalogará y sincronizará toda tu biblioteca automáticamente."))
                 Spacer(Modifier.height(10.dp))
                 listOf(tr("Catálogo automático de todos tus libros"),
                     tr("Sincronización de libros nuevos y cambios"),
@@ -6494,7 +6508,7 @@ private fun PremiumDialog(onDismiss: () -> Unit, onBuy: () -> Unit, onRestore: (
                     Text("✓ " + line, color = Teal, modifier = Modifier.padding(vertical = 2.dp))
                 }
                 Spacer(Modifier.height(10.dp))
-                Text(tr("Todo lo demás sigue siendo gratis: abrir libros sueltos, leer, escuchar y los clásicos gratuitos."),
+                Text(tr("Gratis para siempre: vincular una carpeta del teléfono o tablet (Descargas, memoria interna o tarjeta SD), abrir libros sueltos, leer, escuchar y los clásicos gratuitos."),
                     fontSize = 13.sp, color = Mahogany)
                 if (!Premium.storeAvailable) {
                     Spacer(Modifier.height(8.dp))

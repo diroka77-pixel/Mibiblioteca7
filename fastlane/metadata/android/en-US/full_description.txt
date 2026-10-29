@@ -21,4 +21,4 @@ Bookhollow has no ads or analytics of its own and does not require an account. T
 
 Covers, book details and new releases come from open, official sources: Open Library, Wikipedia and Project Gutenberg.
 
-Bookhollow is free. Linking and syncing a books folder (Google Drive or another) requires Bookhollow Premium, a one-time payment with no subscription.
+Bookhollow is free, including opening and linking the books stored on your phone or tablet (Downloads, internal storage or SD card). Linking and syncing a cloud folder (Google Drive, Dropbox, OneDrive or another) requires Bookhollow Premium, a one-time payment with no subscription.

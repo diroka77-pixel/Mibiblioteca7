@@ -2,6 +2,7 @@ package com.diego.mibiblioteca
 
 import android.app.Activity
 import android.content.Context
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -18,8 +19,9 @@ import com.android.billingclient.api.QueryPurchasesParams
 
 /**
  * Bookhollow Premium: un pago único (producto «bookhollow_premium» de Google Play) que
- * desbloquea vincular y sincronizar una carpeta de libros (Google Drive u otra).
- * Todo lo demás es gratis.
+ * desbloquea vincular y sincronizar una carpeta en la nube (Google Drive, Dropbox, OneDrive…).
+ * Las carpetas del propio teléfono o tablet (Descargas, memoria interna, tarjeta SD) son
+ * gratis, igual que todo lo demás.
  *
  * El estado se guarda en el teléfono para que funcione sin conexión y se confirma con
  * Google Play cada vez que se abre la app (así se respetan los reembolsos). Las compras se
@@ -40,6 +42,21 @@ internal object Premium {
     var purchasing by mutableStateOf(false); private set
     /** Aviso para el usuario tras comprar o restaurar (se muestra una vez). */
     var notice by mutableStateOf<String?>(null)
+
+    /** Proveedores de Android para carpetas del propio dispositivo: siempre gratis. */
+    private val LOCAL_AUTHORITIES = setOf(
+        "com.android.externalstorage.documents",     // memoria interna y tarjeta SD
+        "com.android.providers.downloads.documents", // Descargas
+        "com.android.providers.media.documents"      // Imágenes, audio y documentos del teléfono
+    )
+
+    /** ¿La carpeta está en el propio teléfono o tablet? (Cualquier otro proveedor es una nube.) */
+    fun isLocalAuthority(authority: String?): Boolean = authority in LOCAL_AUTHORITIES
+
+    fun isCloudFolder(uri: Uri?): Boolean = uri != null && !isLocalAuthority(uri.authority)
+
+    /** ¿Se puede vincular y sincronizar esta carpeta? Locales siempre; nube, con Premium. */
+    fun canUseFolder(uri: Uri?): Boolean = unlocked || !isCloudFolder(uri)
 
     private var client: BillingClient? = null
     private var product: ProductDetails? = null
