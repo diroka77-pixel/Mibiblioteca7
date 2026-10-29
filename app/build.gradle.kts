@@ -10,7 +10,7 @@ android { namespace = "com.diego.mibiblioteca"; compileSdk = 36
     // Se siguen generando los informes (app/build/reports/lint-results-*.html), pero
     // un aviso nuevo no debe bloquear la compilación de la APK firmada.
     lint { abortOnError = false; checkReleaseBuilds = true }
-    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 36; versionCode = 193; versionName = "1.0.93"
+    defaultConfig { applicationId = "com.diego.mibiblioteca"; minSdk = 26; targetSdk = 36; versionCode = 194; versionName = "1.0.94"
         // Solo procesadores de móviles reales (ARM). Se descartan x86/x86_64,
         // que solo usan emuladores de PC: la APK pasa de ~94 MB a unos 45-50 MB.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
@@ -59,6 +59,8 @@ dependencies {
     // Versión que usa el modelo de Google Play services en lugar de incluirlo en la app (~8 MB menos).
     implementation("com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1")
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    // Pagos de Google Play para Bookhollow Premium (pago único). Google exige la versión 8 o posterior.
+    implementation("com.android.billingclient:billing:8.3.0")
     implementation("org.jsoup:jsoup:1.23.2")
     implementation("com.google.code.gson:gson:2.11.0")
     debugImplementation("androidx.compose.ui:ui-tooling")

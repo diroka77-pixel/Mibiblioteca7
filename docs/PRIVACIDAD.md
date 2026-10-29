@@ -31,6 +31,10 @@ Los botones que abren otras webs (Goodreads, Casa del Libro, YouTube, la RAE…)
 
 El usuario puede exportar un respaldo, cambiar o retirar el acceso a la carpeta desde Android y borrar los datos de Bookhollow desde los ajustes del sistema. La aplicación nunca borra libros por su cuenta.
 
+## Compras
+
+Bookhollow Premium se compra con un pago único a través de Google Play. El pago lo gestiona Google: la app no recibe ni guarda datos de tarjeta ni de pago; solo pregunta a Google Play si la compra existe y guarda en el teléfono que Premium está activado.
+
 ## Menores
 
 Bookhollow no está dirigida a menores de 13 años y no recoge a sabiendas datos de menores.

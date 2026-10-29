@@ -43,10 +43,29 @@ Contacto público de la app: **bookhollow.app@gmail.com** (política, ficha de P
 1. **Crear app** → nombre «Bookhollow», idioma predeterminado **Español (España)**, tipo
    **Aplicación**, **Gratuita** o **De pago**.
    - **Importante:** una app publicada como gratuita **no puede pasar a ser de pago** después.
-     Si quieres cobrar por descargarla, elige «De pago» desde el principio. Si prefieres
-     gratuita con una versión premium, elige «Gratuita» (los pagos dentro de la app se añaden
-     después con Google Play Billing, que aún no está en el código).
+     Bookhollow se publica como **Gratuita**: el pago es Bookhollow Premium, dentro de la app.
 2. Acepta las declaraciones (políticas del programa y leyes de exportación de EE. UU.).
+
+## 3 bis. Bookhollow Premium (pago único de 1,99 €)
+
+La app es **gratuita** y tiene una compra dentro de la app: **Bookhollow Premium**, que
+desbloquea vincular y sincronizar una carpeta de libros. El código ya está listo; en Play
+Console hay que crear el producto con **exactamente** este identificador:
+
+1. **Configuración → Perfil de pagos**: créalo si no lo tienes (hace falta para cobrar).
+2. **Monetizar con Play → Productos → Productos únicos → Crear producto único**:
+   - ID del producto: **bookhollow_premium** (no se puede cambiar después).
+   - Nombre: «Bookhollow Premium». Descripción: «Vincula y sincroniza tu carpeta de libros».
+   - Opción de compra: compra (no alquiler), precio **1,99 EUR**; Google calcula el resto de países.
+   - **Activar**.
+3. Para probar la compra sin pagar: **Configuración → Probar licencias** → añade tu Gmail y
+   el de tus testers. Ellos verán el pago marcado como prueba.
+4. La compra solo funciona con la app instalada **desde Google Play** (prueba cerrada o
+   producción); una APK instalada a mano dice que la compra no está disponible.
+5. En el cuestionario de clasificación, «¿Compras digitales?»: **Sí**.
+
+Al cobrar, Google te pedirá declararte **comerciante** (normas europeas) y mostrará en la
+ficha tus datos de contacto, que pueden incluir dirección y teléfono.
 
 ## 4. «Contenido de la app» (Monitor y mejora → Contenido de la app)
 

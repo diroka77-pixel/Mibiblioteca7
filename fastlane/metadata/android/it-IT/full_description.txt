@@ -17,6 +17,8 @@ Funzioni principali:
 
 Privacy:
 
-Bookhollow non include pubblicità né analisi proprie e non richiede un account. Lo scanner ISBN e la traduzione usano Google ML Kit, che può inviare a Google dati tecnici di utilizzo, mai il contenuto dei tuoi libri. Fotocamera e microfono vengono richiesti solo per lo scanner ISBN o la ricerca vocale. L'app non elimina mai libri da sola.
+Bookhollow non include pubblicità né analisi proprie e non richiede un account. Lo scanner ISBN e la traduzione usano Google ML Kit, che può inviare a Google dati tecnici di utilizzo, mai il contenuto dei tuoi libri. Il microfono viene richiesto solo per la ricerca vocale; lo scanner ISBN non richiede la fotocamera. L'app non elimina mai libri da sola.
 
 Copertine, schede e novità provengono da fonti aperte e ufficiali: Open Library, Wikipedia e Project Gutenberg.
+
+Bookhollow è gratuita. Collegare e sincronizzare una cartella di libri (Google Drive o un'altra) richiede Bookhollow Premium, un pagamento unico senza abbonamento.

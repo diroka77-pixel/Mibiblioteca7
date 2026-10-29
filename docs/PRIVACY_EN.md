@@ -31,6 +31,10 @@ Buttons that open other websites (Goodreads, Casa del Libro, YouTube, the RAE…
 
 The user can export a backup, change or remove folder access from Android and delete Bookhollow's data from the system settings. The app never deletes books on its own.
 
+## Purchases
+
+Bookhollow Premium is bought with a one-time payment through Google Play. Google handles the payment: the app never receives or stores card or payment details; it only asks Google Play whether the purchase exists and stores on the phone that Premium is active.
+
 ## Children
 
 Bookhollow is not directed at children under 13 and does not knowingly collect data from children.

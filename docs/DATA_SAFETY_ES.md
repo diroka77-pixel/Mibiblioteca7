@@ -58,6 +58,10 @@ y sin cederlos a terceros. Por eso:
   documentos (los libros nunca salen del teléfono hacia un servidor de la app), contactos,
   calendario, información financiera, salud, actividad en la app ni navegación web.
 - Publicidad: no. ID de publicidad: no (la app no declara `AD_ID`).
+- Compras (Bookhollow Premium): el pago lo procesa Google Play. La app no recibe ni guarda
+  datos de pago y no envía nada sobre la compra a ningún servidor propio; solo consulta a
+  Google Play si existe y guarda en el teléfono que Premium está activo. No hay que marcar
+  «Información financiera».
 
 ## Verificación antes de enviar
 

@@ -1812,6 +1812,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun selectFolder(uri: Uri) {
+        // Vincular una carpeta es la función de Bookhollow Premium (pago único).
+        if (!Premium.unlocked) { message = tr("Vincular una carpeta de libros es una función de Bookhollow Premium."); return }
         if (syncing) { message = tr("Espera a que termine la sincronización antes de cambiar de carpeta."); return }
         dismissFirstRunGuide()
         val app = getApplication<Application>()
@@ -1846,6 +1848,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun sync(uri: Uri? = prefs.getString(folderKey, null)?.let(Uri::parse), changedFolder: Boolean = false) {
+        if (!Premium.unlocked) {
+            if (uri != null) message = tr("Sincronizar la carpeta de libros es una función de Bookhollow Premium.")
+            else message = tr("Selecciona primero tu carpeta de libros.")
+            return
+        }
         if (uri == null) {
             message = tr("Selecciona primero tu carpeta de libros.")
             lastDriveFailure = DriveFailureKind.INVALID_FOLDER
@@ -3342,6 +3349,7 @@ class MainActivity : ComponentActivity() {
         AppLanguage.load(this)
         DeviceRegion.detect(this)
         libraryVm = ViewModelProvider(this)[LibraryViewModel::class.java]
+        Premium.init(this, libraryVm.folderLinked)
         handleSharedBook(intent)
         setContent {
             // Sin contraseña de acceso: una app publicada en Google Play debe poder abrirse
@@ -3922,6 +3930,18 @@ private fun openCasaDelLibro(context: Context) {
         dismissButton = { LibraryTextButton(onClick = { sagaRenameSource = null }) { Text(tr("Cancelar")) } }
     ) }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let(vm::selectFolder) }
+    // Vincular carpeta = Premium: sin compra se muestra la pantalla de Bookhollow Premium.
+    var premiumOpen by remember { mutableStateOf(false) }
+    fun requestFolderAccess() { if (Premium.unlocked) folderPicker.launch(null) else premiumOpen = true }
+    LaunchedEffect(Premium.notice) {
+        Premium.notice?.let {
+            android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show()
+            Premium.notice = null
+        }
+    }
+    if (premiumOpen) PremiumDialog(onDismiss = { premiumOpen = false },
+        onBuy = { (context as? android.app.Activity)?.let(Premium::buy) },
+        onRestore = { Premium.refreshPurchases(fromUser = true) })
     val bookPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(vm::importLocalBook)
     }
@@ -3953,7 +3973,7 @@ private fun openCasaDelLibro(context: Context) {
             }
         },
         confirmButton = { LibraryTextButton(onClick = {
-            vm.dismissFirstRunGuide(); folderPicker.launch(null)
+            vm.dismissFirstRunGuide(); requestFolderAccess()
         }) { Text(tr("Elegir carpeta")) } },
         dismissButton = { TextButton(onClick = vm::dismissFirstRunGuide) { Text(tr("Explorar primero")) } }
     )
@@ -4982,7 +5002,7 @@ private fun openCasaDelLibro(context: Context) {
             }, modifier = Modifier.fillMaxWidth()) { Text(tr("Ver guía inicial")) }
             LibraryTextButton(onClick = {
                 helpOpen = false
-                folderPicker.launch(null)
+                requestFolderAccess()
             }, modifier = Modifier.fillMaxWidth()) { Text(tr("Elegir carpeta de libros")) }
         } },
         confirmButton = { LibraryTextButton(onClick = { helpOpen = false }) { Text(tr("Cerrar")) } })
@@ -5152,7 +5172,7 @@ private fun openCasaDelLibro(context: Context) {
                         Text(tr("Biblioteca y Drive"), color = Teal, fontWeight = FontWeight.Bold)
                         NavigationDrawerItem(label = { Text(tr("Carpeta de libros")) }, selected = false,
                             icon = { AppIcon("Carpeta") }, onClick = {
-                                scope.launch { drawerState.close() }; folderPicker.launch(null)
+                                scope.launch { drawerState.close() }; requestFolderAccess()
                             })
                         NavigationDrawerItem(label = { Text(tr("Importar un libro")) }, selected = false,
                             icon = { Icon(Icons.Outlined.FileOpen, null) }, onClick = {
@@ -5406,6 +5426,11 @@ private fun openCasaDelLibro(context: Context) {
                         icon = { Icon(Icons.Outlined.EditNote, null) }, onClick = {
                             scope.launch { drawerState.close() }
                             notebookExport.launch("${AppBrand.NAME}-cuaderno.txt")
+                        })
+                    NavigationDrawerItem(label = { Text(if (Premium.unlocked) tr("Bookhollow Premium · activado")
+                            else tr("Bookhollow Premium")) }, selected = false,
+                        icon = { Icon(Icons.Outlined.WorkspacePremium, null) }, onClick = {
+                            scope.launch { drawerState.close() }; premiumOpen = true
                         })
                     NavigationDrawerItem(label = { Text(tr("Ajustes")) }, selected = false,
                         icon = { AppIcon("Ajustes") }, onClick = { settingsOpen = true })
@@ -5778,7 +5803,7 @@ private fun openCasaDelLibro(context: Context) {
                                 failure = vm.lastDriveFailure,
                                 onDismiss = vm::clearMessage,
                                 onRetry = vm::sync,
-                                onChooseFolder = { folderPicker.launch(null) }
+                                onChooseFolder = { requestFolderAccess() }
                             )
                         }
                     }
@@ -5841,7 +5866,7 @@ private fun openCasaDelLibro(context: Context) {
                                 fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
                             Text(tr("Selecciona tu carpeta de Google Drive para encontrar tus EPUB y PDF."),
                                 color = Mahogany, textAlign = TextAlign.Center)
-                            Button(onClick = { folderPicker.launch(null) },
+                            Button(onClick = { requestFolderAccess() },
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
                                 Text(tr("Elegir carpeta de libros"))
                             }
@@ -5886,7 +5911,7 @@ private fun openCasaDelLibro(context: Context) {
                             WallpaperLabel(tr("La primera lectura crea el catálogo. Las siguientes sincronizaciones solo incorporan cambios."),
                                 modifier = Modifier.padding(horizontal = 24.dp), fontSize = 12.sp)
                             Spacer(Modifier.height(12.dp))
-                            Button(onClick = { folderPicker.launch(null) }) { Text(tr("Elegir carpeta")) }
+                            Button(onClick = { requestFolderAccess() }) { Text(tr("Elegir carpeta")) }
                         }
                     }
                 }
@@ -6445,6 +6470,52 @@ private fun HomeExternalRecommendations(
             ExternalBooksRow(upcoming, "proximo", onOpen)
         }
     }
+}
+
+/**
+ * Pantalla de Bookhollow Premium: qué desbloquea el pago único, el precio que da Google
+ * Play y los botones para comprar o restaurar una compra hecha en otro móvil.
+ */
+@Composable
+private fun PremiumDialog(onDismiss: () -> Unit, onBuy: () -> Unit, onRestore: () -> Unit) {
+    AlertDialog(onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Outlined.WorkspacePremium, null, tint = Teal) },
+        title = { Text(tr("Bookhollow Premium"), fontFamily = FontFamily.Serif) },
+        text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+            if (Premium.unlocked) {
+                Text(tr("Premium está activado. Ya puedes vincular tu carpeta de libros y sincronizarla."))
+            } else {
+                Text(tr("Vincula tu carpeta de libros (Google Drive u otra) y Bookhollow catalogará y sincronizará toda tu biblioteca automáticamente."))
+                Spacer(Modifier.height(10.dp))
+                listOf(tr("Catálogo automático de todos tus libros"),
+                    tr("Sincronización de libros nuevos y cambios"),
+                    tr("Copia de tus datos en tu propia carpeta"),
+                    tr("Pago único, sin suscripción ni anuncios")).forEach { line ->
+                    Text("✓ " + line, color = Teal, modifier = Modifier.padding(vertical = 2.dp))
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(tr("Todo lo demás sigue siendo gratis: abrir libros sueltos, leer, escuchar y los clásicos gratuitos."),
+                    fontSize = 13.sp, color = Mahogany)
+                if (!Premium.storeAvailable) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(tr("La compra solo está disponible en la versión de Google Play."),
+                        fontSize = 12.sp, color = Mahogany)
+                }
+            }
+        } },
+        confirmButton = {
+            if (Premium.unlocked) LibraryTextButton(onClick = onDismiss) { Text(tr("Cerrar")) }
+            else Button(onClick = onBuy, enabled = !Premium.purchasing,
+                colors = ButtonDefaults.buttonColors(containerColor = Teal)) {
+                Text(Premium.price?.let { trf("Desbloquear por {0}", it) } ?: tr("Desbloquear Premium"))
+            }
+        },
+        dismissButton = {
+            if (!Premium.unlocked) Row {
+                LibraryTextButton(onClick = onRestore) { Text(tr("Restaurar compra")) }
+                LibraryTextButton(onClick = onDismiss) { Text(tr("Ahora no")) }
+            }
+        })
 }
 
 /**
