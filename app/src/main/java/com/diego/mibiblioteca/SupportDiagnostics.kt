@@ -9,7 +9,6 @@ internal data class SupportDiagnosticInput(
     val readingBooks: Int,
     val offlineBooks: Int,
     val folderLinked: Boolean,
-    val cameraGranted: Boolean,
     val microphoneGranted: Boolean,
     val notificationsGranted: Boolean,
     val driveDiagnostic: String,
@@ -25,7 +24,6 @@ internal fun buildSupportDiagnostic(input: SupportDiagnosticInput): String = bui
     appendLine("Leyendo: ${input.readingBooks}")
     appendLine("Copias sin conexión: ${input.offlineBooks}")
     appendLine("Carpeta vinculada: ${if (input.folderLinked) "Sí" else "No"}")
-    appendLine("Cámara: ${permissionLabel(input.cameraGranted)}")
     appendLine("Micrófono: ${permissionLabel(input.microphoneGranted)}")
     appendLine("Notificaciones: ${permissionLabel(input.notificationsGranted)}")
     appendLine()

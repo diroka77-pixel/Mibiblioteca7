@@ -1,5 +1,7 @@
 # Paquete de publicación de Bookhollow
 
+> Actualizado en la 1.0.91: la guía paso a paso está en `docs/PUBLICAR_EN_GOOGLE_PLAY.md`.
+
 ## Archivos preparados
 
 - Título, descripción breve y descripción completa en `fastlane/metadata/android/es-ES/`.

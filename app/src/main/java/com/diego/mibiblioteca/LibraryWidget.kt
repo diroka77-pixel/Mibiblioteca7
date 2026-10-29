@@ -62,10 +62,10 @@ class LibraryWidget : AppWidgetProvider() {
 }
 
 internal fun widgetBookTitle(savedTitle: String?): String =
-    savedTitle?.trim().takeUnless { it.isNullOrBlank() } ?: "Continúa tu lectura"
+    savedTitle?.trim().takeUnless { it.isNullOrBlank() } ?: tr("Continúa tu lectura")
 
 internal fun widgetProgressLabel(percent: Int): String = when (percent.coerceIn(0, 100)) {
-    0 -> "Sin progreso guardado"
-    100 -> "Lectura terminada"
-    else -> "${percent.coerceIn(0, 100)} % leído"
+    0 -> tr("Sin progreso guardado")
+    100 -> tr("Lectura terminada")
+    else -> trf("{0} % leído", percent.coerceIn(0, 100))
 }

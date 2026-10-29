@@ -31,7 +31,7 @@ class ReaderPlaybackService : Service() {
     private var audioFocusRequest: AudioFocusRequest? = null
     private var hasAudioFocus = false
     private var title = AppBrand.NAME
-    private var author = "Lectura en voz alta"
+    private var author = tr("Lectura en voz alta")
     private var position = 0L
     private var speed = 1f
     private var playing = false
@@ -81,7 +81,7 @@ class ReaderPlaybackService : Service() {
         when (intent?.action) {
             ACTION_UPDATE -> {
                 title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { AppBrand.NAME }
-                author = intent.getStringExtra(EXTRA_AUTHOR).orEmpty().ifBlank { "Lectura en voz alta" }
+                author = intent.getStringExtra(EXTRA_AUTHOR).orEmpty().ifBlank { tr("Lectura en voz alta") }
                 position = intent.getLongExtra(EXTRA_POSITION, position)
                 speed = intent.getFloatExtra(EXTRA_SPEED, speed)
                 playing = intent.getBooleanExtra(EXTRA_PLAYING, playing)
@@ -168,9 +168,9 @@ class ReaderPlaybackService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
             .setOngoing(playing)
-            .addAction(android.R.drawable.ic_media_previous, "Retroceder", command(ACTION_REWIND, 1))
-            .addAction(toggleIcon, if (playing) "Pausar" else "Reproducir", command(toggleAction, 2))
-            .addAction(android.R.drawable.ic_media_next, "Avanzar", command(ACTION_FORWARD, 3))
+            .addAction(android.R.drawable.ic_media_previous, tr("Retroceder"), command(ACTION_REWIND, 1))
+            .addAction(toggleIcon, if (playing) tr("Pausar") else tr("Reproducir"), command(toggleAction, 2))
+            .addAction(android.R.drawable.ic_media_next, tr("Avanzar"), command(ACTION_FORWARD, 3))
             .setStyle(MediaStyle().setMediaSession(mediaSession.sessionToken).setShowActionsInCompactView(0, 1, 2))
             .build()
     }
@@ -187,8 +187,8 @@ class ReaderPlaybackService : Service() {
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
-            val channel = NotificationChannel(CHANNEL_ID, "Lectura en voz alta", NotificationManager.IMPORTANCE_LOW)
-            channel.description = "Controles de reproducción del lector"
+            val channel = NotificationChannel(CHANNEL_ID, tr("Lectura en voz alta"), NotificationManager.IMPORTANCE_LOW)
+            channel.description = tr("Controles de reproducción del lector")
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }

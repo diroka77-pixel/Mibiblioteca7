@@ -14,7 +14,6 @@ class SupportDiagnosticsTest {
         readingBooks = 3,
         offlineBooks = 8,
         folderLinked = true,
-        cameraGranted = false,
         microphoneGranted = true,
         notificationsGranted = false,
         driveDiagnostic = "Archivos detectados: 512",
@@ -26,7 +25,7 @@ class SupportDiagnosticsTest {
         assertTrue(report.contains("Versión: 1.0.60 (160)"))
         assertTrue(report.contains("Libros catalogados: 512"))
         assertTrue(report.contains("Micrófono: Permitido"))
-        assertTrue(report.contains("Cámara: No concedido"))
+        assertTrue(!report.contains("Cámara"))
         assertTrue(report.contains("Archivos detectados: 512"))
     }
 

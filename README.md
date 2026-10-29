@@ -1,5 +1,8 @@
 # Bookhollow (antes MiBiblioteca)
 
+## Versión 1.0.91
+- Lista para Google Play: sin contraseña de acceso ni permiso de cámara, cámara y micrófono opcionales, política de privacidad publicable y enlazada en la app, más textos traducidos e imagen destacada. Guía en `docs/PUBLICAR_EN_GOOGLE_PLAY.md`; detalles en `docs/CAMBIOS_1.0.91.md`.
+
 ## Versión 1.0.90
 - Al pasar de página ya no se repiten ni se cortan las últimas líneas. Detalles en `docs/CAMBIOS_1.0.90.md`.
 

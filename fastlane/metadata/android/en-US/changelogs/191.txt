@@ -1,0 +1,5 @@
+• Turning pages no longer repeats or cuts off lines.
+• Free classics always on the Home screen.
+• New releases from major publishers in your country, with covers.
+• Open sources only: Open Library, Wikipedia and Project Gutenberg.
+• Reader menus easier to read in dark mode.

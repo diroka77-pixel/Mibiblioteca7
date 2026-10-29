@@ -1,6 +1,6 @@
 # Bookhollow privacy policy
 
-Last updated: October 25, 2026.
+Last updated: October 29, 2026.
 
 Bookhollow is an app for organizing and reading ebooks. It has no ads or analytics of its own and does not require an account. Google ML Kit features (ISBN scanner, translation and language detection) may send Google technical usage and performance data under Google's terms; never the content of your books or notes.
 
@@ -16,7 +16,7 @@ The connection is used to sync with the chosen file provider and for features th
 
 ## Permissions
 
-- Camera: only to scan ISBN barcodes.
+- Camera: the app does not request this permission. The ISBN scanner is provided by Google Play services, which shows the camera image without giving the app access to it.
 - Microphone: only for voice search.
 - Notifications and media service: to show the read-aloud controls.
 - Internet: for lookups and syncs started by the user.
@@ -30,3 +30,11 @@ Buttons that open other websites (Goodreads, Casa del Libro, YouTube, the RAE…
 ## User control
 
 The user can export a backup, change or remove folder access from Android and delete Bookhollow's data from the system settings. The app never deletes books on its own.
+
+## Children
+
+Bookhollow is not directed at children under 13 and does not knowingly collect data from children.
+
+## Changes and contact
+
+If this policy changes, the new version will be published here with its date. For any privacy question or to request the removal of content, write at https://github.com/diroka77-pixel/Mibiblioteca7/issues.

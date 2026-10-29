@@ -416,7 +416,7 @@ private suspend fun shareReadingFile(context: Context, book: Book) {
         putExtra(Intent.EXTRA_STREAM, uri)
         clipData = ClipData.newRawUri("Libro", uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }, "Compartir libro"))
+    }, tr("Compartir libro")))
 }
 
 internal fun readerProgressKey(uri: Uri): String = MessageDigest.getInstance("SHA-256")
@@ -452,7 +452,7 @@ internal fun localReaderFile(context: Context, book: Book): File = synchronized(
         }
         available?.use { input ->
             require(folder.usableSpace > FileLimits.FREE_SPACE + book.sourceSize.coerceAtLeast(0)) {
-                "No hay espacio suficiente para abrir el libro."
+                tr("No hay espacio suficiente para abrir el libro.")
             }
             partial.outputStream().use { output ->
                 input.copyLimited(output, FileLimits.BOOK_BYTES) {
@@ -819,11 +819,11 @@ private fun SelectableParagraph(
             val selectable = this
             setCustomSelectionActionModeCallback(object : ActionMode.Callback {
                 override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-                    menu.add(0, 8001, 0, "Subrayar").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-                    menu.add(0, 8002, 1, "Diccionario").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
-                    menu.add(0, 8005, 2, "Nota").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
-                    menu.add(0, 8010, 3, "Copiar").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
-                    menu.add(0, 8011, 4, "Fijar").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                    menu.add(0, 8001, 0, tr("Subrayar")).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+                    menu.add(0, 8002, 1, tr("Diccionario")).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+                    menu.add(0, 8005, 2, tr("Nota")).setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                    menu.add(0, 8010, 3, tr("Copiar")).setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                    menu.add(0, 8011, 4, tr("Fijar")).setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
                     return true
                 }
                 override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
@@ -835,7 +835,7 @@ private fun SelectableParagraph(
                         highlight.paragraph == index && highlight.start < selectedTo &&
                             highlight.end > selectedFrom
                     }
-                    menu.findItem(8001)?.title = if (marked) "Quitar subrayado" else "Subrayar"
+                    menu.findItem(8001)?.title = if (marked) tr("Quitar subrayado") else tr("Subrayar")
                     return true
                 }
                 override fun onDestroyActionMode(mode: ActionMode) = Unit
@@ -1175,9 +1175,9 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         // start it. Fall back immediately instead of leaving the play button mute.
                         prefs.edit().remove("voice_name").apply()
                         selectedVoiceName = ""
-                        speechInitError = "Davefx no respondió. Se ha activado la voz de Android."
+                        speechInitError = tr("Davefx no respondió. Se ha activado la voz de Android.")
                     } else {
-                        speechInitError = "No se pudo iniciar la voz de Android. Revisa el motor de texto a voz."
+                        speechInitError = tr("No se pudo iniciar la voz de Android. Revisa el motor de texto a voz.")
                     }
                 }
             }
@@ -1283,7 +1283,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 if (audioActive) pauseSpeech() else startSpeech()
                             } else {
                                 android.widget.Toast.makeText(context,
-                                    speechInitError ?: "Preparando la voz. Vuelve a pulsar en unos segundos.",
+                                    speechInitError ?: tr("Preparando la voz. Vuelve a pulsar en unos segundos."),
                                     android.widget.Toast.LENGTH_LONG).show()
                             }
                             scope.launch { drawer.close() }

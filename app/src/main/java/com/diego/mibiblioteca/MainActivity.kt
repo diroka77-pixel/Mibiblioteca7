@@ -87,7 +87,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Density
@@ -118,8 +117,6 @@ import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.TranslatorOptions
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.languageid.LanguageIdentification
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -344,7 +341,7 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 Button(onClick = onWish, colors = ButtonDefaults.buttonColors(containerColor = Teal), modifier = Modifier.fillMaxWidth()) { Text(if (wishListed) tr("♥  Quitar de deseos") else tr("♡  Añadir a deseos")) }
                 Spacer(Modifier.height(18.dp))
                 Text(tr("Descripción"), fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
-                Text(details?.summary?.ifBlank { "No hay descripción disponible en las fuentes públicas." } ?: "Cargando información pública…", color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
+                Text(details?.summary?.ifBlank { tr("No hay descripción disponible en las fuentes públicas.") } ?: tr("Cargando información pública…"), color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
                 if (!details?.review.isNullOrBlank()) {
                     Spacer(Modifier.height(18.dp))
                     Text(tr("Reseña y contexto"), fontFamily = FontFamily.Serif,
@@ -357,7 +354,7 @@ private fun PublicBookDetailPage(result: PublicBookResult, details: PublicBookDe
                 if (authorPicture != null) Image(authorPicture!!.asImageBitmap(), "Foto de ${result.author}",
                     Modifier.fillMaxWidth().heightIn(max = 300.dp), contentScale = ContentScale.Fit,
                     alignment = Alignment.Center)
-                Text(details?.authorBio?.ifBlank { "No hay biografía disponible en las fuentes públicas." } ?: "Cargando biografía…", color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
+                Text(details?.authorBio?.ifBlank { tr("No hay biografía disponible en las fuentes públicas.") } ?: tr("Cargando biografía…"), color = Ink, fontSize = 16.sp, lineHeight = 24.sp)
                 Spacer(Modifier.height(18.dp))
                 Text(tr("Detalles del libro"), fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Mahogany)
                 val sagaLabel = details?.saga.orEmpty() +
@@ -547,8 +544,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         if (offlineDownloadUri != null) return
         viewModelScope.launch {
             val removed = withContext(Dispatchers.IO) { deleteOfflineBook(getApplication(), book) }
-            offlineDownloadMessage = if (removed) "Copia local eliminada. El libro sigue en tu biblioteca."
-                else "No se encontró la copia local en Descargas."
+            offlineDownloadMessage = if (removed) tr("Copia local eliminada. El libro sigue en tu biblioteca.")
+                else tr("No se encontró la copia local en Descargas.")
             offlineRevision++
         }
     }
@@ -782,7 +779,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             if (revision == saveVersion && folder == prefs.getString(folderKey, null) &&
                 (!onlyIfEmpty || books.isEmpty())) books = restored
         } catch (_: Exception) {
-            detailMessage = "No se pudo recuperar el catálogo. Se conserva la biblioteca actual."
+            detailMessage = tr("No se pudo recuperar el catálogo. Se conserva la biblioteca actual.")
         }
     }
 
@@ -879,7 +876,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         return backup.toString().also {
                 parseBackup(it)
                 require(it.toByteArray(Charsets.UTF_8).size <= FileLimits.BACKUP_BYTES) {
-                    "El respaldo supera el límite de 32 MB."
+                    tr("El respaldo supera el límite de 32 MB.")
                 }
             }
     }
@@ -970,7 +967,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 prefs.edit().putString("pending_backup", result.pending).apply()
                 if (result.pending != null) {
                     message = if (books.isEmpty())
-                        "Respaldo recibido. Selecciona tu carpeta de libros y sincroniza para recuperarlo."
+                        tr("Respaldo recibido. Selecciona tu carpeta de libros y sincroniza para recuperarlo.")
                     else "$matched fichas restauradas. Las restantes se recuperarán al sincronizar."
                 } else message = trf("{0} fichas restauradas.", matched)
             } catch (e: Exception) { message = trf("No se pudo importar: {0}", e.localizedMessage) }
@@ -1001,7 +998,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val dataEditor = prefs.edit()
         val requiredSpace = records.sumOf { it.optString("coverBase64").length.toLong() * 2 } + FileLimits.FREE_SPACE
         require(getApplication<Application>().filesDir.usableSpace > requiredSpace) {
-            "No hay espacio suficiente para restaurar el respaldo."
+            tr("No hay espacio suficiente para restaurar el respaldo.")
         }
         val selected = mutableSetOf<Int>()
         var matched = 0
@@ -1216,7 +1213,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         if (uri in sagaSearches) return
         val book = books.firstOrNull { it.uri == uri } ?: return
         if (prefs.getBoolean("manual_identity_" + uri, false)) {
-            detailMessage = "Se conserva la saga editada manualmente. Puedes cambiarla desde Editar datos."
+            detailMessage = tr("Se conserva la saga editada manualmente. Puedes cambiarla desde Editar datos.")
             return
         }
         viewModelScope.launch {
@@ -1224,7 +1221,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val found = withContext(Dispatchers.IO) { fetchSagaMetadata(book) }
                 if (found.first.isBlank()) {
-                    detailMessage = "No se ha podido identificar la saga automáticamente."
+                    detailMessage = tr("No se ha podido identificar la saga automáticamente.")
                 } else {
                     books = books.map { current -> if (current.uri == uri) current.copy(
                         saga = found.first,
@@ -1360,7 +1357,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             rating = rating.coerceIn(0, 5), startedDate = started.trim(),
             finishedDate = finished.trim(), quotes = quotes.trim()) else it }
         saveBooks()
-        detailMessage = "Diario de lectura guardado."
+        detailMessage = tr("Diario de lectura guardado.")
         books.firstOrNull { it.uri == uri }?.let { addActivity("Diario actualizado · ${displayTitle(it)}") }
     }
 
@@ -1379,7 +1376,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         ) else it }
         saveBooks()
         books.firstOrNull { it.uri == uri }?.let { addActivity("Organización actualizada · ${displayTitle(it)}") }
-        detailMessage = "Etiquetas y préstamo guardados."
+        detailMessage = tr("Etiquetas y préstamo guardados.")
     }
 
     fun saveManualInfo(uri: Uri, plot: String, bio: String) {
@@ -1423,7 +1420,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     try {
                         java.io.ByteArrayOutputStream().use { out ->
                             check(scaled.compress(Bitmap.CompressFormat.JPEG, 78, out)) {
-                                "No se pudo procesar la portada."
+                                tr("No se pudo procesar la portada.")
                             }
                             out.toByteArray()
                         }
@@ -1586,8 +1583,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val targets = books.filter { force || it.genre.isBlank() }
             .filterNot { prefs.getBoolean("manual_genre_" + it.uri, false) }
         if (targets.isEmpty()) {
-            message = if (books.any { it.genre.isNotBlank() }) "Todos los libros posibles ya están clasificados."
-                else "No hay libros disponibles para clasificar."
+            message = if (books.any { it.genre.isNotBlank() }) tr("Todos los libros posibles ya están clasificados.")
+                else tr("No hay libros disponibles para clasificar.")
             return
         }
         viewModelScope.launch {
@@ -1653,8 +1650,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         animationMode = if (enabled) "Equilibrada" else "Sin animaciones"
         prefs.edit().putFloat("interface_text_scale", interfaceTextScale)
             .putString("animation_mode", animationMode).apply()
-        message = if (enabled) "Interfaz estándar activada"
-            else "Modo accesible activado: texto muy grande y sin animaciones"
+        message = if (enabled) tr("Interfaz estándar activada")
+            else tr("Modo accesible activado: texto muy grande y sin animaciones")
     }
 
     fun dismissFirstRunGuide() {
@@ -2112,7 +2109,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 val bytes = embedded ?: withContext(Dispatchers.IO) { fetchCover(book) }
                 if (bytes == null) {
-                    detailMessage = "No se encontró una portada en el EPUB ni en los catálogos consultados."
+                    detailMessage = tr("No se encontró una portada en el EPUB ni en los catálogos consultados.")
                 } else {
                     withContext(Dispatchers.IO) {
                         val file = coverFile(getApplication(), book.uri)
@@ -2122,7 +2119,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     books = books.map { if (it.uri == book.uri) it.copy(cover = bytes,
                         coverSource = if (embedded != null) "Portada del EPUB" else "Catálogos públicos") else it }
                     saveBooks()
-                    detailMessage = "Portada incorporada a la ficha."
+                    detailMessage = tr("Portada incorporada a la ficha.")
                 }
             } catch (e: Exception) {
                 detailMessage = trf("No se pudo recuperar la portada: {0}", e.localizedMessage ?: tr("comprueba la conexión"))
@@ -2248,7 +2245,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 if (changed) saveBooks()
                 if (force) detailMessage = if (changed)
-                    "Ficha actualizada con los datos encontrados."
+                    tr("Ficha actualizada con los datos encontrados.")
                 else null
             } finally {
                 autoCoverLoading = autoCoverLoading - uri
@@ -3326,54 +3323,6 @@ private fun libraryColors(dark: Boolean) = if (dark) darkColorScheme(
     surfaceVariant = Color(0xFFECE0C8)
 )
 
-private const val APP_ACCESS_PASSWORD = "MATRIX"
-
-@Composable
-private fun PasswordGate(onUnlocked: () -> Unit, onRejected: () -> Unit) {
-    var password by rememberSaveable { mutableStateOf("") }
-    BackHandler(onBack = onRejected)
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black),
-        contentAlignment = Alignment.Center
-    ) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("Acceso protegido", color = Color.White) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Introduce la contraseña para abrir Bookhollow.", color = Color.White)
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Contraseña") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = Color.White,
-                            unfocusedBorderColor = Color.Gray,
-                            focusedLabelColor = Color.White,
-                            unfocusedLabelColor = Color.LightGray,
-                            cursorColor = Color.White
-                        )
-                    )
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    if (password == APP_ACCESS_PASSWORD) onUnlocked() else onRejected()
-                }) { Text("Entrar") }
-            },
-            containerColor = Color.Black,
-            titleContentColor = Color.White,
-            textContentColor = Color.White
-        )
-    }
-}
-
 class MainActivity : ComponentActivity() {
     private lateinit var libraryVm: LibraryViewModel
     private var jankStats: JankStats? = null
@@ -3395,22 +3344,14 @@ class MainActivity : ComponentActivity() {
         libraryVm = ViewModelProvider(this)[LibraryViewModel::class.java]
         handleSharedBook(intent)
         setContent {
-            var unlocked by rememberSaveable { mutableStateOf(false) }
-            if (unlocked) {
-                val systemDensity = LocalDensity.current
-                val accessibleDensity = remember(systemDensity, libraryVm.interfaceTextScale) {
-                    Density(systemDensity.density, systemDensity.fontScale * libraryVm.interfaceTextScale)
-                }
-                CompositionLocalProvider(LocalDensity provides accessibleDensity) {
-                    MaterialTheme(colorScheme = libraryColors(AppThemeState.dark)) { LibraryApp(libraryVm) }
-                }
-            } else {
-                MaterialTheme(colorScheme = darkColorScheme()) {
-                    PasswordGate(
-                        onUnlocked = { unlocked = true },
-                        onRejected = { finishAffinity() }
-                    )
-                }
+            // Sin contraseña de acceso: una app publicada en Google Play debe poder abrirse
+            // directamente (el revisor de Google la rechazaría bloqueada).
+            val systemDensity = LocalDensity.current
+            val accessibleDensity = remember(systemDensity, libraryVm.interfaceTextScale) {
+                Density(systemDensity.density, systemDensity.fontScale * libraryVm.interfaceTextScale)
+            }
+            CompositionLocalProvider(LocalDensity provides accessibleDensity) {
+                MaterialTheme(colorScheme = libraryColors(AppThemeState.dark)) { LibraryApp(libraryVm) }
             }
         }
         jankStats = JankStats.createAndTrack(window) { frame ->
@@ -3516,7 +3457,7 @@ private fun shareBookFile(context: Context, book: Book) {
             clipData = android.content.ClipData.newUri(context.contentResolver, name, book.uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(send, "Compartir libro"))
+        context.startActivity(Intent.createChooser(send, tr("Compartir libro")))
     } catch (_: Exception) {
         android.widget.Toast.makeText(context, tr("No se pudo compartir este archivo de Drive"),
             android.widget.Toast.LENGTH_LONG).show()
@@ -3618,7 +3559,8 @@ private fun openCasaDelLibro(context: Context) {
         "Día" -> Icons.Outlined.LightMode
         else -> Icons.Outlined.MenuBook
     }
-    Icon(vector, description, Modifier.size(size), tint = tint)
+    // La descripción (TalkBack) se traduce aquí para todos los iconos de la app.
+    Icon(vector, description?.let { tr(it) }, Modifier.size(size), tint = tint)
 }
 
 @Composable private fun ActionLabel(text: String, icon: String,
@@ -3991,9 +3933,9 @@ private fun openCasaDelLibro(context: Context) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(tr("Conecta la carpeta donde guardas tus libros. La aplicación creará el catálogo y conservará tus datos en el teléfono."))
                 listOf(
-                    "1" to "Elige la carpeta Libros de Google Drive.",
-                    "2" to "Pulsa Usar esta carpeta en la pantalla de Android.",
-                    "3" to "Espera al primer análisis; después solo se revisarán los cambios."
+                    "1" to tr("Elige la carpeta Libros de Google Drive."),
+                    "2" to tr("Pulsa Usar esta carpeta en la pantalla de Android."),
+                    "3" to tr("Espera al primer análisis; después solo se revisarán los cambios.")
                 ).forEach { (number, instruction) ->
                     Row(verticalAlignment = Alignment.Top,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -4170,26 +4112,6 @@ private fun openCasaDelLibro(context: Context) {
         ActivityResultContracts.CreateDocument("text/csv")) { uri -> uri?.let(vm::exportCatalogCsv) }
     val notebookExport = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain")) { uri -> uri?.let(vm::exportReadingNotebook) }
-    // Alternativa si el escáner de Google Play services no está disponible: foto de la cámara.
-    val isbnCamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
-        if (bitmap != null) BarcodeScanning.getClient().process(InputImage.fromBitmap(bitmap, 0))
-            .addOnSuccessListener { codes ->
-                val isbn = codes.asSequence().mapNotNull { it.rawValue }
-                    .mapNotNull(::normalizeIsbn).firstOrNull()
-                if (isbn != null) handleScannedIsbn(isbn)
-                else android.widget.Toast.makeText(context, tr("No se ha detectado un ISBN. Acerca más la cámara."),
-                    android.widget.Toast.LENGTH_LONG).show()
-            }
-            .addOnFailureListener {
-                android.widget.Toast.makeText(context, tr("No se ha detectado un ISBN. Acerca más la cámara."),
-                    android.widget.Toast.LENGTH_LONG).show()
-            }
-    }
-    var launchIsbnCamera by remember { mutableStateOf(false) }
-    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted && launchIsbnCamera) isbnCamera.launch(null)
-        launchIsbnCamera = false
-    }
     var voiceListening by remember { mutableStateOf(false) }
     var voiceTargetPublic by remember { mutableStateOf(false) }
     var startVoiceWhenPermitted by remember { mutableStateOf(false) }
@@ -4335,7 +4257,6 @@ private fun openCasaDelLibro(context: Context) {
             readingBooks = booksSnapshot.count { it.status == ReadingStatus.READING },
             offlineBooks = offlineBookUris.size,
             folderLinked = vm.folderLinked,
-            cameraGranted = granted(Manifest.permission.CAMERA),
             microphoneGranted = granted(Manifest.permission.RECORD_AUDIO),
             notificationsGranted = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU ||
                 granted(Manifest.permission.POST_NOTIFICATIONS),
@@ -4999,6 +4920,16 @@ private fun openCasaDelLibro(context: Context) {
             Text(tr("Puedes revisar y exportar tus datos desde Opciones de biblioteca."),
                 fontSize = 12.sp, color = Mahogany.copy(alpha = .75f))
         } },
+        // Google Play pide que la política de privacidad completa se pueda abrir desde la app.
+        dismissButton = { LibraryTextButton(onClick = {
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW,
+                    Uri.parse(AppBrand.PRIVACY_URL + "#" + I18n.currentLanguage())))
+            } catch (_: Exception) {
+                android.widget.Toast.makeText(context, tr("No hay ninguna aplicación para abrir el enlace"),
+                    android.widget.Toast.LENGTH_LONG).show()
+            }
+        }) { Text(tr("Política completa")) } },
         confirmButton = { LibraryTextButton(onClick = { privacyOpen = false }) { Text(tr("Entendido")) } })
     if (supportOpen) {
         val diagnostic = supportDiagnosticText()
@@ -5447,11 +5378,11 @@ private fun openCasaDelLibro(context: Context) {
                                         android.widget.Toast.LENGTH_LONG).show()
                                 },
                                 onUnavailable = {
-                                    launchIsbnCamera = true
-                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                                        PackageManager.PERMISSION_GRANTED) {
-                                        launchIsbnCamera = false; isbnCamera.launch(null)
-                                    } else cameraPermission.launch(Manifest.permission.CAMERA)
+                                    // El escáner de Google no necesita el permiso de cámara. La antigua
+                                    // alternativa (foto en miniatura) leía mal y obligaba a pedirlo.
+                                    android.widget.Toast.makeText(context,
+                                        tr("El escáner de códigos no está disponible en este dispositivo. Escribe el ISBN en el buscador."),
+                                        android.widget.Toast.LENGTH_LONG).show()
                                 })
                         })
                     NavigationDrawerItem(label = { Text(tr("Exportar catálogo para Excel")) }, selected = false,
@@ -5743,7 +5674,7 @@ private fun openCasaDelLibro(context: Context) {
                     if (vm.syncing) {
                         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Brass)
                         Text(
-                            if (vm.syncCount == 0) "Conectando con Drive…"
+                            if (vm.syncCount == 0) tr("Conectando con Drive…")
                             else "Revisando ${vm.syncCount} archivos…",
                             modifier = Modifier.padding(vertical = 8.dp),
                             style = MaterialTheme.typography.bodySmall
@@ -5925,7 +5856,7 @@ private fun openCasaDelLibro(context: Context) {
                             if (url.startsWith("http")) openGoodreadsUrl(context, url)
                             else searchInGoogleApp(context, "$title libro EPUB comprar préstamo")
                         },
-                            modifier = Modifier.weight(1f)) { Text(title.ifBlank { "Libro de reseñas" }) }
+                            modifier = Modifier.weight(1f)) { Text(title.ifBlank { tr("Libro de reseñas") }) }
                         IconButton(onClick = { vm.removeGoodreadsWish(title, url) }) {
                             AppIcon("Cerrar", "Quitar de pendientes")
                         }
@@ -5952,8 +5883,8 @@ private fun openCasaDelLibro(context: Context) {
                     Column(Modifier.fillMaxWidth().padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        WallpaperLabel(if (vm.onlyFavorites) "Todavía no hay libros favoritos."
-                            else "No hay libros con estos filtros.")
+                        WallpaperLabel(if (vm.onlyFavorites) tr("Todavía no hay libros favoritos.")
+                            else tr("No hay libros con estos filtros."))
                         if (!vm.onlyFavorites) OutlinedButton(onClick = {
                             vm.query = ""; vm.statusFilter = null; vm.qualityFilter = "Ninguno"
                             vm.selectedSection = null; smartCollection = null
@@ -6744,7 +6675,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
                         role = Role.Button
                     }
                     .combinedClickable(onClick = { onOpen(book) },
-                        onLongClickLabel = "Más opciones", onLongClick = { onLongPress(book) })) {
+                        onLongClickLabel = tr("Más opciones"), onLongClick = { onLongPress(book) })) {
                     Box {
                         FlatCover(book, 112.dp, 164.dp)
                         if (book.uri in offline) OfflineBadge(
@@ -6797,7 +6728,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
                         role = Role.Button
                     }
                     .combinedClickable(onClick = { onOpen(book) },
-                        onLongClickLabel = "Más opciones", onLongClick = { onLongPress(book) }),
+                        onLongClickLabel = tr("Más opciones"), onLongClick = { onLongPress(book) }),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = Paper),
                     elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) {
@@ -6834,7 +6765,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
     Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp)
         .semantics { contentDescription = "$title, $author. ${book.status.displayLabel}"; role = Role.Button }
-        .combinedClickable(onClick = onClick, onLongClickLabel = "Más opciones", onLongClick = onLongPress),
+        .combinedClickable(onClick = onClick, onLongClickLabel = tr("Más opciones"), onLongClick = onLongPress),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
         colors = CardDefaults.cardColors(containerColor = Paper),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
@@ -6870,7 +6801,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
     val author = remember(book.author, book.customAuthor) { displayAuthor(book) }
     Card(Modifier.fillMaxWidth().padding(horizontal = 8.dp)
         .semantics { contentDescription = "$title, $author. ${book.status.displayLabel}"; role = Role.Button }
-        .combinedClickable(onClick = onClick, onLongClickLabel = "Más opciones", onLongClick = onLongPress),
+        .combinedClickable(onClick = onClick, onLongClickLabel = tr("Más opciones"), onLongClick = onLongPress),
         colors = CardDefaults.cardColors(containerColor = Paper),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -6903,7 +6834,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
         val coverWidth = maxWidth
         Card(Modifier.fillMaxWidth()
             .semantics { contentDescription = "$title, $author. ${book.status.displayLabel}"; role = Role.Button }
-            .combinedClickable(onClick = onClick, onLongClickLabel = "Más opciones", onLongClick = onLongPress),
+            .combinedClickable(onClick = onClick, onLongClickLabel = tr("Más opciones"), onLongClick = onLongPress),
             // Esquinas redondeadas y una sombra suave: las portadas parecen libros sobre la mesa.
             shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(containerColor = Paper),
@@ -7777,7 +7708,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
             Text(displayTitle(book) + " · " + displayAuthor(book), fontWeight = FontWeight.Bold)
             Text(tr("Tamaño: ") + readableSize(book.sourceSize))
             if (book.isbn.isNotBlank()) Text(tr("ISBN: ") + book.isbn, fontSize = 12.sp)
-            Text(tr("Archivo: ") + (duplicateNames[book.uri] ?: "Consultando nombre…"),
+            Text(tr("Archivo: ") + (duplicateNames[book.uri] ?: tr("Consultando nombre…")),
                 fontSize = 12.sp)
             if (possibleDuplicates.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
@@ -7986,7 +7917,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                                 extension.takeIf { it in setOf("epub", "pdf", "mobi", "azw", "azw3", "fb2", "txt", "html", "htm", "rtf", "docx", "md") }.orEmpty().ifBlank { "epub" })
                         }
                     }, modifier = Modifier.weight(1f).height(56.dp), enabled = !exportingEpub && !offlineDownloading) {
-                        ActionLabel(if (exportingEpub || offlineDownloading) "Descargando…"
+                        ActionLabel(if (exportingEpub || offlineDownloading) tr("Descargando…")
                             else if (offlineAvailable) "Actualizar copia" else "Sin conexión",
                             "Descargar", 12.sp)
                     }
@@ -8046,7 +7977,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             LibraryActionButton(onClick = recoverCover, enabled = !coverSearching,
                                 modifier = Modifier.weight(1f).heightIn(min = 54.dp)) {
-                                ActionLabel(if (coverSearching) "Recuperando…" else "Recuperar portada", "Buscar", 11.sp)
+                                ActionLabel(if (coverSearching) tr("Recuperando…") else "Recuperar portada", "Buscar", 11.sp)
                             }
                             LibraryActionButton(onClick = { coverPicker.launch("image/*") },
                                 modifier = Modifier.weight(1f).heightIn(min = 54.dp)) {
@@ -8106,7 +8037,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         Text(book.saga, fontWeight = FontWeight.Bold, color = Mahogany)
                         Text(
                             if (book.sagaOrder.isNotBlank()) "Este libro es el número ${book.sagaOrder}."
-                            else "Este libro no tiene número de saga asignado.",
+                            else tr("Este libro no tiene número de saga asignado."),
                             fontSize = 12.sp, color = Mahogany
                         )
                         Spacer(Modifier.height(8.dp))
@@ -8222,7 +8153,7 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     LibraryActionButton(onClick = enrich, enabled = !infoLoading,
                         modifier = Modifier.weight(1f)) {
-                        ActionLabel(if (infoLoading) "Buscando…" else "Reintentar búsqueda", "Buscar", 12.sp)
+                        ActionLabel(if (infoLoading) tr("Buscando…") else "Reintentar búsqueda", "Buscar", 12.sp)
                     }
                     LibraryActionButton(onClick = {
                         plotDraft = book.spanishPlot.ifBlank { plot }

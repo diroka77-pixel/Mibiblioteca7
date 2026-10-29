@@ -29,6 +29,6 @@ internal fun libraryHelpSections(): List<LibraryHelpSection> = listOf(
     ),
     LibraryHelpSection(
         "Privacidad",
-        "Los permisos de cámara y micrófono solo se solicitan al usar el escáner ISBN o la búsqueda por voz. La aplicación no incluye anuncios ni analítica propia."
+        "El permiso de micrófono solo se solicita al usar la búsqueda por voz; el escáner ISBN no necesita permiso de cámara. La aplicación no incluye anuncios ni analítica propia."
     )
 )

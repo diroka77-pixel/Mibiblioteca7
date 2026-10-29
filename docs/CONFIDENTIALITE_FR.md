@@ -1,6 +1,6 @@
 # Politique de confidentialité de Bookhollow
 
-Dernière mise à jour : 25 octobre 2026.
+Dernière mise à jour : 29 octobre 2026.
 
 Bookhollow est une application pour organiser et lire des livres numériques. Elle n'a ni publicité ni outil d'analyse propre et ne demande pas de compte. Les fonctions Google ML Kit (scanner ISBN, traduction et détection de langue) peuvent envoyer à Google des données techniques d'utilisation et de performance selon les conditions de Google ; jamais le contenu des livres ni les notes.
 
@@ -16,7 +16,7 @@ La connexion sert à synchroniser avec le fournisseur de fichiers choisi et aux 
 
 ## Autorisations
 
-- Appareil photo : uniquement pour scanner les codes ISBN.
+- Appareil photo : l'app ne demande pas cette autorisation. Le scanner ISBN est celui de Google Play services, qui affiche l'image de la caméra sans y donner accès à l'app.
 - Micro : uniquement pour la recherche vocale.
 - Notifications et service multimédia : pour afficher les commandes de lecture à voix haute.
 - Internet : pour les requêtes et synchronisations lancées par l'utilisateur.
@@ -30,3 +30,11 @@ Les boutons qui ouvrent d'autres sites (Goodreads, Casa del Libro, YouTube, la R
 ## Contrôle de l'utilisateur
 
 L'utilisateur peut exporter une sauvegarde, modifier ou retirer l'accès au dossier depuis Android et effacer les données de Bookhollow dans les paramètres du système. L'application ne supprime jamais de livres d'elle-même.
+
+## Mineurs
+
+Bookhollow ne s'adresse pas aux enfants de moins de 13 ans et ne collecte pas sciemment de données les concernant.
+
+## Modifications et contact
+
+Si cette politique change, la nouvelle version sera publiée ici avec sa date. Pour toute question sur la confidentialité ou pour demander le retrait d'un contenu, écrivez sur https://github.com/diroka77-pixel/Mibiblioteca7/issues.
