@@ -1,5 +1,8 @@
 # Bookhollow (antes MiBiblioteca)
 
+## Versión 1.0.93
+- El fondo automático ya no muestra el reflejo de una portada detrás de la cabecera. Detalles en `docs/CAMBIOS_1.0.93.md`.
+
 ## Versión 1.0.92
 - Correo de contacto bookhollow.app@gmail.com, botón «Escribir al soporte», política de privacidad en un repositorio público aparte y acciones de GitHub actualizadas. Detalles en `docs/CAMBIOS_1.0.92.md`.
 

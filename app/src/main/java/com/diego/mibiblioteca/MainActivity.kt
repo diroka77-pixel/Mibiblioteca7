@@ -7601,11 +7601,13 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
             }
         }
     }
-    val unclassified = book != null && normalizeBookGenres(book.genre)
-        .none { it in wallpaperGenres }
-    if ((mode == "Portada" || (mode == "Automático" && unclassified)) && book != null) {
+    // La portada tenue solo aparece si el usuario elige el fondo «Portada». En «Automático»
+    // se dibujaba también con libros sin género reconocido y se veía como un reflejo de la
+    // portada (y de su título) detrás de la cabecera.
+    if (mode == "Portada" && book != null) {
         Box(Modifier.fillMaxSize()) {
-            Box(Modifier.align(Alignment.TopEnd).padding(top = 24.dp, end = 16.dp)
+            // Por debajo de la cabecera semitransparente, para que no se transparente tras el título.
+            Box(Modifier.align(Alignment.TopEnd).padding(top = 150.dp, end = 16.dp)
                 .graphicsLayer { alpha = .10f; rotationZ = -8f }) {
                 FlatCover(book, 180.dp, 255.dp)
             }
