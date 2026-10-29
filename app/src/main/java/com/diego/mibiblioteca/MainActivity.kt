@@ -87,6 +87,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Density
@@ -3325,6 +3326,54 @@ private fun libraryColors(dark: Boolean) = if (dark) darkColorScheme(
     surfaceVariant = Color(0xFFECE0C8)
 )
 
+private const val APP_ACCESS_PASSWORD = "MATRIX"
+
+@Composable
+private fun PasswordGate(onUnlocked: () -> Unit, onRejected: () -> Unit) {
+    var password by rememberSaveable { mutableStateOf("") }
+    BackHandler(onBack = onRejected)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Acceso protegido", color = Color.White) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Introduce la contraseña para abrir Bookhollow.", color = Color.White)
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Contraseña") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = Color.White,
+                            unfocusedBorderColor = Color.Gray,
+                            focusedLabelColor = Color.White,
+                            unfocusedLabelColor = Color.LightGray,
+                            cursorColor = Color.White
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (password == APP_ACCESS_PASSWORD) onUnlocked() else onRejected()
+                }) { Text("Entrar") }
+            },
+            containerColor = Color.Black,
+            titleContentColor = Color.White,
+            textContentColor = Color.White
+        )
+    }
+}
+
 class MainActivity : ComponentActivity() {
     private lateinit var libraryVm: LibraryViewModel
     private var jankStats: JankStats? = null
@@ -3346,12 +3395,22 @@ class MainActivity : ComponentActivity() {
         libraryVm = ViewModelProvider(this)[LibraryViewModel::class.java]
         handleSharedBook(intent)
         setContent {
-            val systemDensity = LocalDensity.current
-            val accessibleDensity = remember(systemDensity, libraryVm.interfaceTextScale) {
-                Density(systemDensity.density, systemDensity.fontScale * libraryVm.interfaceTextScale)
-            }
-            CompositionLocalProvider(LocalDensity provides accessibleDensity) {
-                MaterialTheme(colorScheme = libraryColors(AppThemeState.dark)) { LibraryApp(libraryVm) }
+            var unlocked by rememberSaveable { mutableStateOf(false) }
+            if (unlocked) {
+                val systemDensity = LocalDensity.current
+                val accessibleDensity = remember(systemDensity, libraryVm.interfaceTextScale) {
+                    Density(systemDensity.density, systemDensity.fontScale * libraryVm.interfaceTextScale)
+                }
+                CompositionLocalProvider(LocalDensity provides accessibleDensity) {
+                    MaterialTheme(colorScheme = libraryColors(AppThemeState.dark)) { LibraryApp(libraryVm) }
+                }
+            } else {
+                MaterialTheme(colorScheme = darkColorScheme()) {
+                    PasswordGate(
+                        onUnlocked = { unlocked = true },
+                        onRejected = { finishAffinity() }
+                    )
+                }
             }
         }
         jankStats = JankStats.createAndTrack(window) { frame ->
