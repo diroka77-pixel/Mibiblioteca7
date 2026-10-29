@@ -13,7 +13,7 @@ import java.net.URL
  * gutenberg.org (título, autor e idioma de la edición). Se descargan solo cuando
  * el usuario lo pide.
  */
-internal data class SampleBook(val gutenbergId: Int, val title: String, val author: String) {
+data class SampleBook(val gutenbergId: Int, val title: String, val author: String) {
     val downloadUrl: String get() = "https://www.gutenberg.org/ebooks/$gutenbergId.epub3.images"
     val fileName: String get() = "clasico-$gutenbergId.epub"
     /** Portada que publica Project Gutenberg para cada libro. */
