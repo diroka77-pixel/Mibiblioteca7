@@ -1,0 +1,5 @@
+• Ao virar a página, as linhas não se repetem nem são cortadas.
+• Clássicos gratuitos sempre no Início.
+• Lançamentos das grandes editoras do seu país, com capa.
+• Somente fontes abertas: Open Library, Wikipédia e Project Gutenberg.
+• Menus do leitor legíveis no modo escuro.

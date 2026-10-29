@@ -1,5 +1,8 @@
 # Bookhollow (antes MiBiblioteca)
 
+## Versión 1.0.90
+- Al pasar de página ya no se repiten ni se cortan las últimas líneas. Detalles en `docs/CAMBIOS_1.0.90.md`.
+
 ## Versión 1.0.89
 - Estantería «Clásicos gratuitos» siempre visible en Inicio: los clásicos no desaparecen al añadir más libros. Detalles en `docs/CAMBIOS_1.0.89.md`.
 

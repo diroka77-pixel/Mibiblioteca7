@@ -211,8 +211,18 @@ private fun speechCharForOffset(page: SpeechPage, offset: Int, total: Int): Int 
 private fun openingParagraph(paragraphs: List<ReadingParagraph>, index: Int): Boolean =
     !paragraphs[index].heading && (index == 0 || paragraphs[index - 1].heading)
 
+/**
+ * Reparte el texto en páginas que caben exactamente en [height].
+ *
+ * [chapterGapPx] es el espacio en blanco que se dibuja encima de un capítulo cuando abre
+ * página. [anchorChar] es la posición que se está leyendo: se fuerza un salto de página
+ * justo en la línea que la contiene, de modo que al volver a paginar (por ejemplo, porque
+ * cambia el alto disponible) la página actual empieza donde estaba y no se repiten al
+ * principio las últimas líneas de la página anterior.
+ */
 private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int, height: Int,
-    textSizePx: Float, gapPx: Int, lineSpacing: Float = 1.45f): List<ReadingPage> {
+    textSizePx: Float, gapPx: Int, lineSpacing: Float = 1.45f, chapterGapPx: Int = 0,
+    anchorChar: Int = -1): List<ReadingPage> {
     val pages = mutableListOf<ReadingPage>()
     val slices = mutableListOf<ReadingSlice>()
     var occupied = 0
@@ -231,7 +241,6 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
         if (paragraph.chapterStart) {
             // Start a chapter on a new page only when the current page is nearly full.
             if (slices.isNotEmpty() && occupied > (height * 0.82f).toInt()) finish()
-            occupied += (gapPx * 2).coerceAtMost(height / 8)
         }
         if (paragraph.imagePath != null) {
             // La ilustración comparte página con el texto siguiente cuando
@@ -269,14 +278,24 @@ private suspend fun paginateText(paragraphs: List<ReadingParagraph>, width: Int,
             paint, width.coerceAtLeast(1)).setAlignment(Layout.Alignment.ALIGN_NORMAL)
             .setJustificationMode(Layout.JUSTIFICATION_MODE_NONE)
             .setLineSpacing(0f, lineSpacing.coerceIn(1.0f, 2.0f)).setIncludePad(false).build()
+        // Línea de este párrafo en la que está la posición de lectura (o -1).
+        val anchorOffset = anchorChar - positions[index]
+        val anchorLine = if (anchorOffset in 0 until paragraph.text.length.coerceAtLeast(1))
+            layout.getLineForOffset(anchorOffset) else -1
         var line = 0
         while (line < layout.lineCount) {
+            if (line == anchorLine && slices.isNotEmpty()) finish()
             if (slices.isNotEmpty() && occupied + gapPx +
                 layout.getLineBottom(line) - layout.getLineTop(line) > height) finish()
+            // Un capítulo que abre página lleva encima un espacio en blanco (y el
+            // espaciado normal entre elementos): se reserva para que nada quede cortado.
+            if (slices.isEmpty() && line == 0 && paragraph.chapterStart && chapterGapPx > 0)
+                occupied += chapterGapPx + gapPx
             val first = line
             var used = 0
             val room = height - occupied - if (slices.isEmpty()) 0 else gapPx
             while (line < layout.lineCount) {
+                if (line == anchorLine && line > first) break
                 val lineHeight = layout.getLineBottom(line) - layout.getLineTop(line)
                 if (used + lineHeight > room && line > first) break
                 used += lineHeight; line++
@@ -854,15 +873,23 @@ private fun SelectableParagraph(
             })
         }
     }, update = { view ->
+        // Igual que en paginateText (proporcional al tamaño de letra): con un valor fijo,
+        // los títulos medían distinto de lo calculado si la letra no era de 18.
         view.setTextSize(TypedValue.COMPLEX_UNIT_SP, size + when {
-            paragraph.partHeading -> 8f
-            paragraph.heading -> 4f
+            paragraph.partHeading -> 8f * size / 18f
+            paragraph.heading -> 4f * size / 18f
             else -> 0f
         })
         view.typeface = Typeface.create(Typeface.SERIF,
             if (paragraph.heading) Typeface.BOLD else Typeface.NORMAL)
         view.setLineSpacing(0f, lineSpacing)
         view.justificationMode = Layout.JUSTIFICATION_MODE_NONE
+        // Mismo corte de líneas que el StaticLayout con el que se calculan las páginas.
+        // TextView usa por defecto otro algoritmo (y guiones, y alto extra para fuentes de
+        // respaldo), lo que podía añadir una línea y dejar las últimas fuera de la página.
+        view.breakStrategy = Layout.BREAK_STRATEGY_SIMPLE
+        view.hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE
+        if (android.os.Build.VERSION.SDK_INT >= 28) view.isFallbackLineSpacing = false
         view.textAlignment = if (paragraph.heading) TextView.TEXT_ALIGNMENT_CENTER
             else TextView.TEXT_ALIGNMENT_INHERIT
         view.setTextColor(foreground.toArgb())
@@ -1603,18 +1630,24 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         val density = LocalDensity.current
                         val width = with(density) { (maxWidth - (readerMargin * 2).dp).roundToPx() }
                         // Keep the progress strip visually separate while using the reading area efficiently.
-                        val height = with(density) { maxHeight.roundToPx() }
+                        // Se descuenta el relleno vertical de la página (2 dp arriba y abajo):
+                        // si no, la última línea quedaba cortada en algunas páginas.
+                        val height = with(density) { (maxHeight - 4.dp).roundToPx() }
                         val textSizePx = with(density) { fontSize.sp.toPx() }
                         // Debe coincidir con el espacio real entre párrafos para no reservar
                         // líneas invisibles al final de cada página.
                         val gap = with(density) { 6.dp.roundToPx() }
+                        val chapterGap = with(density) { 28.dp.roundToPx() }
                         val pages by produceState<List<ReadingPage>>(emptyList(), document,
                             width, height, fontSize, readerMargin, lineSpacing) {
                             ready = false
+                            // La página que se está leyendo sirve de ancla para no repetir líneas.
+                            val anchor = prefs.getInt("reading_char_$key", prefs.getInt("char_$key", -1))
                             // No se vacían las páginas mientras se recalculan: si se vaciaban,
                             // desaparecía todo lo que cuelga de ellas, incluida la hoja de ajustes.
                             value = withContext(Dispatchers.Default) {
-                                paginateText(paragraphs, width, height.coerceAtLeast(1), textSizePx, gap, lineSpacing)
+                                paginateText(paragraphs, width, height.coerceAtLeast(1), textSizePx, gap,
+                                    lineSpacing, chapterGap, anchor)
                             }
                         }
                         if (pages.isEmpty()) {
@@ -2124,14 +2157,16 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                             contentColor = foreground
                         ) {
                             Column(Modifier.fillMaxWidth()) {
-                                if (currentChapterTitle.isNotBlank()) {
-                                    Text(currentChapterTitle,
-                                        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                        fontFamily = FontFamily.Serif,
-                                        fontSize = 11.sp,
-                                        maxLines = 1)
-                                }
+                                // La línea del capítulo ocupa siempre su sitio (aunque esté vacía):
+                                // si aparecía y desaparecía, cambiaba el alto de la página y el libro
+                                // se volvía a paginar al pasar de página.
+                                Text(currentChapterTitle.ifBlank { " " },
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    fontFamily = FontFamily.Serif,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                                 LinearProgressIndicator(
                                     progress = { (percent / 100f).coerceIn(0f, 1f) },
                                     modifier = Modifier.fillMaxWidth().height(2.dp).semantics {
