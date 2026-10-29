@@ -37,4 +37,4 @@ Bookhollow no está dirigida a menores de 13 años y no recoge a sabiendas datos
 
 ## Cambios y contacto
 
-Si esta política cambia, se publicará aquí con su nueva fecha. Para cualquier consulta sobre privacidad o para pedir que se retire un contenido, escribe en https://github.com/diroka77-pixel/Mibiblioteca7/issues.
+Si esta política cambia, se publicará aquí con su nueva fecha. Para cualquier consulta sobre privacidad o para pedir que se retire un contenido, escribe a bookhollow.app@gmail.com.

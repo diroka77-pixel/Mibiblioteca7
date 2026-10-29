@@ -4938,21 +4938,33 @@ private fun openCasaDelLibro(context: Context) {
             text = { Column(Modifier.heightIn(max = 470.dp).verticalScroll(rememberScrollState())) {
                 Text(AppBrand.NAME, fontFamily = FontFamily.Serif, fontSize = 22.sp,
                     fontWeight = FontWeight.Bold, color = Mahogany)
+                Text(trf("Contacto: {0}", AppBrand.SUPPORT_EMAIL), fontSize = 13.sp, color = Teal)
                 Spacer(Modifier.height(12.dp))
                 Text(diagnostic, fontSize = 12.sp, lineHeight = 18.sp)
             } },
+            // Abre el correo con la dirección de soporte y el diagnóstico ya escritos; si no hay
+            // aplicación de correo, se comparte el diagnóstico como antes.
             dismissButton = { LibraryTextButton(onClick = {
-                val send = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "Diagnóstico de ${AppBrand.NAME}")
+                val subject = trf("Soporte de {0}", AppBrand.NAME)
+                val email = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:")).apply {
+                    putExtra(Intent.EXTRA_EMAIL, arrayOf(AppBrand.SUPPORT_EMAIL))
+                    putExtra(Intent.EXTRA_SUBJECT, subject)
                     putExtra(Intent.EXTRA_TEXT, diagnostic)
                 }
-                try { context.startActivity(Intent.createChooser(send, tr("Compartir diagnóstico"))) }
-                catch (_: Exception) {
-                    android.widget.Toast.makeText(context, tr("No se pudo compartir el diagnóstico."),
-                        android.widget.Toast.LENGTH_LONG).show()
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, subject)
+                    putExtra(Intent.EXTRA_TEXT, diagnostic)
                 }
-            }) { Text(tr("Compartir diagnóstico")) } },
+                try { context.startActivity(email) }
+                catch (_: Exception) {
+                    try { context.startActivity(Intent.createChooser(share, tr("Compartir diagnóstico"))) }
+                    catch (_: Exception) {
+                        android.widget.Toast.makeText(context, tr("No se pudo compartir el diagnóstico."),
+                            android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            }) { Text(tr("Escribir al soporte")) } },
             confirmButton = { LibraryTextButton(onClick = { supportOpen = false }) { Text(tr("Cerrar")) } })
     }
     if (helpOpen) AlertDialog(onDismissRequest = { helpOpen = false },

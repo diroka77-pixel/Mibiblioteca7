@@ -11,7 +11,8 @@ def inline(text):
     text = html.escape(text, quote=False)
     text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
     text = re.sub(r"`(.+?)`", r"<code>\1</code>", text)
-    return re.sub(r"(https://[^\s<)]+[^\s<).,;])", r'<a href="\1">\1</a>', text)
+    text = re.sub(r"(https://[^\s<)]+[^\s<).,;])", r'<a href="\1">\1</a>', text)
+    return re.sub(r"\b([\w.+-]+@[\w-]+\.[\w.]+[A-Za-z])\b", r'<a href="mailto:\1">\1</a>', text)
 
 def convert(md):
     out, items = [], []

@@ -16,24 +16,27 @@ hacer desde el móvil, aunque Play Console es más cómodo en un ordenador o una
 - Política de privacidad en seis idiomas lista para publicarse (`docs/privacy/index.html`).
 - Respuestas del formulario de seguridad de datos en `docs/DATA_SAFETY_ES.md`.
 
-## 1. Publicar la política de privacidad (5 minutos)
+## 1. Publicar la política de privacidad
 
-1. En GitHub, abre el repositorio **Mibiblioteca7** → **Settings** → **Pages**.
-2. En «Build and deployment», **Source**: *Deploy from a branch*.
-3. **Branch**: `desarrollo/optimizacion-integral` y carpeta **`/docs`** → **Save**.
-4. A los pocos minutos estará en
-   **https://diroka77-pixel.github.io/Mibiblioteca7/privacy/**
-   (el botón «Política completa» de la app abre esa dirección).
+La política se publica desde un repositorio **público y aparte**, `bookhollow`, que solo
+contiene esa página. Así el repositorio del código (Mibiblioteca7) puede ser privado: GitHub
+Pages gratuito solo funciona en repositorios públicos.
 
-Si algún día cambias la rama principal, vuelve a elegirla aquí.
+1. Crea el repositorio en https://github.com/new → nombre **bookhollow**, **Public**, marca
+   «Add a README file» → **Create repository**.
+2. Claude copia la página (`docs/privacy/index.html`, que se genera con
+   `tools/generar_privacidad.py`) a ese repositorio y activa GitHub Pages.
+3. Queda en **https://diroka77-pixel.github.io/bookhollow/privacy/** (el botón «Política
+   completa» de la app abre esa dirección).
+
+Contacto público de la app: **bookhollow.app@gmail.com** (política, ficha de Play y soporte).
 
 ## 2. Cuenta de desarrollador
 
 1. Entra en https://play.google.com/console/signup con la cuenta de Google que quieras usar.
 2. Elige **cuenta personal**, paga la cuota única de **25 USD** y verifica tu identidad
    (documento oficial y teléfono). Google pide además verificar el dispositivo Android.
-3. Guarda un **correo de contacto** para la ficha: Google lo muestra públicamente. Puedes
-   crear uno solo para la app (por ejemplo, bookhollow.app@…).
+3. Correo de contacto para la ficha (Google lo muestra públicamente): **bookhollow.app@gmail.com**.
 
 ## 3. Crear la app en Play Console
 
@@ -49,7 +52,7 @@ Si algún día cambias la rama principal, vuelve a elegirla aquí.
 
 | Apartado | Qué responder |
 | --- | --- |
-| Política de privacidad | https://diroka77-pixel.github.io/Mibiblioteca7/privacy/ |
+| Política de privacidad | https://diroka77-pixel.github.io/bookhollow/privacy/ |
 | Anuncios | La app **no contiene anuncios** |
 | Acceso a la app | **Toda la funcionalidad está disponible sin acceso especial** |
 | ID de publicidad | **No** usa el ID de publicidad |

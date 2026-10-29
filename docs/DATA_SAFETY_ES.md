@@ -64,4 +64,4 @@ y sin cederlos a terceros. Por eso:
 1. Revisar las definiciones actuales de «recopilado», «compartido» y «procesamiento efímero» de la tienda.
 2. Confirmar las declaraciones exigidas para ML Kit y cada proveedor externo.
 3. Comprobar que la versión publicada mantiene los mismos permisos del manifiesto revisado.
-4. URL de la política de privacidad: https://diroka77-pixel.github.io/Mibiblioteca7/privacy/ (activar GitHub Pages, ver `docs/PUBLICAR_EN_GOOGLE_PLAY.md`).
+4. URL de la política de privacidad: https://diroka77-pixel.github.io/bookhollow/privacy/ (activar GitHub Pages, ver `docs/PUBLICAR_EN_GOOGLE_PLAY.md`).

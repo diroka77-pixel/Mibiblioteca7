@@ -10,17 +10,22 @@ package com.diego.mibiblioteca
 internal object AppBrand {
     const val NAME = "Bookhollow"
 
-    /** Página de contacto que se envía a los servicios públicos (Wikipedia, Open Library). */
-    const val SUPPORT_URL = "https://github.com/diroka77-pixel/Mibiblioteca7"
+    /**
+     * Correo público de contacto y soporte: aparece en la ficha de Google Play, en la
+     * política de privacidad y en «Acerca de y soporte». También identifica la app ante
+     * los servicios públicos (Wikipedia y Open Library piden un contacto).
+     */
+    const val SUPPORT_EMAIL = "bookhollow.app@gmail.com"
 
     /**
-     * Política de privacidad pública (GitHub Pages, carpeta docs/privacy). Es la misma
+     * Política de privacidad pública (GitHub Pages del repositorio público «bookhollow», que solo
+     * contiene esa página, para que el repositorio del código pueda ser privado). Es la misma
      * dirección que hay que poner en Google Play Console. El idioma va tras la almohadilla.
      */
-    const val PRIVACY_URL = "https://diroka77-pixel.github.io/Mibiblioteca7/privacy/"
+    const val PRIVACY_URL = "https://diroka77-pixel.github.io/bookhollow/privacy/"
 
     /** Identificación para servicios con API pública: piden nombre y contacto. */
-    const val API_USER_AGENT = "$NAME/1.0 (Android; $SUPPORT_URL)"
+    const val API_USER_AGENT = "$NAME/1.0 (Android; $SUPPORT_EMAIL)"
 
     /** Identificación para páginas web que esperan un navegador. */
     const val WEB_USER_AGENT = "Mozilla/5.0 (Android; $NAME)"

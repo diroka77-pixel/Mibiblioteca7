@@ -37,4 +37,4 @@ Bookhollow richtet sich nicht an Kinder unter 13 Jahren und erhebt wissentlich k
 
 ## Änderungen und Kontakt
 
-Ändert sich diese Erklärung, wird die neue Fassung hier mit Datum veröffentlicht. Für Fragen zum Datenschutz oder um die Entfernung eines Inhalts zu beantragen, schreibe an https://github.com/diroka77-pixel/Mibiblioteca7/issues.
+Ändert sich diese Erklärung, wird die neue Fassung hier mit Datum veröffentlicht. Für Fragen zum Datenschutz oder um die Entfernung eines Inhalts zu beantragen, schreibe an bookhollow.app@gmail.com.
