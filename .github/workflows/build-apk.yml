@@ -18,12 +18,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.13'
       - name: Instalar SDK 35
@@ -57,13 +57,13 @@ jobs:
           VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
           test -n "$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Bookhollow-v${{ steps.app_version.outputs.version }}-firmada
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
       - name: Guardar paquete AAB para Google Play
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Bookhollow-v${{ steps.app_version.outputs.version }}-google-play-aab
           path: app/build/outputs/bundle/release/app-release.aab
@@ -73,7 +73,7 @@ jobs:
           split -b 28m -d -a 2 app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/Bookhollow.part-"
           sha256sum app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/Bookhollow.sha256"
           test "$(find "$RUNNER_TEMP" -maxdepth 1 -name 'Bookhollow.part-*' | wc -l)" -ge 1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Bookhollow-partes-v${{ steps.app_version.outputs.version }}
           path: |
