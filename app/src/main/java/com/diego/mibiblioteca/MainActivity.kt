@@ -3978,7 +3978,7 @@ private fun openCasaDelLibro(context: Context) {
         title = { Text(trApp("Bienvenido a {app}"), fontFamily = FontFamily.Serif,
             fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(tr("Conecta la carpeta donde guardas tus libros. La aplicación creará el catálogo y conservará tus datos en el teléfono."))
                 listOf(
                     "1" to tr("Elige la carpeta de tus libros: Descargas o cualquier carpeta del teléfono (gratis), o una carpeta en la nube como Google Drive o Dropbox (Premium)."),
@@ -4008,8 +4008,22 @@ private fun openCasaDelLibro(context: Context) {
     if (vm.showReleaseNotes && !vm.showFirstRunGuide) AlertDialog(
         onDismissRequest = vm::dismissReleaseNotes,
         title = { Text(trApp("Novedades de {app}")) },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        // Con desplazamiento: en móviles pequeños o con letra grande no cabe todo.
+        text = { Column(Modifier.verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(9.dp)) {
             currentReleaseNotes().forEach { note -> Text("• " + trApp(note), fontSize = 13.sp) }
+            Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp), color = Teal.copy(alpha = .14f),
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Outlined.WorkspacePremium, null, tint = Teal)
+                        Text(AppBrand.NAME + " PREMIUM", fontWeight = FontWeight.Bold, color = Teal,
+                            fontFamily = FontFamily.Serif, fontSize = 16.sp)
+                    }
+                    Text(trApp(RELEASE_PREMIUM_NOTE), fontSize = 13.sp)
+                }
+            }
         } },
         confirmButton = { LibraryTextButton(onClick = vm::dismissReleaseNotes) { Text(tr("Entendido")) } }
     )

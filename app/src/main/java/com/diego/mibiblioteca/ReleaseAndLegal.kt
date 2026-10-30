@@ -15,10 +15,13 @@ internal fun currentReleaseNotes(): List<String> = listOf(
     "Wikipedia y diccionario en el idioma de la app, y galería adaptada a tablets.",
     "Novedades de las grandes editoriales de tu país, siempre con portada.",
     "Abre y vincula gratis tus libros del teléfono: Descargas, memoria interna o tarjeta SD.",
-    "Bookhollow Premium: un pago único para vincular tu carpeta en la nube (Drive, Dropbox, OneDrive…).",
     "Disponible en español, inglés, portugués, francés, alemán e italiano.",
     "Solo fuentes abiertas: Open Library, Wikipedia y Project Gutenberg."
 )
+
+/** Explicación de PREMIUM que cierra la ventana de novedades. */
+internal const val RELEASE_PREMIUM_NOTE =
+    "Con un pago único, para siempre, sin suscripción ni anuncios, vincula tu carpeta de libros en la nube (Google Drive, Dropbox, OneDrive u otra). {app} catalogará automáticamente todos tus libros con su portada, sinopsis y autor, y añadirá solos los que subas después. Leer, escuchar, los clásicos y las carpetas del propio teléfono siguen siendo gratis. Lo encontrarás en el menú lateral."
 
 internal fun legalNotices(): List<LegalNotice> = listOf(
     LegalNotice("AndroidX, Jetpack Compose y Material", "Componentes de interfaz y plataforma distribuidos principalmente bajo licencia Apache 2.0."),

@@ -1,0 +1,2 @@
+• The What's new window now scrolls so you can read all of it.
+• New PREMIUM section at the end of What's new, explaining what it includes.
