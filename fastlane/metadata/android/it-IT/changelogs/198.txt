@@ -1,0 +1,1 @@
+• La sincronizzazione della cartella continua anche se esci dall'app, con una notifica di avanzamento.

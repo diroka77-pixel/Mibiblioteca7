@@ -1,0 +1,1 @@
+• A sincronização da pasta continua mesmo se você sair do app, com uma notificação de progresso.

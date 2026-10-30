@@ -1,0 +1,1 @@
+• La synchronisation du dossier continue même si vous quittez l'app, avec une notification de progression.

@@ -1861,6 +1861,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val switchingFolder = prefs.getString(folderKey, null) != uri.toString()
         viewModelScope.launch {
             syncing = true; syncCount = 0; message = null; lastDriveFailure = null
+            // Notificación de progreso: permite que termine aunque la app pase a segundo plano.
+            LibrarySyncService.start(getApplication())
             val syncStartedAt = System.currentTimeMillis()
             var completed = false
             try {
@@ -1883,6 +1885,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     val collected = linkedMapOf<Uri, Book>()
                     repeat(1) { attempt ->
                         val pass = scanFolder(getApplication(), uri, cached) { count ->
+                            LibrarySyncService.progress(getApplication(), collected.size + count)
                             viewModelScope.launch(Dispatchers.Main) { syncCount = collected.size + count }
                         }
                         pass.forEach { collected[it.uri] = it }
@@ -2032,6 +2035,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     .putString("sync_report", syncReport).apply()
             } finally {
                 syncing = false
+                LibrarySyncService.stop(getApplication())
                 if (completed) saveCloud()
             }
         }

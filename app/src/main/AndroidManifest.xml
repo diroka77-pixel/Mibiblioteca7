@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <!-- Terminar la sincronización de la carpeta aunque la app pase a segundo plano. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <queries>
         <package android:name="com.k2fsa.sherpa.onnx.tts.engine"/>
         <package android:name="com.android.chrome"/>
@@ -70,6 +72,10 @@
             android:name=".ReaderPlaybackService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback"/>
+        <service
+            android:name=".LibrarySyncService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"/>
         <receiver android:name=".LibraryWidget" android:exported="false">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/library_widget_info"/>

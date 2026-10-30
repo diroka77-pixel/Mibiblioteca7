@@ -1,0 +1,1 @@
+• La sincronización de la carpeta continúa aunque salgas de la app, con una notificación de progreso.

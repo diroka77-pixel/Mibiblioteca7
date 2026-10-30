@@ -110,6 +110,21 @@ pantalla apagada. Google pide:
   pantalla del móvil abriendo un libro → menú lateral → «Leer en voz alta» → bloquear la
   pantalla → se sigue oyendo → desbloquear y pausar desde la notificación.
 
+### 6 bis. Segundo servicio: sincronización de datos (dataSync)
+
+Desde la 1.0.98, mientras se sincroniza la carpeta de libros la app muestra una notificación
+«Sincronizando tu biblioteca» para que Android no la congele en segundo plano. En la misma
+declaración de servicios en primer plano añade el tipo **Sincronización de datos**:
+
+- **Descripción**: «Cuando el usuario vincula o sincroniza su carpeta de libros, Bookhollow lee
+  los archivos de la carpeta y crea el catálogo. El servicio mantiene esa lectura activa si el
+  usuario sale de la app y muestra el progreso en una notificación; se detiene al terminar.»
+- **Impacto si se interrumpe**: «La sincronización de carpetas grandes en la nube quedaría a
+  medias y la biblioteca incompleta.»
+- **Vídeo**: abre Bookhollow → menú → elegir carpeta → pulsa «Usar esta carpeta» → sal de la app
+  con el botón de inicio → baja la cortina de notificaciones para mostrar «Sincronizando tu
+  biblioteca» → vuelve a la app cuando termine.
+
 ## 7. Ficha de la tienda (Crecimiento → Presencia en Play Store → Ficha principal)
 
 Ya preparado en `fastlane/metadata/android/<idioma>/`: título, descripción breve, descripción

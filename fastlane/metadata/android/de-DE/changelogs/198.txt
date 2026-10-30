@@ -1,0 +1,1 @@
+• Die Ordner-Synchronisierung läuft weiter, auch wenn du die App verlässt, mit einer Fortschrittsbenachrichtigung.
