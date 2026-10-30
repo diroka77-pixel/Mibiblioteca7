@@ -1,0 +1,3 @@
+• Beim Ordnerwechsel (zum Beispiel von Drive zu Dropbox) zeigt die Bibliothek nur die Bücher des neuen Ordners.
+• Begrüßung und Hilfe erklären, was kostenlos und was Premium ist.
+• Besser geschützter Premium-Kauf.

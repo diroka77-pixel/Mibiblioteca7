@@ -1870,7 +1870,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 // de obtener el listado real y nunca sustituye el escaneo.
                 // Reutilizar metadatos por URI también después de volver a seleccionar
                 // la misma carpeta. En otra carpeta las URI no coinciden y no se mezclan.
-                val cached = books.associateBy { it.uri }
+                // Los libros de otra carpeta vinculada antes (por ejemplo Drive, al cambiar a
+                // Dropbox) no forman parte de esta. Sus datos siguen guardados en el teléfono y en
+                // el respaldo de esa carpeta, y vuelven si se elige de nuevo.
+                val cached = books.filterNot { isFromOtherFolder(it.uri, uri) }.associateBy { it.uri }
                 // Google Drive puede devolver una lista antigua aun sin marcarla
                 // como "loading". Hacemos dos lecturas separadas incluso cuando la
                 // primera parece completa y combinamos sus resultados por URI. Los
@@ -1910,10 +1913,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 // volver de ACTION_VIEW) entregan temporalmente solo el archivo
                 // abierto aunque la carpeta contenga muchos más. Nunca usamos
                 // esa respuesta parcial para borrar el catálogo persistente.
-                val catalogBeforeScan = books.toList()
-                val partialDriveScan = result.size < catalogBeforeScan.size
                 if (changedFolder) prefs.edit().putString(folderKey, uri.toString()).commit()
                 else if (prefs.getString(folderKey, null) != uri.toString()) return@launch
+                val otherFolderBooks = books.count { isFromOtherFolder(it.uri, uri) }
+                if (otherFolderBooks > 0) books = books.filterNot { isFromOtherFolder(it.uri, uri) }
+                val catalogBeforeScan = books.toList()
+                val partialDriveScan = result.size < catalogBeforeScan.size
                 val latest = books.associateBy { it.uri }
                 val localBooks = books.filter { it.uri.scheme == "file" }
                 books = mergeLibraryScan(result, cached, latest, { it.uri }) { b, prior ->
@@ -1961,6 +1966,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     } ?: false
                 }
                 val missing = (previousUris - currentUris).size
+                if (otherFolderBooks > 0) addActivity("Cambio de carpeta · $otherFolderBooks libros de la carpeta anterior ocultos")
                 val coversMissing = books.count { it.cover == null }
                 syncSummary = "$added nuevos · $changed modificados · $missing fichas locales conservadas · $coversMissing sin portada"
                 if (added + changed + missing > 0) addActivity("Drive · $syncSummary")
@@ -2609,6 +2615,14 @@ private fun isSupportedBookFile(name: String, mimeType: String): Boolean {
             "application/rtf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "text/markdown"
         )
+}
+
+/** ¿El libro procede de una carpeta vinculada distinta de [treeUri]? (Los importados y los clásicos no.) */
+private fun isFromOtherFolder(bookUri: Uri, treeUri: Uri): Boolean {
+    if (bookUri.scheme != "content") return false
+    val bookTree = try { DocumentsContract.getTreeDocumentId(bookUri) } catch (_: Exception) { return false }
+    val currentTree = try { DocumentsContract.getTreeDocumentId(treeUri) } catch (_: Exception) { return false }
+    return isDifferentFolderTree(bookUri.authority, bookTree, treeUri.authority, currentTree)
 }
 
 private fun scanFolder(context: Context, treeUri: Uri, cached: Map<Uri, Book>, onProgress: (Int) -> Unit): List<Book> {
@@ -3967,7 +3981,7 @@ private fun openCasaDelLibro(context: Context) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(tr("Conecta la carpeta donde guardas tus libros. La aplicación creará el catálogo y conservará tus datos en el teléfono."))
                 listOf(
-                    "1" to tr("Elige la carpeta Libros de Google Drive."),
+                    "1" to tr("Elige la carpeta de tus libros: Descargas o cualquier carpeta del teléfono (gratis), o una carpeta en la nube como Google Drive o Dropbox (Premium)."),
                     "2" to tr("Pulsa Usar esta carpeta en la pantalla de Android."),
                     "3" to tr("Espera al primer análisis; después solo se revisarán los cambios.")
                 ).forEach { (number, instruction) ->
@@ -5878,7 +5892,7 @@ private fun openCasaDelLibro(context: Context) {
                             AppIcon("Libros", tint = Teal, size = 46.dp)
                             Text(tr("Crea tu biblioteca"), color = Ink, fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
-                            Text(tr("Selecciona tu carpeta de Google Drive para encontrar tus EPUB y PDF."),
+                            Text(tr("Elige la carpeta donde guardas tus EPUB y PDF: en el teléfono es gratis; en la nube (Drive, Dropbox…), con Premium."),
                                 color = Mahogany, textAlign = TextAlign.Center)
                             Button(onClick = { requestFolderAccess() },
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
@@ -5920,7 +5934,7 @@ private fun openCasaDelLibro(context: Context) {
                     Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             AppIcon("Libros", tint = Color.White, size = 48.dp)
-                            WallpaperLabel(tr("Elige tu carpeta de libros en Drive"), fontSize = 16.sp,
+                            WallpaperLabel(tr("Elige tu carpeta de libros"), fontSize = 16.sp,
                                 fontWeight = FontWeight.SemiBold)
                             WallpaperLabel(tr("La primera lectura crea el catálogo. Las siguientes sincronizaciones solo incorporan cambios."),
                                 modifier = Modifier.padding(horizontal = 24.dp), fontSize = 12.sp)

@@ -1,0 +1,3 @@
+• En changeant de dossier (par exemple de Drive à Dropbox), la bibliothèque n'affiche que les livres du nouveau.
+• L'accueil et l'aide expliquent ce qui est gratuit et ce qui est Premium.
+• Achat Premium mieux protégé.

@@ -5,7 +5,7 @@ internal data class LibraryHelpSection(val title: String, val body: String)
 internal fun libraryHelpSections(): List<LibraryHelpSection> = listOf(
     LibraryHelpSection(
         "Añadir tu biblioteca",
-        "Elige la carpeta de libros desde Ajustes. Android te pedirá confirmar «Usar esta carpeta». {app} conservará el acceso y podrás buscar cambios con el botón de sincronización."
+        "Elige la carpeta de libros desde Ajustes. Android te pedirá confirmar «Usar esta carpeta». {app} conservará el acceso y podrás buscar cambios con el botón de sincronización. Las carpetas del teléfono (Descargas, memoria interna, tarjeta SD) son gratis; las de la nube (Google Drive, Dropbox, OneDrive…) necesitan Bookhollow Premium. Si cambias de carpeta, la biblioteca muestra solo los libros de la nueva."
     ),
     LibraryHelpSection(
         "Formatos compatibles",

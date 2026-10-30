@@ -30,8 +30,13 @@ import com.android.billingclient.api.QueryPurchasesParams
 internal object Premium {
     const val PRODUCT_ID = "bookhollow_premium"
     private const val PREFS = "premium"
-    private const val KEY_UNLOCKED = "unlocked"
-    private const val KEY_LEGACY = "legacy_folder"
+    // Versión 1.0.94 guardaba simples verdadero/falso; desde la 1.0.95 se guarda una firma
+    // ligada a este dispositivo, para que copiar o editar el archivo de ajustes no active Premium.
+    private const val KEY_UNLOCKED_OLD = "unlocked"
+    private const val KEY_LEGACY_OLD = "legacy_folder"
+    private const val KEY_UNLOCKED = "unlock_token"
+    private const val KEY_LEGACY = "legacy_token"
+    private const val KEY_LEGACY_CHECKED = "legacy_checked"
 
     /** ¿Está desbloqueado? (compra en Google Play o instalación anterior con carpeta). */
     var unlocked by mutableStateOf(false); private set
@@ -66,9 +71,19 @@ internal object Premium {
         val app = context.applicationContext
         appContext = app
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        deviceId = runCatching {
+            android.provider.Settings.Secure.getString(app.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+        }.getOrNull().orEmpty()
+        val edit = prefs.edit()
         // Quien ya tenía una carpeta vinculada antes de existir Premium la conserva.
-        if (!prefs.contains(KEY_LEGACY)) prefs.edit().putBoolean(KEY_LEGACY, folderAlreadyLinked).apply()
-        unlocked = prefs.getBoolean(KEY_UNLOCKED, false) || prefs.getBoolean(KEY_LEGACY, false)
+        if (!prefs.getBoolean(KEY_LEGACY_CHECKED, false)) {
+            val legacy = if (prefs.contains(KEY_LEGACY_OLD)) prefs.getBoolean(KEY_LEGACY_OLD, false) else folderAlreadyLinked
+            edit.putBoolean(KEY_LEGACY_CHECKED, true)
+            if (legacy) edit.putString(KEY_LEGACY, token("legacy"))
+        }
+        if (prefs.getBoolean(KEY_UNLOCKED_OLD, false)) edit.putString(KEY_UNLOCKED, token("purchase"))
+        edit.remove(KEY_UNLOCKED_OLD).remove(KEY_LEGACY_OLD).apply()
+        unlocked = hasToken(prefs.getString(KEY_UNLOCKED, null), "purchase") || legacyGranted(prefs)
         if (client != null) return
         client = BillingClient.newBuilder(app)
             .setListener { result, purchases -> onPurchasesUpdated(result, purchases) }
@@ -175,7 +190,23 @@ internal object Premium {
 
     private fun save(bought: Boolean) {
         val prefs = appContext?.getSharedPreferences(PREFS, Context.MODE_PRIVATE) ?: return
-        prefs.edit().putBoolean(KEY_UNLOCKED, bought).apply()
-        unlocked = bought || prefs.getBoolean(KEY_LEGACY, false)
+        prefs.edit().apply { if (bought) putString(KEY_UNLOCKED, token("purchase")) else remove(KEY_UNLOCKED) }.apply()
+        unlocked = bought || legacyGranted(prefs)
     }
+
+    private var deviceId = ""
+
+    private fun legacyGranted(prefs: android.content.SharedPreferences) =
+        hasToken(prefs.getString(KEY_LEGACY, null), "legacy")
+
+    private fun token(kind: String): String = premiumToken(deviceId, kind)
+
+    private fun hasToken(stored: String?, kind: String): Boolean = stored != null && stored == token(kind)
+}
+
+/** Firma de Premium para este dispositivo: no sirve copiada a otro ni escrita a mano. */
+internal fun premiumToken(deviceId: String, kind: String): String {
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+        .digest("bookhollow|$kind|$deviceId|${Premium.PRODUCT_ID}|9f3c".toByteArray())
+    return digest.joinToString("") { "%02x".format(it) }
 }

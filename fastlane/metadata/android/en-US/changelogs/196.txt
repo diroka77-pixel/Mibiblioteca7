@@ -1,0 +1,3 @@
+• When you switch folders (for example from Drive to Dropbox) the library shows only the new folder's books.
+• Welcome screen and help explain what's free and what's Premium.
+• Better-protected Premium purchase.

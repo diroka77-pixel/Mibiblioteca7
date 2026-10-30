@@ -1,0 +1,3 @@
+• Cambiando cartella (per esempio da Drive a Dropbox) la biblioteca mostra solo i libri della nuova.
+• Benvenuto e guida spiegano cosa è gratis e cosa è Premium.
+• Acquisto Premium più protetto.

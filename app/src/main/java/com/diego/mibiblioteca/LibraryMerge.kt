@@ -7,3 +7,12 @@ internal fun <T, K> mergeLibraryScan(scanned: List<T>, before: Map<K, T>, latest
     val confirmed = visible.map(key).toSet()
     return visible.map { merge(it, latest[key(it)]) } + latest.values.filter { key(it) !in confirmed }
 }
+
+/**
+ * Dos carpetas vinculadas son distintas si cambian el proveedor (Drive, Dropbox, teléfono…)
+ * o la carpeta raíz elegida dentro de él.
+ */
+internal fun isDifferentFolderTree(bookAuthority: String?, bookTreeId: String?,
+                                   folderAuthority: String?, folderTreeId: String?): Boolean =
+    bookTreeId != null && folderTreeId != null &&
+        (bookAuthority != folderAuthority || bookTreeId != folderTreeId)
