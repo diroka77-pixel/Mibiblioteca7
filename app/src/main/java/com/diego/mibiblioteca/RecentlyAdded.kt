@@ -9,7 +9,7 @@ package com.diego.mibiblioteca
  * en la carpeta, que suele ser la de cuando se subió.
  */
 internal fun <T> recentlyAddedBooks(books: List<T>, addedAt: (T) -> Long, fileDate: (T) -> Long,
-                                    limit: Int = 5): List<T> =
+                                    limit: Int = 15): List<T> =
     books.filter { addedAt(it) > 0L || fileDate(it) > 0L }
         .sortedWith(compareByDescending<T> { addedAt(it) }.thenByDescending { fileDate(it) })
         .take(limit)

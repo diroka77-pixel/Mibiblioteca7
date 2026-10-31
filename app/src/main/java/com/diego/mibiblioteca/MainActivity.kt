@@ -1754,7 +1754,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putString("added_dates", formatAddedDates(addedDates)).apply()
     }
 
-    fun recentlyAdded(limit: Int = 5): List<Book> = recentlyAddedBooks(books,
+    fun recentlyAdded(limit: Int = 15): List<Book> = recentlyAddedBooks(books,
         addedAt = { addedDates[it.uri.toString()] ?: 0L }, fileDate = { it.sourceModified }, limit = limit)
 
     /** Progreso de la descarga de clásicos: null cuando no hay descarga en curso. */
@@ -6851,7 +6851,7 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
     }
 }
 
-/** Estantería «Últimos añadidos» de Inicio: los cinco libros más recientes. */
+/** Estantería «Últimos añadidos» de Inicio: los quince libros más recientes. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RecentlyAddedShelf(books: List<Book>, offline: Set<Uri>,
