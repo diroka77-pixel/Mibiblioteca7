@@ -1729,6 +1729,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 books = (books.filterNot { it.uri == imported.uri } + imported)
                     .sortedBy { it.title.lowercase() }
                 saveBooks()
+                recordAdded(listOf(imported.uri))
                 if (interactive) {
                     importedBookUri = imported.uri
                     val format = detectImportedBookFormat(imported.uri.lastPathSegment.orEmpty(), "")
@@ -1740,6 +1741,21 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 return false
             }
     }
+
+    /** Cuándo vio la app cada libro por primera vez (para «Últimos añadidos»). */
+    var addedDates by mutableStateOf(parseAddedDates(prefs.getString("added_dates", null))); private set
+
+    private fun recordAdded(uris: Collection<Uri>, at: Long = System.currentTimeMillis()) {
+        val fresh = uris.map(Uri::toString).filter { it !in addedDates }
+        if (fresh.isEmpty()) return
+        // Solo se guardan las de libros que siguen en la biblioteca, para que no crezca sin fin.
+        val inLibrary = books.map { it.uri.toString() }.toSet() + fresh
+        addedDates = (addedDates.filterKeys { it in inLibrary } + fresh.associateWith { at })
+        prefs.edit().putString("added_dates", formatAddedDates(addedDates)).apply()
+    }
+
+    fun recentlyAdded(limit: Int = 5): List<Book> = recentlyAddedBooks(books,
+        addedAt = { addedDates[it.uri.toString()] ?: 0L }, fileDate = { it.sourceModified }, limit = limit)
 
     /** Progreso de la descarga de clásicos: null cuando no hay descarga en curso. */
     var sampleBooksProgress by mutableStateOf<Pair<Int, Int>?>(null); private set
@@ -1963,6 +1979,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 val addedTitles = result.filter { it.uri in addedUris }
                     .map(::displayTitle).filter(String::isNotBlank).distinct()
                 newBooksNotice = addedTitles.takeIf { it.isNotEmpty() }?.joinToString("\n")
+                // En la primera lectura de una carpeta todos son «nuevos»: se anotan con la
+                // misma fecha y el orden entre ellos lo da la fecha de cada archivo.
+                recordAdded(addedUris)
                 val changed = result.count { fresh ->
                     cached[fresh.uri]?.let { old ->
                         old.sourceSize != fresh.sourceSize || old.sourceModified != fresh.sourceModified
@@ -4260,6 +4279,7 @@ private fun openCasaDelLibro(context: Context) {
         else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
     }
     val readingBooks = remember(vm.books) { vm.readingBooks() }
+    val recentBooks = remember(vm.books, vm.addedDates) { vm.recentlyAdded() }
     val homeRecommendations by produceState<List<PublicBookResult>>(
         initialValue = emptyList(), vm.books, vm.launchNews
     ) {
@@ -5644,6 +5664,10 @@ private fun openCasaDelLibro(context: Context) {
                     onLongPress = { bookMenu = it }, onCarouselTouch = { startedOnCarousel = true }) { book ->
                     startReader(book)
                 } }
+            if (tab == "Inicio" && recentBooks.isNotEmpty()) item(key = "recently-added") {
+                RecentlyAddedShelf(recentBooks, offline = offlineBookUris,
+                    onLongPress = { bookMenu = it }, onOpen = { openBookFromList(it) })
+            }
             // Los clásicos gratuitos siempre están a mano en Inicio, aunque la biblioteca
             // ya tenga libros: los que ya tienes se abren, los demás se añaden con un toque.
             if (tab == "Inicio") item(key = "free-classics") {
@@ -6821,6 +6845,46 @@ private fun HomeRecommendations(books: List<Pair<LocalRecommendation, Book>>, of
                         fontSize = 9.sp, maxLines = 2,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 2.dp))
+                }
+            }
+        }
+    }
+}
+
+/** Estantería «Últimos añadidos» de Inicio: los cinco libros más recientes. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun RecentlyAddedShelf(books: List<Book>, offline: Set<Uri>,
+    onLongPress: (Book) -> Unit, onOpen: (Book) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp)) {
+        Text(tr("Últimos añadidos"), fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+            fontSize = 21.sp, color = Color.White, modifier = Modifier.padding(horizontal = 12.dp),
+            style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+        LazyRow(Modifier.fillMaxWidth().padding(top = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp)) {
+            items(books, key = { "recent:" + it.uri }) { book ->
+                Column(Modifier.width(112.dp)
+                    .semantics {
+                        contentDescription = "${displayTitle(book)}, ${displayAuthor(book)}. ${book.status.displayLabel}"
+                        role = Role.Button
+                    }
+                    .combinedClickable(onClick = { onOpen(book) },
+                        onLongClickLabel = tr("Más opciones"), onLongClick = { onLongPress(book) })) {
+                    Box {
+                        FlatCover(book, 112.dp, 164.dp)
+                        if (book.uri in offline) OfflineBadge(
+                            Modifier.align(Alignment.TopEnd).padding(4.dp), compact = true)
+                    }
+                    Text(displayTitle(book), color = Color.White, fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold, maxLines = 2,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 5.dp),
+                        style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
+                    Text(displayAuthor(book), color = Color.White.copy(alpha = .78f),
+                        fontSize = 10.sp, maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
                 }
             }
         }
