@@ -88,10 +88,12 @@ jobs:
           APK="Bookhollow-v${VERSION}.apk"
           TAG="v${VERSION}"
           cp app/build/outputs/apk/release/app-release.apk "$APK"
+          AAB="Bookhollow-v${VERSION}-google-play.aab"
+          cp app/build/outputs/bundle/release/app-release.aab "$AAB"
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --target "${{ github.sha }}" --title "Bookhollow $TAG" --notes "APK completa, firmada y verificada. Descarga $APK desde Assets."
           fi
-          gh release upload "$TAG" "$APK" --clobber
+          gh release upload "$TAG" "$APK" "$AAB" --clobber
       - name: Eliminar clave temporal del runner
         if: always()
         run: rm -f "$RUNNER_TEMP/mibiblioteca.p12"
