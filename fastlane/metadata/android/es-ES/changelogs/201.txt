@@ -1,0 +1,2 @@
+• PDF: la página se ajusta al ancho al girar el móvil y se desplaza hacia abajo.
+• PDF: amplía y reduce pellizcando, o con doble toque.

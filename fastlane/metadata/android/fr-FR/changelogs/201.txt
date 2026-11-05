@@ -1,0 +1,2 @@
+• PDF : la page s'adapte à la largeur en tournant le téléphone et défile vers le bas.
+• PDF : zoomez en pinçant ou d'un double appui.

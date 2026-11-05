@@ -58,6 +58,10 @@ import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -747,11 +751,30 @@ private fun loadReadingDocument(context: Context, book: Book): ReadingDocument {
     }
 }
 
+/**
+ * Medidas de una página PDF ajustada al ancho de la pantalla, para limitar el zoom y el
+ * desplazamiento: la página nunca se sale del todo de la pantalla.
+ */
+internal data class PdfPageGeometry(val viewWidth: Float, val viewHeight: Float, val aspect: Float) {
+    private val pageHeight get() = viewWidth * aspect
+
+    /** ¿Hay algo que desplazar? (Ampliada, o más alta que la pantalla, como en horizontal.) */
+    fun canPan(zoom: Float): Boolean = zoom > 1.01f || pageHeight > viewHeight + 1f
+
+    fun clamp(offset: androidx.compose.ui.geometry.Offset, zoom: Float): androidx.compose.ui.geometry.Offset {
+        val minX = (viewWidth - viewWidth * zoom).coerceAtMost(0f)
+        val minY = (viewHeight - pageHeight * zoom).coerceAtMost(0f)
+        return androidx.compose.ui.geometry.Offset(offset.x.coerceIn(minX, 0f), offset.y.coerceIn(minY, 0f))
+    }
+}
+
 private fun renderPdfPage(file: File, index: Int): Bitmap =
     ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
         PdfRenderer(descriptor).use { renderer ->
             renderer.openPage(index).use { page ->
-                val factor = minOf(1500f / page.width, 2100f / page.height, 2f)
+                // Resolución pensada para ajustar al ancho (también en horizontal) y para
+                // ampliar con los dedos sin que se vea borroso enseguida.
+                val factor = minOf(2000f / page.width, 3000f / page.height, 3f)
                 val bitmap = Bitmap.createBitmap((page.width * factor).toInt().coerceAtLeast(1),
                     (page.height * factor).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
                 bitmap.eraseColor(android.graphics.Color.WHITE)
@@ -1555,17 +1578,62 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                     prefs.edit().putInt("page_$key", index).apply()
                     onProgress(((index + 1) * 100f / document.pages).toInt())
                 }
+                // Zoom y desplazamiento de la página actual (se reinician al cambiar de página).
+                var zoom by remember(index) { androidx.compose.runtime.mutableFloatStateOf(1f) }
+                var pan by remember(index) { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+                var pageAspect by remember(book.uri) { androidx.compose.runtime.mutableFloatStateOf(1.414f) }
                 Column(Modifier.padding(padding).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()
-                        .background(if (dark) Color.DarkGray else Color.LightGray)
-                        .pointerInput(index, document.pages) {
-                            var drag = 0f
-                            detectHorizontalDragGestures(onDragStart = { drag = 0f },
-                                onHorizontalDrag = { _, amount -> drag += amount },
-                                onDragEnd = {
-                                    if (drag < -swipeDistance) page = (index + 1).coerceAtMost(document.pages - 1)
-                                    if (drag > swipeDistance) page = (index - 1).coerceAtLeast(0)
-                                })
+                    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds()
+                        .background(if (dark) Color.DarkGray else Color.LightGray)) {
+                    val viewW = constraints.maxWidth.toFloat()
+                    val viewH = constraints.maxHeight.toFloat()
+                    // La página se ajusta al ancho de la pantalla. En horizontal queda más alta que
+                    // la pantalla y se desplaza arrastrando hacia arriba o abajo.
+                    val pageGeometry = PdfPageGeometry(viewW, viewH, pageAspect)
+                    Box(Modifier.fillMaxSize()
+                        .pointerInput(index, document.pages, viewW, viewH, pageAspect) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                var dragX = 0f
+                                var dragY = 0f
+                                var pinched = false
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val fingers = event.changes.count { it.pressed }
+                                    if (fingers >= 2) {
+                                        pinched = true
+                                        val change = event.calculateZoom()
+                                        val centroid = event.calculateCentroid()
+                                        val move = event.calculatePan()
+                                        val newZoom = (zoom * change).coerceIn(1f, 5f)
+                                        val ratio = newZoom / zoom
+                                        pan = pageGeometry.clamp(centroid - (centroid - pan) * ratio + move, newZoom)
+                                        zoom = newZoom
+                                        event.changes.forEach { it.consume() }
+                                    } else if (fingers == 1) {
+                                        val move = event.calculatePan()
+                                        dragX += move.x
+                                        dragY += move.y
+                                        if (pageGeometry.canPan(zoom)) {
+                                            pan = pageGeometry.clamp(pan + androidx.compose.ui.geometry.Offset(
+                                                if (zoom > 1.01f) move.x else 0f, move.y), zoom)
+                                        }
+                                        if (move != androidx.compose.ui.geometry.Offset.Zero) event.changes.forEach { it.consume() }
+                                    }
+                                } while (event.changes.any { it.pressed })
+                                // Pasar página deslizando: solo sin zoom y con un gesto claramente horizontal.
+                                if (!pinched && zoom <= 1.01f && kotlin.math.abs(dragX) > kotlin.math.abs(dragY) * 1.5f) {
+                                    if (dragX < -swipeDistance) page = (index + 1).coerceAtMost(document.pages - 1)
+                                    if (dragX > swipeDistance) page = (index - 1).coerceAtLeast(0)
+                                }
+                            }
+                        }
+                        .pointerInput(index, viewW, viewH, pageAspect) {
+                            // Doble toque: ampliar al doble donde se toca, o volver al tamaño normal.
+                            detectTapGestures(onDoubleTap = { point ->
+                                if (zoom > 1.01f) { zoom = 1f; pan = pageGeometry.clamp(androidx.compose.ui.geometry.Offset(0f, pan.y), 1f) }
+                                else { pan = pageGeometry.clamp(point - (point - pan) * 2.5f, 2.5f); zoom = 2.5f }
+                            })
                         },
                         contentAlignment = Alignment.TopCenter) {
                         AnimatedContent(targetState = index, transitionSpec = {
@@ -1588,15 +1656,30 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 value = try { withContext(Dispatchers.IO) { renderPdfPage(document.file, shown) } }
                                 catch (_: Exception) { null }
                             }
+                            LaunchedEffect(shownImage, shown == index) {
+                                val image = shownImage
+                                if (image != null && shown == index && image.width > 0)
+                                    pageAspect = image.height.toFloat() / image.width
+                            }
                             Box(Modifier.fillMaxSize().graphicsLayer {
                                 rotationY = angle
                                 transformOrigin = TransformOrigin(if (entering) 1f else 0f, 0.5f)
                                 cameraDistance = 12000f
                                 shadowElevation = if (angle == 0f) 0f else 18.dp.toPx()
                             }, contentAlignment = Alignment.TopCenter) {
-                                if (shownImage != null) Image(shownImage!!.asImageBitmap(),
-                                    "Página ${shown + 1}", Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Fit)
+                                val image = shownImage
+                                if (image != null) Image(image.asImageBitmap(),
+                                    "Página ${shown + 1}",
+                                    Modifier.fillMaxWidth()
+                                        .aspectRatio(image.width.toFloat() / image.height.coerceAtLeast(1))
+                                        .graphicsLayer {
+                                            if (shown == index) {
+                                                transformOrigin = TransformOrigin(0f, 0f)
+                                                scaleX = zoom; scaleY = zoom
+                                                translationX = pan.x; translationY = pan.y
+                                            }
+                                        },
+                                    contentScale = ContentScale.FillWidth)
                                 else CircularProgressIndicator()
                             }
                         }
@@ -1606,6 +1689,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                         Box(Modifier.align(Alignment.CenterEnd).width(48.dp).fillMaxHeight()
                             .semantics { contentDescription = tr("Página siguiente"); role = Role.Button }
                             .clickable { page = (index + 1).coerceAtMost(document.pages - 1) })
+                    }
                     }
                     Text(trf("Página {0} de {1} · {2} %", index + 1, document.pages, ((index + 1) * 100f / document.pages).toInt()),
                         color = foreground, modifier = Modifier.padding(6.dp))

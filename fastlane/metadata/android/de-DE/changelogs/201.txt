@@ -1,0 +1,2 @@
+• PDF: Die Seite passt sich beim Drehen an die Breite an und lässt sich nach unten scrollen.
+• PDF: Mit zwei Fingern oder Doppeltippen zoomen.

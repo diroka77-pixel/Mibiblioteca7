@@ -1,0 +1,2 @@
+• PDF: a página se ajusta à largura ao girar o celular e rola para baixo.
+• PDF: amplie e reduza com pinça ou toque duplo.
