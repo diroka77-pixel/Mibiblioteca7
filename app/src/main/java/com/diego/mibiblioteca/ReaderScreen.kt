@@ -1611,7 +1611,10 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                         zoom = newZoom
                                         event.changes.forEach { it.consume() }
                                     } else if (fingers == 1) {
-                                        val move = event.calculatePan()
+                                        // Movimiento calculado a mano: no depende de que otro
+                                        // elemento haya marcado el gesto como usado.
+                                        val finger = event.changes.first { it.pressed }
+                                        val move = finger.position - finger.previousPosition
                                         dragX += move.x
                                         dragY += move.y
                                         if (pageGeometry.canPan(zoom)) {
@@ -1668,10 +1671,17 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                 shadowElevation = if (angle == 0f) 0f else 18.dp.toPx()
                             }, contentAlignment = Alignment.TopCenter) {
                                 val image = shownImage
+                                // Alto real de la página ajustada al ancho. wrapContentHeight(unbounded)
+                                // deja que sea más alta que la pantalla (en horizontal) sin recortarla
+                                // ni centrarla: así se ve entera al desplazarla.
+                                val pageHeightDp = with(LocalDensity.current) {
+                                    (viewW * image?.let { it.height.toFloat() / it.width.coerceAtLeast(1) }.let { it ?: 1.414f }).toDp()
+                                }
                                 if (image != null) Image(image.asImageBitmap(),
                                     "Página ${shown + 1}",
                                     Modifier.fillMaxWidth()
-                                        .aspectRatio(image.width.toFloat() / image.height.coerceAtLeast(1))
+                                        .wrapContentHeight(align = Alignment.Top, unbounded = true)
+                                        .height(pageHeightDp)
                                         .graphicsLayer {
                                             if (shown == index) {
                                                 transformOrigin = TransformOrigin(0f, 0f)
@@ -1679,7 +1689,7 @@ fun ReaderScreen(book: Book, onBack: () -> Unit, onProgress: (Int) -> Unit,
                                                 translationX = pan.x; translationY = pan.y
                                             }
                                         },
-                                    contentScale = ContentScale.FillWidth)
+                                    contentScale = ContentScale.FillWidth, alignment = Alignment.TopCenter)
                                 else CircularProgressIndicator()
                             }
                         }

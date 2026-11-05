@@ -1,0 +1,2 @@
+• PDF: pages fit the screen width when you rotate the phone and scroll down.
+• PDF: pinch or double-tap to zoom in and out.
