@@ -1,0 +1,2 @@
+• Traduzioni completate nella biblioteca (schede, ordinamento e numero di libri).
+• La scheda non ripete più l'autore sconosciuto come pulsante.

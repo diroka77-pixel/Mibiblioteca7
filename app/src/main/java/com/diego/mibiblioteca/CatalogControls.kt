@@ -65,7 +65,7 @@ internal fun UnifiedLibraryModeBar(
                     ) {
                         Icon(icon, contentDescription = null, tint = Color.White)
                         Text(
-                            mode.label,
+                            tr(mode.label),
                             modifier = Modifier.padding(top = 2.dp),
                             color = Color.White,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,

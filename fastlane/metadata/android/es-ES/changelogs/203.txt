@@ -1,0 +1,2 @@
+• Traducciones completadas en la biblioteca (pestañas, ordenar y número de libros).
+• La ficha ya no repite el autor desconocido como botón.

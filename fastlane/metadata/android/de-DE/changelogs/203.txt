@@ -1,0 +1,2 @@
+• Übersetzungen in der Bibliothek vervollständigt (Tabs, Sortierung, Buchanzahl).
+• Die Buchansicht zeigt einen unbekannten Autor nicht mehr als Schaltfläche.

@@ -1,0 +1,2 @@
+• Traductions complétées dans la bibliothèque (onglets, tri et nombre de livres).
+• La fiche ne répète plus l'auteur inconnu sous forme de bouton.

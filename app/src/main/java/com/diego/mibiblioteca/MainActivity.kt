@@ -3818,7 +3818,7 @@ private fun openCasaDelLibro(context: Context) {
                     RadioButton(vm.animationMode == mode, onClick = {
                         vm.chooseAnimationMode(mode); animationPickerOpen = false
                     })
-                    Text(mode)
+                    Text(tr(mode))
                 }
             }
         } },
@@ -5384,7 +5384,7 @@ private fun openCasaDelLibro(context: Context) {
                         Text(tr("AGRUPAR POR"), color = Teal, style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.padding(top = 14.dp))
                         listOf("Todos", "Autores", "Sagas", "Géneros", "Secciones").forEach { mode ->
-                            NavigationDrawerItem(label = { Text(mode) }, selected = vm.groupMode == mode,
+                            NavigationDrawerItem(label = { Text(tr(mode)) }, selected = vm.groupMode == mode,
                                 onClick = {
                                     vm.groupMode = if (mode != "Todos" && vm.groupMode == mode) "Todos" else mode
                                     scope.launch { drawerState.close() }
@@ -5815,11 +5815,11 @@ private fun openCasaDelLibro(context: Context) {
                             }
                         }
                         Box(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                                ConceptSortButton("Ordenar por: $sortMode", sortMode == "Saga",
+                                ConceptSortButton(trf("Ordenar por: {0}", tr(sortMode)), sortMode == "Saga",
                                     Modifier.fillMaxWidth()) { sortMenu = true }
                                 DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                                     listOf("Título", "Autor", "Saga", "Género", "Recientes").forEach { option ->
-                                        DropdownMenuItem(text = { Text(option) }, onClick = {
+                                        DropdownMenuItem(text = { Text(tr(option)) }, onClick = {
                                             sortMode = option
                                             // Ordenar es independiente de agrupar. Al elegir un criterio
                                             // se vuelve a la lista global para evitar conservar una
@@ -5852,7 +5852,7 @@ private fun openCasaDelLibro(context: Context) {
                                 }, fontFamily = FontFamily.Serif, fontSize = 24.sp,
                                     fontWeight = FontWeight.Bold, color = Color.White,
                                     style = androidx.compose.ui.text.TextStyle(shadow = WallpaperTextShadow))
-                                WallpaperLabel(trf("{0} libros", if (showWishList) vm.wishList.size else smartBooks.size),
+                                WallpaperLabel(bookCountLabel(if (showWishList) vm.wishList.size else smartBooks.size),
                                     fontSize = 13.sp)
                             }
                             if (!showWishList) {
@@ -6704,7 +6704,7 @@ private fun AllReleasesScreen(releases: List<PublicBookResult>, loading: Boolean
                     Text(tr("Novedades", "sección"), fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Ink,
                         modifier = Modifier.weight(1f))
-                    if (!loading) Text(trf("{0} libros", shown.size), color = Mahogany,
+                    if (!loading) Text(bookCountLabel(shown.size), color = Mahogany,
                         fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                 }
                 Text(tr("Información de Open Library"), fontSize = 11.sp, color = Mahogany,
@@ -8081,9 +8081,11 @@ private fun LibraryWallpaper(mode: String, book: Book?) {
                         fontSize = 12.sp)
                     Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        LibraryActionButton(onClick = showAuthorBooks,
+                        // Botón «Más de este autor»: no tiene sentido con autor desconocido,
+                        // que además ya aparece justo encima.
+                        if (!unknownAuthor(displayAuthor(book))) LibraryActionButton(onClick = showAuthorBooks,
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                            Text(displayAuthor(book), maxLines = 2, textAlign = TextAlign.Center,
+                            Text(trf("Más de {0}", displayAuthor(book)), maxLines = 2, textAlign = TextAlign.Center,
                                 fontSize = 12.sp)
                         }
                         if (book.saga.isNotBlank()) LibraryActionButton(onClick = showSagaBooks,
@@ -8507,3 +8509,7 @@ private fun BookPanel(title: String, bookKey: String, initiallyExpanded: Boolean
 }
 
 @Composable private fun Info(label:String,value:String){if(value.isNotBlank()){Text(label,fontWeight=FontWeight.Bold,fontSize=13.sp);Text(value,fontSize=12.sp,lineHeight=17.sp);Spacer(Modifier.height(4.dp))}}
+
+/** «1 libro» / «N libros» en el idioma de la app. */
+internal fun bookCountLabel(count: Int): String =
+    if (count == 1) tr("1 libro") else trf("{0} libros", count)

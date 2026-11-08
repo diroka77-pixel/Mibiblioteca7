@@ -1,0 +1,2 @@
+• Completed translations in the library (tabs, sorting and book count).
+• Book details no longer repeat an unknown author as a button.
